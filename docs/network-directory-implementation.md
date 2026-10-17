@@ -40,7 +40,7 @@ removal with a one-second deadline; lease expiry handles missed removal.
 
 ## Directory contract
 
-The service uses `/v1/listings`. Registration returns a random listing identifier
+Legacy player-hosted-only reads use `/v1/listings`; the unreleased mixed contract uses `/v2/listings`, `mixed-v2` and `m2_` cursors. Its atomic common-password update keeps hosting explicit and permits only `none`/`password` consistent with `passwordRequired`. Retired Invite records are excluded safely or fail closed, not reinterpreted; existing lease expiry handles them without a running database migration or v3 compatibility adapter. Registration returns a random listing identifier
 and a distinct 256-bit owner bearer credential. Firestore stores a SHA-256 digest
 of that high-entropy credential, not a player password. Owner mutation requires
 the credential and the current `If-Match` revision. Transactions prevent concurrent
@@ -65,6 +65,10 @@ instance scaling, billing controls, and abuse monitoring remain operational
 requirements, not guarantees supplied by these application quotas.
 
 ## Password and credential protection
+
+Both hosting kinds use the same maintained raw-socket EC-JPAKE channel for Password and No password. The user approved the existing player-hosted trust level for dedicated operation: no mandatory gameplay certificate frontend or endpoint verification remains. This is a fixed common profile, not fallback after certificate failure. No raw password or reusable proof enters application frames. The existing absolute connection deadline covers resolution, channel, admission and initial state without restarting between stages.
+
+The dedicated listener accepts this channel directly and rejects the retired PROXY option; source accounting uses the accepted TCP peer. All gameplay framing traverses PAKE protection. Current bounds, cancellation, key budgets and serialized record operations remain required. NET-PASS-011–018 retain password validation, protected operator file, erasure and reserved reconnect storage. Owned player-host startup IPC remains the configuration exception, not a remote settings frame; controllers cannot manage the dedicated password. Directory HTTPS/native certificate trust is separate and unchanged.
 
 The native channel uses Mbed TLS 3.6.7 LTS's built-in TLS EC-JPAKE implementation:
 TLS 1.2, P-256/SHA-256 PAKE and `TLS_ECJPAKE_WITH_AES_128_CCM_8`. Upstream labels
@@ -109,6 +113,8 @@ Exhaustion closes the transport and an admitted guest must use the existing
 reserved reconnect flow with a fresh PAKE/key exchange. It cannot silently reuse
 keys, allocate new players, reset a world, or declare intentional host end.
 
+Receive draining is conditional on the maintained SDK permitting further operations on the secure context. A fatal inner secure-context error that prohibits reads and writes must stop both operations and close that context; the existing bounded drain must not continue on it. Complete authenticated frames already delivered to application-owned storage retain their original receipt timestamps and remain subject to existing protocol, session and outcome-precedence checks before disconnected publication. Partial or unverified data and notices not received before fatal closure provide no terminal proof. Graceful or transient draining is permitted only while the context remains legally usable and within existing bounds. End-notice delivery is best effort; closure alone does not establish intentional End, expiry or maintenance. Unknown loss retains the original reconnect deadline. No context reset, insecure fallback, authentication bypass or additional drain interval is authorized.
+
 A configured session password is domain-prefixed and SHA-256 mapped to 32 bytes
 using Mbed TLS before being handed to the library's PAKE API. This preserves the
 128-byte input limit with the Thread profile's 32-byte MPI bound. The digest is
@@ -116,7 +122,7 @@ only an in-memory PAKE input, never a transmitted challenge response, stored
 verifier, or TLS PSK. No player account or username is created.
 The no-password path instead uses a distinct, public protocol value. Knowledge
 of that public value does not remove ephemeral key exchange or record encryption,
-but it does not authenticate an unlocked host against an active intermediary.
+but it does not authenticate a server in either hosting kind against an active intermediary. This is the explicitly approved common first-contact limitation.
 Fresh library-generated ephemeral scalars and zero-knowledge-proof randomness are
 created for every connection from the operating-system-seeded DRBG. Knowing the
 public unlocked PAKE input does not reveal those scalars or the derived ephemeral
@@ -138,28 +144,22 @@ consume-once reconnect credential; it does not allocate new players.
 
 ## Live admission and bounds
 
-The canonical network release identifier remains `duel6r-network-r1`; the encrypted
-session transport does not provide a legacy plaintext fallback. The host's serial event loop
-orders due simulation ticks before pending admission commits. The first outcome
-closes new admission before the end delay; later rounds do not reopen it. Returning
-to the lobby does. An offer alone reserves no participant authority.
+The canonical network release identifier is `duel6r-network-r2`; the encrypted
+session transport does not provide a legacy plaintext fallback. The approved ongoing-admission target orders outcome and round-start decisions before admission at an equal host-clock instant. Active rounds and non-final delays remain open; only final outcome closes admission before final delay/summary. Lobby return reopens it. An offer alone reserves no participant authority. These target changes require implementation verification and do not inherit earlier acceptance below.
 
-Admission wire version 2 binds a browser-selected nonzero session ID inside the
+Admission wire version **3** binds a browser-selected nonzero session ID and expected hosting kind inside the
 encrypted `D6RA` request before reservation or commitment. The guest additionally
 checks the confirmed snapshot and reconnect grant agree on session identity and
 checks the exact ordered offered/accepted/confirmed participant/player identities.
 
-Arrival initializes only the appended players, using the current world and normal
-initial loadout. Team spawning retains the round's starting-area rotation. Predator
-arrival adds a non-predator without replacing the current Predator. Existing
-players, projectile owner pointers, world state, timers, and input sequence state
-remain intact. The initial guest snapshot is the current calibrated authoritative
-state, rather than an artificial waiting lobby.
+Offers, acceptance and confirmation encode session ID followed by one hosting-kind byte (`1` player-hosted, `2` dedicated). The request appends expected kind (`0` unbound Direct, `1` or `2` selected) after expected session ID. Missing/unknown/trailing data rejects without a version-2 adapter. Direct publishes kind only after complete admission. Lifecycle envelope **2** includes confirmed kind in grants and accepted reconnect responses; changed kind cannot restore the session. Framing remains **1** and the required capability names remain unchanged. Replace matching clients/services together. Legacy dedicated outer-TLS frontends and PROXY backends are unsupported, never probed; pre-admission mismatch does not prove a release mismatch.
+
+Under NET-ADM-001 through NET-ADM-016, commit strictly before the first-round outcome initializes only appended players in the current world with normal loadout, retaining Team starting-area rotation and the existing Predator. Other ongoing commits retain waiting ownership without bodies until the first strictly later round start, then use normal initialization exactly once with cleared input. Leave/expiry cancels pending spawn; reconnect does not accelerate or duplicate it. Final active waiting creates no extra round. Existing players, world state, and timers remain intact. Initial snapshots carry current calibrated authoritative state, including Waiting where applicable, not an artificial lobby.
 
 At most 15 players remain admitted simultaneously. The in-round history has a
 separate bound of 32 identities, including departed players, so references and
 session-only result rows remain stable without unbounded allocation. Remaining
-history space can reduce the advertised first-round capacity after repeated
+history space can reduce advertised ongoing-admission capacity after repeated
 departures and arrivals; exhausted capacity rejects before commitment rather than
 resetting the match. This is a storage/work bound, not account tracking or a
 person-name-based respawn restriction. The lobby starts a fresh match history.
@@ -260,7 +260,7 @@ The Windows bundle passed dependency validation, not interactive Windows QA.
 
 The `duel6r-directory-client-integration-tests` target consumes a real local
 emulator-backed directory. Run it inside the native build container with the test
-executable **beside the runtime's resolver and server executables**. The resolver
+executable **beside the runtime's resolver and shared application executable**. The hosted child uses that application in explicit `--server` mode. The resolver
 is intentionally resolved relative to the executable, not from an arbitrary path.
 The backend container can use `--network none`; the native test container shares
 that container's network namespace. Do not publish emulator ports or mount cloud
@@ -272,7 +272,7 @@ docker exec -w /workspace/build \
   -e D6R_DIRECTORY_ALLOW_HTTP=1 \
   "$NATIVE_TEST_CONTAINER" \
   /workspace/build/duel6r-directory-client-integration-tests \
-  /workspace/build/duel6r-server /workspace/build
+  /workspace/build/duel6r /workspace/build
 ```
 
 This checks native publication and browsing against the real service, then real

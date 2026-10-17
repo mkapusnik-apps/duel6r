@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -16,6 +17,58 @@
 #include <vector>
 
 #include "source/network/SessionTransport.h"
+#include "source/network/SessionLifecycle.h"
+
+#ifdef D6R_TEST_OBSERVE_STAGING
+#include <mbedtls/ssl.h>
+// Observe actual production staging and deallocation. Every SDK/allocator
+// operation delegates unchanged; no plaintext bytes or addresses are logged.
+namespace CommonStagingObservation {
+    std::array<unsigned char, 128> expected{};
+    std::atomic<void *> watched{nullptr};
+    std::atomic<bool> armed{false}, staged{false}, released{false}, erased{false};
+    std::atomic<std::size_t> readBytes{0}, allocationBytes{0};
+    std::size_t payloadBytes = 0;
+    thread_local bool receivingApplication = false;
+    void reset(const std::vector<std::uint8_t> &value, bool complete) {
+        std::fill(expected.begin(), expected.end(), 0);
+        std::copy(value.begin(), value.end(), expected.begin());
+        payloadBytes = value.size(); readBytes = value.size() - !complete;
+        watched = nullptr; staged = released = erased = false; allocationBytes = 0;
+        armed = true;
+    }
+    void beforeDelete(void *pointer, std::size_t size) noexcept {
+        if (!armed.load()) return;
+        void *match = pointer;
+        if (pointer && watched.compare_exchange_strong(match, nullptr)) {
+            const auto *bytes = static_cast<const unsigned char *>(pointer);
+            erased = std::all_of(bytes, bytes + payloadBytes, [](unsigned char byte) { return byte == 0; });
+            allocationBytes = size; released = true;
+        }
+    }
+}
+extern "C" int __real_mbedtls_ssl_read(mbedtls_ssl_context *, unsigned char *, std::size_t);
+extern "C" int __wrap_mbedtls_ssl_read(mbedtls_ssl_context *ctx, unsigned char *bytes, std::size_t size) {
+    const int result = __real_mbedtls_ssl_read(ctx, bytes, size);
+    if (CommonStagingObservation::armed && CommonStagingObservation::receivingApplication
+        && result > 0 && result == static_cast<int>(CommonStagingObservation::readBytes.load())
+        && std::equal(CommonStagingObservation::expected.begin(), CommonStagingObservation::expected.begin() + result, bytes)) {
+        CommonStagingObservation::watched = bytes;
+        CommonStagingObservation::staged = true;
+    }
+    return result;
+}
+void stagingRealDelete(void *) noexcept __asm__("__real__ZdlPv");
+void stagingWrapDelete(void *) noexcept __asm__("__wrap__ZdlPv");
+void stagingWrapDelete(void *pointer) noexcept {
+    CommonStagingObservation::beforeDelete(pointer, 0); stagingRealDelete(pointer);
+}
+void stagingRealSizedDelete(void *, std::size_t) noexcept __asm__("__real__ZdlPvm");
+void stagingWrapSizedDelete(void *, std::size_t) noexcept __asm__("__wrap__ZdlPvm");
+void stagingWrapSizedDelete(void *pointer, std::size_t size) noexcept {
+    CommonStagingObservation::beforeDelete(pointer, size); stagingRealSizedDelete(pointer, size);
+}
+#endif
 
 #ifdef D6R_TRANSPORT_WINDOWS
 #define WIN32_LEAN_AND_MEAN
@@ -1848,6 +1901,90 @@ void concreteSealAndDrainRacesReceiveWithoutLossOrDuplication() {
     CHECK(waitUntil([&] { return budget.used() == baseline; }, 1s));
     connection->close(); listener.shutdown();
 }
+
+struct AcceptedInputClock {
+    static_assert(std::atomic<bool>::is_always_lock_free && std::atomic<unsigned>::is_always_lock_free,
+                  "receipt callback must remain lock-free on supported targets");
+    const std::thread::id applicationThread = std::this_thread::get_id();
+    std::atomic<bool> armed{false};
+    std::atomic<unsigned> receipts{0};
+
+    TransportTimePoint now() {
+        // Raw, healthy, single-connection test: arm only after construction.
+        // Reader calls this under inputMutex immediately before input.push_back.
+        // The callback never locks, waits or re-enters a transport operation.
+        if (armed.load() && std::this_thread::get_id() != applicationThread) ++receipts;
+        return std::chrono::steady_clock::now();
+    }
+};
+
+void queueReservationIsNotAnAcceptedInputReceipt() {
+    auto &budget = Trust::processQueueBudget();
+    const auto baseline = budget.used();
+    AcceptedInputClock clock;
+    SessionTransportDependencies dependencies;
+    dependencies.now = [&] { return clock.now(); };
+    const auto port = unusedPort();
+    TcpListener listener(1, dependencies); startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    connection->markAdmissionSucceeded(); clock.armed = true;
+    constexpr auto count = MaxQueuedTransportFrames;
+    for (unsigned index = 0; index < count - 1; ++index) sendFrame(peer.get(), {static_cast<std::uint8_t>(index)});
+    CHECK(waitUntil([&] { return clock.receipts.load() == count - 1; }, 2s));
+    auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, 1);
+    sendAll(peer.get(), header.data(), header.size());
+    CHECK(waitUntil([&] { return budget.used() == baseline + count; }, 2s));
+    CHECK(clock.receipts.load() == count - 1); // Last body is reserved, not published.
+    const std::uint8_t body = static_cast<std::uint8_t>(count - 1);
+    sendAll(peer.get(), &body, 1);
+    CHECK(waitUntil([&] { return clock.receipts.load() == count; }, 2s));
+    CHECK(connection->state() == ClientState::Connected && connection->failure() == TransportFailure::None);
+    auto accepted = connection->sealAndDrainInput(); // Acquires publication's inputMutex.
+    CHECK(accepted.state == ClientState::Connected && accepted.frames.size() == count);
+    for (unsigned index = 0; index < count; ++index)
+        CHECK(accepted.frames[index].payload == std::vector<std::uint8_t>{static_cast<std::uint8_t>(index)});
+    CHECK(budget.used() == baseline);
+    connection->close(); listener.shutdown();
+    CHECK(budget.used() == baseline);
+}
+
+void boundedSealedTailRetainsQueueAccountingAndRejectsNewInput() {
+    auto &budget = Trust::processQueueBudget();
+    const auto baseline = budget.used();
+    AcceptedInputClock clock;
+    SessionTransportDependencies dependencies;
+    dependencies.now = [&] { return clock.now(); };
+    const auto port = unusedPort();
+    TcpListener listener(1, dependencies); startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port));
+    auto connection = awaitAccept(listener);
+    connection->markAdmissionSucceeded();
+    clock.armed = true;
+    constexpr auto count = MaxQueuedTransportFrames;
+    for (unsigned index = 0; index < count; ++index) sendFrame(peer.get(), {static_cast<std::uint8_t>(index)});
+    CHECK(waitUntil([&] { return clock.receipts.load() == count; }, 2s));
+    CHECK(connection->state() == ClientState::Connected && connection->failure() == TransportFailure::None);
+    auto first = connection->sealAndDrainInput(1);
+    CHECK(first.state == ClientState::Connected && first.terminalAt == TransportTimePoint{});
+    CHECK(first.frames.size() == 1 && first.frames.front().payload == std::vector<std::uint8_t>{0});
+    CHECK(budget.used() == baseline + count - 1);
+    sendFrame(peer.get(), {99});
+    CHECK(budget.used() == baseline + count - 1); // Sealing cannot add new accepted input.
+    for (unsigned index = 1; index < count; ++index) {
+        auto next = connection->sealAndDrainInput(1);
+        if (next.frames.size() != 1 || next.frames.front().payload != std::vector<std::uint8_t>{static_cast<std::uint8_t>(index)})
+            throw Failure("sealed tail: expected-index=" + std::to_string(index)
+                          + " actual-count=" + std::to_string(next.frames.size()));
+        CHECK(budget.used() == baseline + count - 1 - index);
+    }
+    CHECK(connection->sealAndDrainInput(1).frames.empty());
+    CHECK(budget.used() == baseline);
+    connection->close(); // Positive reader/writer join boundary, not a sleep.
+    CHECK(clock.receipts.load() == count); // No post-seal application publication.
+    listener.shutdown();
+    CHECK(budget.used() == baseline);
+}
 }
 
 namespace {
@@ -1954,9 +2091,224 @@ void secureWireRejectsReplay() {
     listener.shutdown();
 }
 
+class IngressPause {
+public:
+    std::atomic<bool> entered{false};
+    void pause() {
+        std::unique_lock<std::mutex> lock(mutex);
+        entered = true; changed.notify_all();
+        changed.wait_for(lock, 5s, [&] { return released; });
+    }
+    void release() { std::lock_guard<std::mutex> lock(mutex); released = true; changed.notify_all(); }
+    ~IngressPause() { release(); }
+private:
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool released = false;
+};
+
+void sealWinsStalePredecryptCheckWithoutLateInput() {
+    for (bool encrypted: {false, true}) {
+        const auto baseline = Trust::processQueueBudget().used();
+        IngressPause pause;
+        SessionTransportDependencies receiving, sending;
+        receiving.secureSession = sending.secureSession = encrypted;
+        receiving.inbound.beforeApplicationRead = [&] { pause.pause(); };
+        const auto port = unusedPort(); TcpListener listener(1, receiving); startListener(listener, port);
+        TcpClient client(sending); CHECK(client.start({"127.0.0.1", port})); requireConnected(client, "predecrypt peer");
+        auto connection = awaitAccept(listener);
+        CHECK(client.connection()->send({1,2,3}) == SendResult::Accepted);
+        CHECK(waitUntil([&] { return pause.entered.load(); }, 2s));
+        const auto sealed = connection->sealAndDrainInput();
+        CHECK(sealed.frames.empty()); // Reader already passed the old capacity/seal check.
+        pause.release();
+        connection->close(); // Cancel/close releases the parked reader without unsealing.
+        TransportFrame late; CHECK(!connection->receive(late));
+        CHECK(connection->sealAndDrainInput().frames.empty());
+        client.close(); listener.shutdown();
+        CHECK(Trust::processQueueBudget().used() == baseline);
+    }
+}
+
+void authenticatedCompletionSealAndFatalWriterShareStableTail() {
+    const auto baseline = Trust::processQueueBudget().used();
+    IngressPause pause;
+    std::atomic<bool> sealing{false};
+    std::atomic<TransportTimePoint> originalReceipt{};
+    std::atomic<RawSocket> socket{InvalidRawSocket};
+    SessionTransportDependencies receiving, sending;
+    receiving.secureSession = sending.secureSession = true;
+    receiving.password = sending.password = std::make_shared<SessionPassword>("ordered-ingress");
+    const auto port = unusedPort(); TcpListener listener(1, sending); startListener(listener, port);
+    receiving.connect = [&](const auto &, auto, const auto &) {
+        socket = connectRaw(port);
+        return ConnectOutcome{ConnectStatus::Connected, static_cast<std::intptr_t>(socket.load())};
+    };
+    receiving.inbound.beforeApplicationPublish = [&](auto receipt) { originalReceipt = receipt; pause.pause(); };
+    receiving.inbound.beforeInputSeal = [&] { sealing = true; };
+    TcpClient client(receiving); CHECK(client.start({"127.0.0.1", port})); requireConnected(client, "completion peer");
+    auto peer = awaitAccept(listener); auto connection = client.connection();
+    const auto notice = Lifecycle::serializeIntentionalHostEnd({91});
+    CHECK(peer->send(notice) == SendResult::Accepted);
+    CHECK(waitUntil([&] { return pause.entered.load(); }, 2s));
+    auto sealed = std::async(std::launch::async, [&] { return connection->sealAndDrainInput(); });
+    CHECK(waitUntil([&] { return sealing.load(); }, 1s));
+    const bool sealBlocked = sealed.wait_for(20ms) == std::future_status::timeout;
+    // Real OS send failure; the maintained inner engine is not replaced. Its
+    // writer must wait for the authenticated completion callback's inner lock.
+#ifdef D6R_TRANSPORT_WINDOWS
+    CHECK(::shutdown(socket.load(), SD_SEND) == 0);
+#else
+    CHECK(::shutdown(socket.load(), SHUT_WR) == 0);
+#endif
+    CHECK(connection->send({7}) == SendResult::Accepted);
+    pause.release();
+    CHECK(sealBlocked);
+    auto tail = sealed.get();
+    CHECK(tail.frames.size() == 1 && tail.frames.front().payload == notice);
+    CHECK(tail.frames.front().receivedAt == originalReceipt.load());
+    CHECK(waitUntil([&] { return connection->state() == ClientState::Failed; }, 2s));
+    CHECK(tail.frames.front().receivedAt < connection->terminalAt());
+    auto parsed = Lifecycle::deserializeIntentionalHostEnd(tail.frames.front().payload);
+    CHECK(parsed && parsed->sessionId == 91);
+    Lifecycle::GuestSessionRecovery recovery(91, 2, 8, true);
+    CHECK(recovery.acceptIntentionalHostEnd(*parsed, 8, tail.frames.front().receivedAt));
+    recovery.transportClosed(connection->terminalAt(), true);
+    CHECK(recovery.journey() == Lifecycle::GuestJourney::HostEnded); // Prefatal authenticated proof wins.
+    TransportFrame late;
+    CHECK(!connection->receive(late)); CHECK(connection->sealAndDrainInput().frames.empty());
+    connection->close(); client.close(); peer->close(); listener.shutdown();
+    CHECK(Trust::processQueueBudget().used() == baseline);
+}
+
+void securePartialStagingCannotBecomeSealedTerminalProof() {
+    const auto baseline = Trust::processQueueBudget().used();
+    SessionTransportDependencies encrypted; encrypted.secureSession = true;
+    const auto port = unusedPort(); TcpListener listener(1, encrypted); startListener(listener, port);
+    RawSocketOwner socket(connectRaw(port));
+#ifdef D6R_TRANSPORT_WINDOWS
+    u_long nonblocking = 1; CHECK(ioctlsocket(socket.get(), FIONBIO, &nonblocking) == 0);
+#else
+    CHECK(fcntl(socket.get(), F_SETFL, O_NONBLOCK) == 0);
+#endif
+    SecureSession peer(static_cast<std::intptr_t>(socket.get()), false, {});
+    CHECK(peer.handshake(std::chrono::steady_clock::now() + 3s, [] { return false; }));
+    auto connection = awaitAccept(listener);
+    auto notice = Lifecycle::serializeIntentionalHostEnd({91});
+    auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, notice.size());
+    CHECK(peer.send(header.data(), header.size()) == static_cast<std::ptrdiff_t>(header.size()));
+    CHECK(peer.send(notice.data(), notice.size() - 1) == static_cast<std::ptrdiff_t>(notice.size() - 1));
+    CHECK(waitUntil([&] { return Trust::processQueueBudget().used() == baseline + notice.size(); }, 2s));
+    CHECK(connection->sealAndDrainInput().frames.empty());
+    connection->requestClose(); connection->close(); // Original cancellation/close, no unseal or extra interval.
+    CHECK(connection->sealAndDrainInput().frames.empty());
+    TransportFrame frame; CHECK(!connection->receive(frame));
+    listener.shutdown();
+    CHECK(Trust::processQueueBudget().used() == baseline);
+}
+
+#ifdef D6R_TEST_OBSERVE_STAGING
+void commonEncryptedStagingErasureAndOwnership() {
+    Trust::ReconnectReservation reservation(91, 2, 8);
+    CHECK(reservation.valid());
+    Lifecycle::ReconnectGrant grant{91, 2, 8, reservation.credential(), HostingKind::Dedicated};
+    auto credential = Lifecycle::serializeReconnectGrant(grant);
+    CHECK(Lifecycle::deserializeReconnectGrant(credential).has_value());
+    CHECK(credential.size() <= CommonStagingObservation::expected.size());
+    struct EraseFixture {
+        std::vector<std::uint8_t> &credential;
+        ~EraseFixture() {
+            CommonStagingObservation::armed = false;
+            Trust::secureEraseMemory(CommonStagingObservation::expected.data(), CommonStagingObservation::expected.size());
+            Lifecycle::eraseLifecycleCredentialPayload(credential);
+        }
+    } eraseFixture{credential};
+    const char *names[]{"partial EOF", "partial cancellation", "partial key expiry", "full ownership", "queued discard"};
+    for (unsigned scenario = 0; scenario < 5; ++scenario) {
+        const bool complete = scenario >= 3;
+        const auto baseline = Trust::processQueueBudget().used();
+        const auto absolute = std::chrono::steady_clock::now() + 5s;
+        CommonStagingObservation::reset(credential, complete);
+        RawSocketOwner listener(::socket(AF_INET, SOCK_STREAM, 0));
+        CHECK(listener.get() != InvalidRawSocket);
+        CHECK(fcntl(listener.get(), F_SETFL, O_NONBLOCK) == 0);
+        sockaddr_in address{}; address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        CHECK(::bind(listener.get(), reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
+        CHECK(::listen(listener.get(), 1) == 0);
+        socklen_t length = sizeof(address);
+        CHECK(getsockname(listener.get(), reinterpret_cast<sockaddr *>(&address), &length) == 0);
+        SessionTransportDependencies receiving; receiving.secureSession = true;
+        receiving.password = std::make_shared<SessionPassword>("common-staging-fixture");
+        if (scenario == 2) receiving.secureLimits.lifetime = 1s; // Restriction only.
+        receiving.inbound.beforeApplicationRead = [] { CommonStagingObservation::receivingApplication = true; };
+        std::atomic<TransportTimePoint> originalReceipt{};
+        receiving.inbound.beforeApplicationPublish = [&](auto stamp) { originalReceipt = stamp; };
+        TcpClient client(receiving);
+        CHECK(client.start({"127.0.0.1", ntohs(address.sin_port)}));
+        RawSocket accepted = InvalidRawSocket;
+        CHECK(waitUntil([&] { accepted = ::accept(listener.get(), nullptr, nullptr); return accepted != InvalidRawSocket; }, 2s));
+        RawSocketOwner socket(accepted);
+        CHECK(fcntl(socket.get(), F_SETFL, O_NONBLOCK) == 0);
+        SecureSession peer(static_cast<std::intptr_t>(socket.get()), true, receiving.password);
+        CHECK(peer.handshake(absolute, [] { return false; }));
+        requireConnected(client, "common staging TCP connection");
+        auto connection = client.connection(); CHECK(connection);
+        const auto send = [&](const auto &bytes, std::size_t size) {
+            std::size_t offset = 0;
+            while (offset < size && std::chrono::steady_clock::now() < absolute) {
+                const auto count = peer.send(bytes.data() + offset, size - offset);
+                if (count > 0) offset += static_cast<std::size_t>(count);
+                else { CHECK(count == -2); std::this_thread::sleep_for(1ms); }
+            }
+            CHECK(offset == size);
+        };
+        const auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, credential.size());
+        send(header, header.size());
+        send(credential, credential.size() - !complete);
+        CHECK(waitUntil([&] { return CommonStagingObservation::staged.load(); }, 2s));
+        TransportFrame frame;
+        if (!complete) {
+            CHECK(!connection->receive(frame));
+            CHECK(originalReceipt.load() == TransportTimePoint{});
+        }
+        if (scenario == 0) shutdownRaw(socket.get()); // Genuine EOF, not a substituted SDK result.
+        else if (scenario == 1) { client.cancel(); client.close(); }
+        else if (scenario == 3) {
+            CHECK(waitUntil([&] { return connection->receive(frame); }, 2s));
+            CHECK(frame.payload == credential && frame.payload.data() == CommonStagingObservation::watched.load());
+            CHECK(!CommonStagingObservation::released);
+            CHECK(originalReceipt.load() != TransportTimePoint{} && frame.receivedAt == originalReceipt.load());
+            client.close();
+            CHECK(frame.payload == credential && !CommonStagingObservation::released);
+            Trust::secureEraseMemory(frame.payload.data(), frame.payload.size());
+            std::vector<std::uint8_t>().swap(frame.payload);
+        } else if (scenario == 4) {
+            CHECK(waitUntil([&] { return originalReceipt.load() != TransportTimePoint{}; }, 2s));
+            CHECK(connection->sealAndDrainInput(0).frames.empty()); // Queue retains ownership.
+            CHECK(!CommonStagingObservation::released);
+            client.close();
+        }
+        CHECK(waitUntil([&] { return CommonStagingObservation::released.load(); }, 2s));
+        CHECK(CommonStagingObservation::erased);
+        CHECK(CommonStagingObservation::allocationBytes == credential.size());
+        if (!complete) {
+            CHECK(!connection->receive(frame));
+            CHECK(originalReceipt.load() == TransportTimePoint{});
+        }
+        client.close();
+        CHECK(Trust::processQueueBudget().used() == baseline);
+        CHECK(std::chrono::steady_clock::now() < absolute);
+        CommonStagingObservation::armed = false;
+        std::cout << "[PASS] live common-channel staging " << names[scenario]
+                  << "; current grant framing; zero-before-free and exact queue accounting (bytes withheld)\n";
+    }
+}
+#endif
+
 void secureSessionPasswordAdmission() {
     for (const auto &passwords: std::vector<std::pair<std::string, std::string>>{
-            {"", ""}, {"session-test", "session-test"}, {"session-test", "wrong"}, {"session-test", ""}}) {
+            {"", ""}, {"session-test", "session-test"}, {"session-test", "wrong"}, {"session-test", ""}, {"", "explicit-nonempty"}}) {
         SessionTransportDependencies hostDependencies, guestDependencies;
         hostDependencies.secureSession = guestDependencies.secureSession = true;
         hostDependencies.password = std::make_shared<SessionPassword>(passwords.first);
@@ -1986,9 +2338,92 @@ void secureSessionPasswordAdmission() {
     }
 }
 
+struct PlaintextProbeWrite {
+    std::ptrdiff_t count;
+    int error;
+};
+
+#ifdef D6R_TRANSPORT_WINDOWS
+constexpr int ProbeReset = WSAECONNRESET, ProbeAborted = WSAECONNABORTED, ProbeShutdown = WSAESHUTDOWN;
+constexpr int ProbeInterrupted = WSAEINTR, ProbeWouldBlock = WSAEWOULDBLOCK;
+#else
+constexpr int ProbeReset = ECONNRESET, ProbeAborted = ECONNABORTED, ProbeShutdown = EPIPE;
+constexpr int ProbeInterrupted = EINTR, ProbeWouldBlock = EWOULDBLOCK;
+#endif
+
+// Only the malformed plaintext probe permits peer rejection during a write.
+// A completed write is not acceptance; the caller must still prove fail-closed.
+template<typename Send>
+bool writePlaintextProbe(const std::uint8_t *bytes, std::size_t size, Send send,
+                        TransportTimePoint deadline = std::chrono::steady_clock::now() + 4s) {
+    while (size != 0) {
+        CHECK(std::chrono::steady_clock::now() < deadline);
+        const auto result = send(bytes, size);
+        if (result.count > 0) {
+            CHECK(static_cast<std::size_t>(result.count) <= size);
+            bytes += result.count;
+            size -= static_cast<std::size_t>(result.count);
+        } else {
+            CHECK(result.count < 0); // A zero write is not evidence of rejection.
+            if (result.error == ProbeReset || result.error == ProbeAborted || result.error == ProbeShutdown)
+                return false;
+            if (result.error != ProbeInterrupted && result.error != ProbeWouldBlock)
+                throw Failure("unexpected plaintext probe send error: " + std::to_string(result.error));
+            std::this_thread::yield();
+        }
+    }
+    return true;
+}
+
+void plaintextProbeWriterRegression() {
+    const std::array<std::uint8_t, 3> bytes{1, 2, 3};
+    // Deterministically cover complete/partial writes and rejection both before
+    // and after progress, rather than relying on the native close race to occur.
+    for (const auto error: {ProbeReset, ProbeAborted, ProbeShutdown}) {
+        for (const bool partial: {false, true}) {
+            unsigned calls = 0;
+            CHECK(!writePlaintextProbe(bytes.data(), bytes.size(), [&](const auto *data, auto size) {
+                ++calls;
+                if (partial && calls == 1) return PlaintextProbeWrite{1, 0};
+                CHECK(data == bytes.data() + (partial ? 1 : 0));
+                CHECK(size == bytes.size() - (partial ? 1 : 0));
+                return PlaintextProbeWrite{-1, error};
+            }));
+            CHECK(calls == (partial ? 2u : 1u));
+        }
+    }
+    unsigned calls = 0;
+    CHECK(writePlaintextProbe(bytes.data(), bytes.size(), [&](const auto *data, auto size) {
+        ++calls;
+        if (calls == 1) return PlaintextProbeWrite{-1, ProbeInterrupted};
+        if (calls == 2) return PlaintextProbeWrite{-1, ProbeWouldBlock};
+        CHECK(data == bytes.data() + (calls - 3));
+        CHECK(size == bytes.size() - (calls - 3));
+        return PlaintextProbeWrite{1, 0};
+    }));
+    CHECK(calls == 5);
+    for (const auto outcome: {PlaintextProbeWrite{-1, -12345}, PlaintextProbeWrite{0, 0}}) {
+        bool failed = false;
+        try { writePlaintextProbe(bytes.data(), bytes.size(), [&](const auto *, auto) { return outcome; }); }
+        catch (const Failure &) { failed = true; }
+        CHECK(failed);
+    }
+    bool expired = false, attempted = false;
+    try {
+        writePlaintextProbe(bytes.data(), bytes.size(), [&](const auto *, auto) {
+            attempted = true;
+            return PlaintextProbeWrite{1, 0};
+        }, std::chrono::steady_clock::now() - 1s);
+    } catch (const Failure &) { expired = true; }
+    CHECK(expired && !attempted);
+}
+
 void secureTamperAndDowngradeFailClosed() {
+    plaintextProbeWriterRegression();
     SessionTransportDependencies secure; secure.secureSession = true;
     secure.password = std::make_shared<SessionPassword>("tamper-fixture");
+    std::atomic<unsigned> publications{0};
+    secure.inbound.beforeApplicationPublish = [&](auto) { ++publications; };
     const auto port = unusedPort(); TcpListener listener(4, secure); startListener(listener, port);
     const auto relayPort = unusedPort(); EncryptedWireRelay relay(relayPort, port, true);
     TcpClient client(secure); CHECK(client.start({"127.0.0.1", relayPort}));
@@ -2000,10 +2435,41 @@ void secureTamperAndDowngradeFailClosed() {
     TransportFrame frame; CHECK(!host->receive(frame));
     client.close(); host->close();
     RawSocketOwner plain(connectRaw(port)); auto rejected = awaitAccept(listener);
-    sendFrame(plain.get(), {1, 2, 3});
+#ifdef D6R_TRANSPORT_WINDOWS
+    u_long nonblocking = 1;
+    CHECK(ioctlsocket(plain.get(), FIONBIO, &nonblocking) == 0);
+#else
+    const int flags = fcntl(plain.get(), F_GETFL, 0);
+    CHECK(flags >= 0 && fcntl(plain.get(), F_SETFL, flags | O_NONBLOCK) == 0);
+#ifdef __APPLE__
+    const int enabled = 1;
+    CHECK(setsockopt(plain.get(), SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) == 0);
+#endif
+#endif
+    const auto sendPlain = [&](const std::uint8_t *data, std::size_t size) -> PlaintextProbeWrite {
+#ifdef D6R_TRANSPORT_WINDOWS
+        const int count = ::send(plain.get(), reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
+        return {count, count < 0 ? WSAGetLastError() : 0};
+#else
+#ifdef __APPLE__
+        const auto count = ::send(plain.get(), data, size, 0);
+#else
+        const auto count = ::send(plain.get(), data, size, MSG_NOSIGNAL);
+#endif
+        return {count, count < 0 ? errno : 0};
+#endif
+    };
+    const auto deadline = std::chrono::steady_clock::now() + 4s;
+    const auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, 3);
+    const std::array<std::uint8_t, 3> payload{1, 2, 3};
+    if (writePlaintextProbe(header.data(), header.size(), sendPlain, deadline))
+        (void) writePlaintextProbe(payload.data(), payload.size(), sendPlain, deadline);
     CHECK(waitUntil([&] { return rejected->state() == ClientState::Failed; }, 4s));
+    CHECK(rejected->failure() == TransportFailure::NotAuthorized);
     CHECK(!rejected->receive(frame));
+    CHECK(rejected->sealAndDrainInput().frames.empty());
     listener.shutdown();
+    CHECK(publications == 0);
 }
 
 void secureSessionKeyBudgets() {
@@ -2105,6 +2571,9 @@ int main() {
     }
 #endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+#ifdef D6R_TEST_OBSERVE_STAGING
+        {"common encrypted staging erasure and ownership", commonEncryptedStagingErasureAndOwnership},
+#endif
         {"transactional listening coverage and wildcard policy", transactionalListeningCoverage},
         {"transactional partial bind cancellation", transactionalPartialBindCancellation},
         {"secure encrypted wire hides credentials and rejects cross-connection replay", secureWireRejectsReplay},
@@ -2130,6 +2599,11 @@ int main() {
         {"native raw and production refusal controls", rawNativeRefusalControls},
         {"conditional admission acceptance accounting", conditionalAdmissionAcceptanceAccounting},
         {"concrete seal and drain race", concreteSealAndDrainRacesReceiveWithoutLossOrDuplication},
+        {"seal wins paused stale predecrypt check without late input", sealWinsStalePredecryptCheckWithoutLateInput},
+        {"authenticated completion seal and fatal writer preserve timestamped terminal tail", authenticatedCompletionSealAndFatalWriterShareStableTail},
+        {"secure partial staging cannot become sealed terminal proof", securePartialStagingCannotBecomeSealedTerminalProof},
+        {"bounded sealed terminal tail accounting and no new input", boundedSealedTailRetainsQueueAccountingAndRejectsNewInput},
+        {"queue reservation is not accepted input receipt", queueReservationIsNotAnAcceptedInputReceipt},
         {"malformed isolation", malformedPeersAreIsolated},
         {"stalls and liveness", stallsAndLiveness}, {"close and shutdown bounds", closeAndShutdownBounds}};
     int failures = 0;

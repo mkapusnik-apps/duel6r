@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -55,7 +56,15 @@
 #undef private
 #include "tests/RecordingRenderer.h"
 #include "tests/CanonicalMotionTrace.h"
+#include "tests/SecondJumpObservation.h"
+#ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
+#include "tests/ObservedPlayerInput.h"
+#endif
 #include "source/server/AuthoritativeMatchSerialization.h"
+#if defined(__linux__) && defined(D6R_DEDICATED_SERVICE)
+#include "source/server/HeadlessServer.h"
+#include "source/server/DedicatedService.h"
+#endif
 #include "source/math/Camera.h"
 #include <cmath>
 
@@ -421,6 +430,31 @@ D6R_TEST_CASE("NET-DIR response decoder bounds nesting pages cursors and numeric
     D6R_REQUIRE(!Client::decodeDirectoryPage("{\"listings\":[],\"nextCursor\":\"../bad\"}").available);
 }
 
+D6R_TEST_CASE("NET-DIR mixed decoder requires classification and capability-scoped cursors") {
+    const std::string row = "{\"id\":\"" + std::string(32, 'a') + "\",\"sessionId\":\"" + Client::directorySessionId(42)
+        + "\",\"address\":\"arena.example.test\",\"port\":26660,\"mode\":\"deathmatch\",\"phase\":\"idle\","
+          "\"players\":0,\"capacity\":15,\"passwordRequired\":false,\"hosting\":\"dedicated\","
+          "\"protection\":\"none\",\"admission\":\"open\",\"revision\":1,\"expiresAt\":2000000000000}";
+    const std::string page = "{\"contract\":\"mixed-v2\",\"listings\":[" + row + "],\"nextCursor\":null}";
+    const auto decoded = Client::decodeDirectoryPage(page, {}, true);
+    D6R_REQUIRE(decoded.available && decoded.listings.front().dedicated());
+    D6R_REQUIRE(decoded.listings.front().joinable());
+    D6R_REQUIRE(!Client::decodeDirectoryPage(page).available);
+    for (const auto &change: {std::pair{std::string("dedicated"), std::string("unknown")},
+            std::pair{std::string("none"), std::string("invite")},
+            std::pair{std::string("none"), std::string("password")},
+            std::pair{std::string("arena.example.test"), std::string("127.0.0.1")},
+            std::pair{std::string("\"players\":0"), std::string("\"players\":1")},
+            std::pair{std::string("\"admission\":\"open\""), std::string("\"admission\":\"closed\"")}}) {
+        auto invalid = page; invalid.replace(invalid.find(change.first), change.first.size(), change.second);
+        D6R_REQUIRE(!Client::decodeDirectoryPage(invalid, {}, true).available);
+    }
+    D6R_REQUIRE(!Client::decodeDirectoryPage(page, "123-" + std::string(32, 'a'), true).available);
+    D6R_REQUIRE(Client::decodeDirectoryPage(page, "m2_123-" + std::string(32, 'a'), true).available);
+    auto missing = page; missing.erase(missing.find("\"contract\""), std::string("\"contract\":\"mixed-v2\",").size());
+    D6R_REQUIRE(!Client::decodeDirectoryPage(missing, {}, true).available);
+}
+
 #ifndef _WIN32
 D6R_TEST_CASE("NET-DIR reviewed menu dispatch renders browser states and preserves navigation focus") {
     char name[] = "duel6r-browser-render-tests"; char *arguments[] = {name};
@@ -573,7 +607,7 @@ D6R_TEST_CASE("UX-NET native frames preserve scaled press activation fields sele
         click(225, 440, true); D6R_REQUIRE_EQ(2, menu.focus);
         menu.textInputEvent(TextInputEvent("disposable"));
         clear(); menu.render();
-        textPosition("**********");
+        textPosition("**********_");
         D6R_REQUIRE(fill(275, 82, 300, 32, Color(192))); // Disabled Start still has a surface and boundary.
         D6R_REQUIRE(std::any_of(recorder.frames.begin(), recorder.frames.end(), [](const auto &frame) {
             return frame.position.x == 275 && frame.position.y == 82 && frame.width == 1;
@@ -762,6 +796,464 @@ namespace {
             }
         }
     };
+
+    struct BrowserPresentationFixture : ReviewMenuFixture {
+        Client::DirectoryListing row;
+        BrowserPresentationFixture() {
+            menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+            row.id = std::string(32, 'a'); row.sessionId = std::string(32, 'b');
+            row.endpoint = {"192.168.1.24", 26660}; row.mode = "Predator";
+            row.phase = "first-round"; row.passwordRequired = true; row.players = 2; row.capacity = 15;
+            row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+        }
+        void deliver(Client::DirectoryPage page) {
+            menu.browser.requested = std::chrono::steady_clock::now();
+            std::promise<Client::DirectoryPage> response;
+            menu.browser.pending = response.get_future(); response.set_value(std::move(page));
+            menu.update(0); draw();
+        }
+        void selected() { deliver({true, {row}, {}}); menu.selectedListing = row.id; menu.focus = 0; draw(); }
+        bool fill(int x, int y, int width, int height, Color color) const {
+            return std::any_of(recorder.quads.begin(), recorder.quads.end(), [&](const auto &quad) {
+                return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
+                    && quad.vertices[0].x == x && quad.vertices[0].y == y
+                    && quad.vertices[2].x == x + width && quad.vertices[2].y == y + height;
+            });
+        }
+    };
+}
+
+D6R_TEST_CASE("NET-10 manual Refresh retains focus through pending updates and zero populated or failed completion") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    struct Case { bool populated; int outcome; };
+    // Empty refresh reproduces F-01; retained rows and failures must not cause
+    // a different focus jump, either during the request or at completion.
+    for (const auto &test: {Case{false, 0}, Case{false, 1}, Case{true, 1}, Case{true, 2}, Case{false, 2}}) {
+        menu.selectedListing.clear();
+        f.deliver({true, test.populated ? std::vector{f.row} : std::vector<Client::DirectoryListing>{}, {}});
+        if (test.populated) menu.selectedListing = f.row.id;
+        menu.focus = 2; f.key(SDLK_RETURN); // Real manual Refresh dispatch.
+        D6R_REQUIRE(menu.browser.loading());
+        std::promise<Client::DirectoryPage> response;
+        menu.browser.pending = response.get_future();
+        for (int update = 0; update < 3; ++update) {
+            menu.update(0); f.draw(); // Response remains genuinely pending.
+            D6R_REQUIRE_EQ(2, menu.focus);
+            D6R_REQUIRE(menu.browser.loading());
+            D6R_REQUIRE(!menu.browserFocusEnabled(2) && !menu.browserFocusEnabled(1));
+            D6R_REQUIRE(f.frame(710, 518, 112, 24, 1));
+            D6R_REQUIRE(f.frame(708, 516, 116, 28, 2));
+            f.key(SDLK_RETURN); f.click(766, 530); // Disabled duplicate activation stays blocked.
+            D6R_REQUIRE(menu.browser.loading() && !menu.browserSelection);
+        }
+        response.set_value({test.outcome != 2,
+            test.outcome == 1 ? std::vector{f.row} : std::vector<Client::DirectoryListing>{}, {}});
+        menu.update(0); f.draw();
+        D6R_REQUIRE_EQ(2, menu.focus);
+        D6R_REQUIRE(!menu.browser.loading() && menu.browserFocusEnabled(2));
+        D6R_REQUIRE(f.frame(708, 516, 116, 28, 2));
+        D6R_REQUIRE_EQ(test.populated ? f.row.id : std::string{}, menu.selectedListing);
+        D6R_REQUIRE_EQ(test.populated && test.outcome == 1, menu.browserFocusEnabled(1));
+        if (test.outcome == 0) D6R_REQUIRE(f.text("No active sessions listed. You can host a session or connect directly."));
+        if (test.outcome == 1) D6R_REQUIRE(f.text("Password") && f.text("Round 1"));
+        if (test.outcome == 2) D6R_REQUIRE(f.text("Directory unavailable. Direct connection and local play are still available."));
+    }
+}
+
+D6R_TEST_CASE("NET-10 pending Refresh focus retention preserves initial focus and disabled traversal") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    menu.browser.requested = std::chrono::steady_clock::now();
+    std::promise<Client::DirectoryPage> initial;
+    menu.browser.pending = initial.get_future(); menu.focus = 0;
+    menu.update(0); D6R_REQUIRE_EQ(3, menu.focus); // Initial pending read still uses Direct connect.
+    initial.set_value({true, {}, {}}); menu.update(0);
+    D6R_REQUIRE_EQ(3, menu.focus); // No unsolicited focus change on completion.
+    menu.focus = 2; f.key(SDLK_RETURN);
+    std::promise<Client::DirectoryPage> manual;
+    menu.browser.pending = manual.get_future(); menu.update(0);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(3, menu.focus); // User can leave the retained disabled action.
+    menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+    D6R_REQUIRE_EQ(6, menu.focus); // Reverse traversal skips disabled Refresh and Join.
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(3, menu.focus);
+    menu.update(0); D6R_REQUIRE_EQ(3, menu.focus);
+    manual.set_value({true, {}, {}}); menu.update(0);
+    D6R_REQUIRE_EQ(3, menu.focus); // Completion must not steal focus back after navigation.
+    menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+    D6R_REQUIRE_EQ(2, menu.focus); // Refresh re-enters traversal only once enabled.
+}
+
+D6R_TEST_CASE("NET-10 compact upper Refresh keeps caption clearance full scaled hitbox and cyclic focus") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    ReviewController controller(f);
+    f.selected();
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        menu.focus = 2; f.draw();
+        D6R_REQUIRE(f.frame(708, 516, 116, 28, 2));
+        D6R_REQUIRE(!f.frame(290, 66, 260, 36, 2));
+        D6R_REQUIRE(f.fill(28, 490, 794, 20, Color(170)));
+        bool caption = false;
+        for (const auto &quad: f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+            if (entry == f.font.fontCache.entryList.end() || entry->text != "Refresh") continue;
+            caption = true;
+            D6R_REQUIRE_EQ(16.0f, quad.vertices[2].y - quad.vertices[0].y);
+            D6R_REQUIRE_EQ(738.0f, quad.vertices[0].x);
+            D6R_REQUIRE_EQ(522.0f, quad.vertices[0].y);
+        }
+        D6R_REQUIRE(caption);
+        const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
+        const int tx = (size.first - int(850 * scale)) / 2, ty = (size.second - int(700 * scale)) / 2;
+        const auto click = [&](int x, int y) { f.click(tx + int(x * scale), ty + int(y * scale)); };
+        for (const auto &point: {std::pair{711, 519}, std::pair{821, 541}}) {
+            f.deliver({true, {f.row}, {}}); menu.focus = 0;
+            click(point.first, point.second);
+            D6R_REQUIRE_EQ(2, menu.focus); D6R_REQUIRE(menu.browser.loading());
+            f.deliver({true, {f.row}, {}}); D6R_REQUIRE_EQ(2, menu.focus);
+            D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
+        }
+        for (const auto &point: {std::pair{707, 530}, std::pair{825, 530}, std::pair{766, 515},
+                                std::pair{766, 545}, std::pair{288, 76}}) {
+            menu.focus = 0; click(point.first, point.second);
+            D6R_REQUIRE_EQ(0, menu.focus); D6R_REQUIRE(!menu.browser.loading());
+        }
+    }
+    menu.focus = 2;
+    for (int expected: {0, 1, 3, 6, 2}) {
+        controller.pulse(menu.focus == 0 ? SDL_CONTROLLER_BUTTON_DPAD_RIGHT : SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+        D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    for (int expected: {6, 3, 1, 0, 2}) {
+        controller.pulse(menu.focus == 0 ? SDL_CONTROLLER_BUTTON_DPAD_LEFT : SDL_CONTROLLER_BUTTON_DPAD_UP);
+        D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    std::promise<Client::DirectoryPage> pending;
+    menu.browser.pending = pending.get_future(); menu.focus = 3;
+    for (int expected: {6, 0, 3}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+    f.draw();
+    D6R_REQUIRE(f.frame(710, 518, 112, 24, 1));
+    // Loading and age-stale status keep full-size text clear of upper Refresh focus.
+    const auto statusClear = [&](const std::string &text) {
+        D6R_REQUIRE(f.text(text));
+        for (const auto &quad: f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+            if (entry == f.font.fontCache.entryList.end() || entry->text != text) continue;
+            D6R_REQUIRE_EQ(30.0f, quad.vertices[0].x);
+            D6R_REQUIRE_EQ(16.0f, quad.vertices[2].y - quad.vertices[0].y);
+            D6R_REQUIRE(quad.vertices[2].x <= 700);
+        }
+    };
+    statusClear("Refreshing... Previous results may be out of date.");
+    f.deliver({true, {f.row}, {}}); menu.browser.received -= std::chrono::seconds(31);
+    menu.focus = 2; f.draw(); statusClear("Directory unavailable. Previous results may be out of date.");
+}
+
+D6R_TEST_CASE("NET-10 single footer row keeps equal frames centered captions focus and full scaled targets") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    struct Action { int x, focus; const char *caption; };
+    const Action actions[] = {{28, 1, "Join selected"}, {296, 3, "Direct connect"}, {564, 6, "Back"}};
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
+        const int tx = (size.first - int(850 * scale)) / 2, ty = (size.second - int(700 * scale)) / 2;
+        const auto click = [&](int x, int y) { f.click(tx + int(x * scale), ty + int(y * scale)); };
+        const auto reset = [&] {
+            menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+            menu.browserSelection.reset(); menu.joinFromBrowser = false; menu.pointerHeld = false;
+            f.selected();
+        };
+        for (const auto &action: actions) {
+            reset(); menu.focus = action.focus; f.draw();
+            D6R_REQUIRE(f.fill(action.x, 68, 252, 32, Color(192)));
+            D6R_REQUIRE(f.frame(action.x - 2, 66, 256, 36, 2));
+            D6R_REQUIRE(!f.fill(560, 28, 256, 32, Color(192)));
+            bool caption = false;
+            for (const auto &quad: f.recorder.quads) {
+                const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                    [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+                if (entry == f.font.fontCache.entryList.end() || entry->text != action.caption) continue;
+                caption = true;
+                D6R_REQUIRE_EQ(16.0f, quad.vertices[2].y - quad.vertices[0].y);
+                D6R_REQUIRE_EQ(76.0f, quad.vertices[0].y);
+                D6R_REQUIRE_EQ(float(action.x + (252 - int(entry->text.size()) * 8) / 2), quad.vertices[0].x);
+                D6R_REQUIRE(quad.vertices[2].x < action.x + 252);
+            }
+            D6R_REQUIRE(caption);
+            // Corners outside the caption exercise the entire scaled rectangle.
+            for (int x: {action.x + 1, action.x + 251}) for (int y: {69, 99}) {
+                reset(); click(x, y);
+                D6R_REQUIRE_EQ(action.focus == 1 ? 2 : 0, menu.focus);
+                if (action.focus == 6) D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+                else {
+                    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+                    D6R_REQUIRE_EQ(action.focus == 1, menu.joinFromBrowser);
+                    D6R_REQUIRE_EQ(action.focus == 1, menu.browserSelection.has_value());
+                }
+            }
+        }
+        // Gaps, exterior edges and the former second row never dispatch actions.
+        for (const auto &point: {std::pair{24, 84}, std::pair{284, 84}, std::pair{292, 84},
+                                std::pair{552, 84}, std::pair{560, 84}, std::pair{820, 84},
+                                std::pair{154, 64}, std::pair{422, 104}, std::pair{690, 44}}) {
+            reset(); click(point.first, point.second);
+            D6R_REQUIRE_EQ(0, menu.focus);
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+            D6R_REQUIRE(!menu.browserSelection && !menu.browser.loading());
+        }
+        // Disabled Join retains its frame and cannot activate at either corner.
+        reset(); f.deliver({true, {}, {}}); menu.focus = 3;
+        for (const auto &point: {std::pair{29, 69}, std::pair{279, 99}}) {
+            click(point.first, point.second);
+            D6R_REQUIRE_EQ(3, menu.focus);
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+            D6R_REQUIRE(!menu.browserSelection);
+        }
+        menu.pointerHeld = false; f.draw(); D6R_REQUIRE(f.frame(28, 68, 252, 32, 1));
+        reset(); menu.focus = 2;
+        for (int expected: {0, 1, 3, 6, 2}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+        for (int expected: {6, 3, 1, 0, 2}) {
+            menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+            D6R_REQUIRE_EQ(expected, menu.focus);
+        }
+    }
+}
+
+D6R_TEST_CASE("NET-10 successful no-selection reason is blank while necessary explanations remain") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    const auto reasonLine = [&] {
+        std::string result;
+        for (const auto &quad: f.recorder.quads) {
+            // The mixed detail block wraps full identity and endpoint above the
+            // reason; observe its fixed semantic copy, not private-only y=156.
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+            if (entry != f.font.fontCache.entryList.end()
+                && (entry->text.find("Session is ") == 0 || entry->text.find("Admission is closed.") == 0
+                    || entry->text.find("Session listing expired.") == 0
+                    || entry->text.find("Refresh successfully before joining.") == 0)) {
+                D6R_REQUIRE(quad.vertices[0].y >= 130 && quad.vertices[2].y <= 290);
+                result += entry->text;
+            }
+        }
+        D6R_REQUIRE(!f.text("Select a session."));
+        return result;
+    };
+    for (bool populated: {false, true}) {
+        menu.selectedListing.clear(); f.deliver({true, populated ? std::vector{f.row} : std::vector<Client::DirectoryListing>{}, {}});
+        D6R_REQUIRE(reasonLine().empty()); D6R_REQUIRE(!menu.browserFocusEnabled(1));
+    }
+    menu.selectedListing = f.row.id;
+    f.deliver({true, {}, {}}); D6R_REQUIRE_EQ(std::string("Session is no longer listed. Refresh and reselect."), reasonLine());
+    for (const auto &test: {std::pair{"lobby", 15u}, std::pair{"closed", 2u}}) {
+        auto row = f.row; row.phase = test.first; row.players = test.second;
+        f.deliver({true, {row}, {}});
+        D6R_REQUIRE(reasonLine().find(test.second == 15 ? "Session is full." : "Admission is closed.") != std::string::npos);
+    }
+    auto expired = f.row; expired.expiresAt = 1; f.deliver({true, {expired}, {}});
+    D6R_REQUIRE_EQ(std::string("Session listing expired. Refresh before joining."), reasonLine());
+    f.deliver({true, {f.row}, {}}); menu.browser.received -= std::chrono::seconds(31); f.draw();
+    D6R_REQUIRE_EQ(std::string("Refresh successfully before joining. Availability unconfirmed."), reasonLine());
+    menu.selectedListing.clear(); f.deliver({});
+    D6R_REQUIRE_EQ(std::string("Refresh successfully before joining. Availability unconfirmed."), reasonLine());
+    std::promise<Client::DirectoryPage> pending; menu.browser.pending = pending.get_future(); f.draw();
+    D6R_REQUIRE_EQ(std::string("Refresh successfully before joining. Availability unconfirmed."), reasonLine());
+}
+
+D6R_TEST_CASE("NET-10 single-page pagination is absent from drawing pointer and traversal; multi-page group persists") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    f.selected();
+    const auto noPaging = [&] {
+        f.draw(); D6R_REQUIRE(!f.text("Sessions listed"));
+        D6R_REQUIRE(!f.text("Previous page") && !f.text("Next page") && !f.text("Page 1"));
+        D6R_REQUIRE(!menu.browserFocusEnabled(4) && !menu.browserFocusEnabled(5));
+    };
+    noPaging();
+    f.click(100, 120); f.click(600, 120); D6R_REQUIRE_EQ(0, menu.focus);
+    D6R_REQUIRE(!menu.browser.loading()); D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
+    for (int expected: {1, 3, 6, 2, 0}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+    for (int expected: {2, 6, 3, 1, 0}) {
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+        D6R_REQUIRE_EQ(expected, menu.focus);
+    }
+    ReviewController controller(f);
+    controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); D6R_REQUIRE_EQ(1, menu.focus);
+    f.deliver({true, {f.row}, "next-page"}); menu.focus = 0; f.draw();
+    D6R_REQUIRE(f.text("Page 1") && f.text("Previous page") && f.text("Next page"));
+    D6R_REQUIRE(!menu.browserFocusEnabled(4) && menu.browserFocusEnabled(5));
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(5, menu.focus);
+    // Actual navigation updates the bounded cursor stack; promise responses avoid a live backend.
+    menu.activate(); f.deliver({true, {f.row}, "last-page"});
+    D6R_REQUIRE(f.text("Page 2") && menu.browserFocusEnabled(4) && menu.browserFocusEnabled(5));
+    menu.focus = 5; menu.activate(); f.deliver({true, {f.row}, {}});
+    D6R_REQUIRE(f.text("Page 3") && f.text("Previous page") && f.text("Next page"));
+    D6R_REQUIRE(menu.browserFocusEnabled(4) && !menu.browserFocusEnabled(5));
+    menu.focus = 4; menu.activate(); f.deliver({true, {f.row}, {}});
+    D6R_REQUIRE(f.text("Page 2") && f.text("Previous page") && f.text("Next page"));
+    menu.focus = 4; menu.activate(); f.deliver({true, {f.row}, {}}); noPaging();
+    // A refresh can remove the last forward direction and normalize hidden focus.
+    f.deliver({true, {f.row}, "next-page"}); menu.focus = 5;
+    f.deliver({true, {f.row}, {}}); noPaging(); D6R_REQUIRE_EQ(0, menu.focus);
+}
+
+D6R_TEST_CASE("NET-10 failure hides cached rows and details rejects every browser join and recovers identity only") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    ReviewController controller(f);
+    f.selected(); f.deliver({});
+    const std::string error = "Directory unavailable. Direct connection and local play are still available.";
+    D6R_REQUIRE(f.text(error)); D6R_REQUIRE_EQ(2, menu.focus);
+    D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); // Retained internally, not rendered or interactive.
+    D6R_REQUIRE_EQ(std::size_t(1), menu.browser.result().listings.size());
+    D6R_REQUIRE(!menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.text("Session / endpoint") && !f.text("Password") && !f.text("Round 1"));
+    for (const auto &draw: f.recorder.draws) for (const auto &entry: f.font.fontCache.entryList) {
+        if (entry.texture != draw.material.getTexture()) continue;
+        D6R_REQUIRE(entry.text.find(f.row.sessionId) == std::string::npos);
+        D6R_REQUIRE(entry.text.find(f.row.endpoint.host) == std::string::npos);
+        D6R_REQUIRE(entry.text.find(f.row.mode) == std::string::npos);
+    }
+    f.click(100, 474); D6R_REQUIRE_EQ(2, menu.focus);
+    menu.selectBrowserRow(1); D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
+    menu.browserScroll = 1; menu.mouseWheelEvent(MouseWheelEvent(100, 474, 0, 1));
+    D6R_REQUIRE_EQ(1, menu.browserScroll); menu.browserScroll = 0;
+    for (int focus: {0, 1}) {
+        menu.focus = focus; f.key(SDLK_RETURN);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+        controller.pulse(SDL_CONTROLLER_BUTTON_A);
+        // Update normalizes unreachable disabled focus to a valid footer action.
+        // Confirm may refresh or open independent direct setup, never a browser-selected join.
+        D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.deliver({});
+    }
+    f.click(100, 80); menu.joinSelected();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.focus = 2;
+    for (int expected: {3, 6, 2}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+    // Loading a retry must not expose cached identity or enable joining before success.
+    std::promise<Client::DirectoryPage> retry; menu.browser.pending = retry.get_future(); f.draw();
+    D6R_REQUIRE(!f.text("Password") && !menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+    retry.set_value({true, {f.row}, {}}); menu.update(0); f.draw();
+    D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); D6R_REQUIRE(menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.text("Password") && f.text("Round 1"));
+    f.deliver({}); auto other = f.row; other.id = std::string(32, 'c'); other.sessionId = other.id;
+    f.deliver({true, {other}, {}});
+    D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); D6R_REQUIRE(!menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.text("Session is no longer listed. Refresh and reselect."));
+    f.selected(); menu.browser.received -= std::chrono::seconds(31); f.draw();
+    D6R_REQUIRE(f.text("Password") && f.text("Round 1"));
+    D6R_REQUIRE(menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+    menu.joinSelected(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    f.deliver({}); menu.focus = 3; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+    D6R_REQUIRE(!menu.browserSelection.has_value() && !menu.joinFromBrowser);
+}
+
+D6R_TEST_CASE("NET-10 empty and initial error retain headings and subdued inline status inside white bodies at desktop scales") {
+    BrowserPresentationFixture f;
+    const std::string empty = "No active sessions listed. You can host a session or connect directly.";
+    const std::string error = "Directory unavailable. Direct connection and local play are still available.";
+    for (const auto &size: {std::pair{850,700}, std::pair{1280,720}, std::pair{1920,1080}}) {
+        f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+        for (bool available: {true, false}) {
+            f.menu.focus = 0; f.deliver({available, {}, {}});
+            const auto &message = available ? empty : error;
+            D6R_REQUIRE(f.text(message) && !f.text(available ? error : empty));
+            D6R_REQUIRE(!f.fill(28,200,794,310,Color(192)));
+            D6R_REQUIRE(f.fill(28,292,794,198,Color::WHITE));
+            D6R_REQUIRE(f.fill(28,490,794,20,Color(170)));
+            for (const auto *heading: {"Session / endpoint", "Hosting", "Players", "Phase", "Access", "Admission"})
+                D6R_REQUIRE(f.text(heading));
+            D6R_REQUIRE_EQ(2, f.menu.focus); D6R_REQUIRE(f.frame(708,516,116,28,2));
+            D6R_REQUIRE(!f.text("Page 1") && !f.text("Sessions listed"));
+            unsigned count = 0;
+            for (const auto &quad: f.recorder.quads) {
+                const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                    [&](const auto &entry) { return entry.texture == quad.material.getTexture() && entry.text == message; });
+                if (entry == f.font.fontCache.entryList.end()) continue;
+                ++count; D6R_REQUIRE(quad.material.getColor() == Color(89)); // #595959 on white.
+                D6R_REQUIRE(quad.vertices[0].x == 36 && quad.vertices[2].x <= 818);
+                D6R_REQUIRE(quad.vertices[0].y == 470 && quad.vertices[2].y < 490);
+                D6R_REQUIRE(std::abs(quad.vertices[2].y - quad.vertices[0].y) == 16);
+                // View transform places the same complete line inside the physical list at each scale.
+                const auto left = quad.view * Vector(28,292); const auto right = quad.view * Vector(822,490);
+                for (unsigned i: {0u,2u}) {
+                    const auto point = quad.view * quad.vertices[i];
+                    D6R_REQUIRE(point.x >= left.x && point.x <= right.x);
+                    D6R_REQUIRE(point.y >= left.y && point.y <= right.y);
+                    D6R_REQUIRE(point.x >= 0 && point.x <= size.first && point.y >= 0 && point.y <= size.second);
+                }
+            }
+            D6R_REQUIRE_EQ(1u, count);
+            // The body has only its inset boundary, white fill, and status text:
+            // no row fill/selection, internal dividers, scrollbar, or action/focus frame.
+            for (const auto &quad: f.recorder.quads) {
+                if (quad.material.getTexture() != Texture{}) continue;
+                if (quad.vertices[0].x >= 28 && quad.vertices[0].y >= 292
+                        && quad.vertices[2].x <= 822 && quad.vertices[2].y <= 490)
+                    D6R_REQUIRE(quad.material.getColor() == Color::WHITE);
+            }
+            for (const auto &frame: f.recorder.frames)
+                D6R_REQUIRE(frame.position.x < 26 || frame.position.x >= 824
+                    || frame.position.y < 290 || frame.position.y >= 492);
+            for (const auto &line: f.recorder.lines) {
+                const auto interior = [](const Vector &point) {
+                    return point.x > 30 && point.x < 819 && point.y > 294 && point.y < 487;
+                };
+                D6R_REQUIRE(!interior(line.start) && !interior(line.end));
+            }
+        }
+    }
+    // Initial loading keeps the existing status allocation and table geometry, without false empty/error.
+    std::promise<Client::DirectoryPage> pending; f.menu.browser.pending = pending.get_future(); f.draw();
+    D6R_REQUIRE(f.text("Loading sessions...") && f.text("Session / endpoint"));
+    D6R_REQUIRE(!f.text(empty) && !f.text(error)); pending.set_value({}); f.menu.update(0);
+}
+
+D6R_TEST_CASE("NET-10 empty and unavailable body status cannot acquire pointer keyboard or controller selection") {
+    BrowserPresentationFixture f;
+    ReviewController controller(f);
+    for (bool available: {true, false}) {
+        f.menu.focus = 0;
+        f.deliver({available, {}, {}});
+        auto &menu = f.menu;
+        D6R_REQUIRE_EQ(2, menu.focus);
+        D6R_REQUIRE(!menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+        for (const auto &point: {std::pair{40,474}, std::pair{400,474}, std::pair{800,220}, std::pair{100,500}}) {
+            menu.mouseMotionEvent(MouseMotionEvent(point.first, point.second, 0, 0, 0));
+            f.click(point.first, point.second); f.click(point.first, point.second, false);
+            menu.mouseButtonEvent(MouseButtonEvent(point.first, point.second, SysEvent::MouseButton::LEFT,
+                SysEvent::ButtonState::PRESSED, true));
+            f.click(point.first, point.second, false);
+            menu.mouseWheelEvent(MouseWheelEvent(point.first, point.second, 0, -1));
+            D6R_REQUIRE_EQ(2, menu.focus); D6R_REQUIRE(menu.selectedListing.empty());
+            D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE(!menu.browser.loading());
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+            D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser);
+        }
+        for (int expected: {3,6,2}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
+        for (int expected: {6,3,2}) {
+            menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+            D6R_REQUIRE_EQ(expected, menu.focus);
+        }
+        for (int expected: {3,6,2}) {
+            controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN); D6R_REQUIRE_EQ(expected, menu.focus);
+        }
+        menu.selectBrowserRow(1); menu.joinSelected();
+        D6R_REQUIRE(menu.selectedListing.empty()); D6R_REQUIRE(!menu.browserSelection);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    }
 }
 
 D6R_TEST_CASE("NET-ENTRY modal geometry navigation controller and runtime-unavailable recovery") {
@@ -878,13 +1370,20 @@ D6R_TEST_CASE("NET-ENTRY production SDL queue hands off entry release shortcuts 
         D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
     };
     const auto queuePointer = [&](int x, int y, bool down) {
+        const auto &screen = application.video->getScreen();
+        float scale = main.menuScale;
+        int tx = main.menuTranslationX, ty = main.menuTranslationY;
+        if (Context::getCurrent().is(*main.networkMenu)) {
+            scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+            tx = (screen.getClientWidth() - int(850 * scale)) / 2;
+            ty = (screen.getClientHeight() - int(700 * scale)) / 2;
+        }
         SDL_Event event{};
         event.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
         event.button.button = SDL_BUTTON_LEFT;
         event.button.state = down ? SDL_PRESSED : SDL_RELEASED;
-        event.button.x = main.menuTranslationX + int(x * main.menuScale);
-        event.button.y = application.video->getScreen().getClientHeight()
-                         - main.menuTranslationY - int(y * main.menuScale);
+        event.button.x = tx + int(x * scale);
+        event.button.y = screen.getClientHeight() - ty - int(y * scale);
         D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
     };
     const auto queued = [&] { return SDL_HasEvents(SDL_KEYDOWN, SDL_MOUSEBUTTONUP) == SDL_TRUE; };
@@ -919,6 +1418,19 @@ D6R_TEST_CASE("NET-ENTRY production SDL queue hands off entry release shortcuts 
     frameEvents(); retained(); D6R_REQUIRE(!queued());
     D6R_REQUIRE(!application.input.isPressed(SDLK_F1) && !application.input.isPressed(SDLK_F2));
 
+    // Actual GL readback of the unpressed Back control, not a saved screenshot
+    // or manufactured menu. Compare this same control after ownership changes.
+    auto &renderer = application.video->getRenderer();
+    renderer.clearBuffers(); menu.render();
+    const auto initialEntry = renderer.makeScreenshot();
+    const auto &screen = application.video->getScreen();
+    const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+    const int tx = (screen.getClientWidth() - int(850 * scale)) / 2;
+    const int ty = (screen.getClientHeight() - int(700 * scale)) / 2;
+    const int backLeft = tx + int(276 * scale), backRight = tx + int(573 * scale);
+    const int backTop = screen.getClientHeight() - ty - int(321 * scale);
+    const int backBottom = screen.getClientHeight() - ty - int(292 * scale);
+
     queueKey(SDLK_ESCAPE); queueKey(SDLK_ESCAPE, false);
     frameEvents(); D6R_REQUIRE(Context::getCurrent().is(main)); D6R_REQUIRE(queued());
     frameEvents(); D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size());
@@ -937,9 +1449,50 @@ D6R_TEST_CASE("NET-ENTRY production SDL queue hands off entry release shortcuts 
     frameEvents(); D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size()); D6R_REQUIRE(!main.isClosed());
     queueKey(SDLK_F2); queueKey(SDLK_F2, false);
     frameEvents(); frameEvents(); retained();
+    renderer.clearBuffers(); menu.render();
+    const auto reopenedEntry = renderer.makeScreenshot();
+    for (int y = backTop; y < backBottom; ++y) for (int x = backLeft; x < backRight; ++x)
+        D6R_REQUIRE(initialEntry.at(y * initialEntry.getWidth() + x)
+                    == reopenedEntry.at(y * reopenedEntry.getWidth() + x));
+    D6R_REQUIRE(!menu.pointerHeld); // The release was correctly consumed by the parent, not this context.
     queueKey(SDLK_ESCAPE); queueKey(SDLK_ESCAPE, false); frameEvents(); frameEvents();
     D6R_REQUIRE_EQ(initialDepth, Context::contextStack.size());
     D6R_REQUIRE_EQ(std::string("7"), main.roundsTextbox->getText());
+}
+
+D6R_TEST_CASE("NET-ENTRY common Direct return retains one endpoint and clears scoped secrets") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 1;
+    f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.focus = 3; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join && !menu.browserSelection);
+    menu.address = "192.168.1.23"; menu.port = "34567";
+    menu.address = "operator.example.test"; menu.port = "45678";
+    menu.focus = 2; menu.enterText("A B");
+    D6R_REQUIRE(menu.password == "A B");
+    f.key(SDLK_ESCAPE);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry && menu.focus == 0);
+    D6R_REQUIRE(menu.password.empty());
+    // Even stale state must not cross entry into a different hosting authority.
+    menu.password = "synthetic-private-only"; menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
+    menu.browserSelection = Client::DirectoryListing{}; menu.joinFromBrowser = true;
+    menu.entryRuntimeAvailable = false; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+    D6R_REQUIRE(menu.browserSelection && menu.hostSetup.password);
+    menu.entryRuntimeAvailable = true; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.focus == 0);
+    D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser);
+    D6R_REQUIRE(menu.passwordFeedback.empty());
+    D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
+    D6R_REQUIRE_EQ(std::string("operator.example.test"), menu.address);
+    D6R_REQUIRE_EQ(std::string("45678"), menu.port);
+    D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    f.key(SDLK_ESCAPE); menu.focus = 1; f.key(SDLK_RETURN);
+    menu.focus = 3; f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.address == "operator.example.test" && menu.port == "45678");
+    D6R_REQUIRE(menu.password.empty());
 }
 
 D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choices and exposes recovery") {
@@ -1079,11 +1632,12 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
             f.draw();
             for (int y: {494,462,430}) D6R_REQUIRE(fill(224,y,586,24,Color::WHITE));
             D6R_REQUIRE_EQ(8,494-(462+24)); D6R_REQUIRE_EQ(8,462-(430+24));
-            D6R_REQUIRE(f.text("******"));
+            D6R_REQUIRE(f.text(menu.focus == 2 ? "******_" : "******"));
             D6R_REQUIRE_EQ(setup == NetworkMenu::SetupScreen::Join, f.text("Password required"));
             if (setup == NetworkMenu::SetupScreen::Join) {
                 const auto cue = textPosition("Password required");
-                D6R_REQUIRE_EQ(600.0f,cue.x); D6R_REQUIRE(cue.y+16 <= 430);
+                D6R_REQUIRE_EQ(50.0f,cue.x); D6R_REQUIRE_EQ(410.0f,cue.y);
+                D6R_REQUIRE(cue.y+16 <= 430); // Common required/optional help remains outside the inset.
                 D6R_REQUIRE(cue.x+f.font.getTextWidth("Password required",16) < 810);
                 menu.browserSelection->passwordRequired = false; f.draw();
                 D6R_REQUIRE(!f.text("Password required")); // Direct/optional setup is unchanged.
@@ -1117,6 +1671,311 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
         D6R_REQUIRE(ready && ready->kind == Network::Lifecycle::ParticipantActionKind::Ready);
         f.lobby(false,true); f.draw(); D6R_REQUIRE(fill(40,54,220,24,Color(192))); // Accepted retained layout unchanged.
     }
+}
+
+D6R_TEST_CASE("UX-NET-04 participant width top and settings bottom align without changing retained layout") {
+    ReviewMenuFixture f;
+    const auto fill = [&](int x, int y, int width, int height, Color color) {
+        return std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
+                && quad.vertices[0].x == x && quad.vertices[0].y == y
+                && quad.vertices[2].x == x + width && quad.vertices[2].y == y + height;
+        });
+    };
+    for (const auto &size: {std::pair{850,700}, std::pair{1280,720},
+                            std::pair{1280,900}, std::pair{1920,1080}}) {
+        f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+        for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true})
+            for (const auto &mode: {"Deathmatch", "Team deathmatch"}) {
+                f.lobby(host, retained);
+                f.menu.runtime.current.publicSession = dedicated;
+                f.menu.runtime.current.endpoint = {"operator.example.test", 26660};
+                f.menu.runtime.current.canonical->settings.mode = mode;
+                const auto before = lobbyConfigurationFingerprint(f.menu.runtime.snapshot());
+                f.draw();
+                const int top = dedicated ? 476 : retained ? (host ? 476 : 500) : 482;
+                const int bottom = retained ? 410 : 392;
+                const int width = retained ? 358 : 526;
+                D6R_REQUIRE(fill(40, bottom, width, top - bottom, Color(192)));
+                D6R_REQUIRE(fill(42, top - 40, width - 4, 20, Color(170)));
+                D6R_REQUIRE(fill(42, bottom + 2, width - 4, top - 42 - bottom, Color::WHITE));
+                if (!retained) {
+                    D6R_REQUIRE_EQ(dedicated ? 476 : 482, top); // Dedicated consequence keeps its header clearance.
+                    D6R_REQUIRE(fill(40, 196, width, 188, Color(192))); // Same left and right edges.
+                    D6R_REQUIRE(fill(578, 196, 238, 286, Color(192))); // Same bottom, no moved setting rows.
+                    D6R_REQUIRE(fill(42, 198, 522, 144, Color::WHITE)); // Roster allocation unchanged.
+                    D6R_REQUIRE_EQ(8, bottom - (196 + 188)); // Separate participant/roster panels.
+                    D6R_REQUIRE(fill(40, 164, 220, 24, Color(192))); // Ready stays below both panels.
+                } else {
+                    D6R_REQUIRE(fill(406, 350, 410, 132, Color(192))); // Compact result layout unchanged.
+                    D6R_REQUIRE(fill(40, 54, 220, 24, Color(192)));
+                }
+                D6R_REQUIRE_EQ(before, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+                D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+                D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
+                if (dedicated) {
+                    D6R_REQUIRE(f.text(host ? "You control this session. Leaving ends it for everyone."
+                                           : "The host controls this session. It ends when the host leaves."));
+                    D6R_REQUIRE(!f.text("Directory: Unavailable • Retry publication (F5)"));
+                }
+                if (!host) {
+                    D6R_REQUIRE(f.text("Host settings and authoritative roster order are read-only."));
+                    D6R_REQUIRE(f.text("Leave session") && !f.text("End session"));
+                    D6R_REQUIRE(!f.text("↻ Mode: ") && !f.text("Start match (disabled)"));
+                }
+            }
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 composed lobby keeps fifteen owned slots pointer targets and Guest permissions independent of layout") {
+    ReviewMenuFixture f;
+    const auto &controls = f.service.getControlsManager().get(0);
+    // Deterministic draw/input extremes, not live admission or native capture evidence.
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}})
+        for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true}) {
+            f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+            f.lobby(host, retained); f.menu.runtime.current.publicSession = dedicated;
+            auto &state = *f.menu.runtime.current.canonical;
+            state.players.clear(); f.menu.localPlayers.clear();
+            for (auto &participant: state.participants) participant.ownedPlayerIds.clear();
+            const auto local = host ? 1u : 2u;
+            for (unsigned slot = 0; slot < 15; ++slot) {
+                Network::Replication::PlayerState player;
+                player.playerId = 101 + slot; player.ownerParticipantId = local;
+                player.rosterPosition = slot; player.displayName = "Slot " + std::to_string(slot + 1);
+                state.players.push_back(player); state.participants[host ? 0 : 1].ownedPlayerIds.push_back(player.playerId);
+                f.menu.localPlayers.push_back({player.displayName, &controls, controls.getDescription()});
+            }
+            f.menu.runtime.players = f.menu.localPlayers;
+            f.menu.runtime.sampledActions.resize(15);
+            const auto fingerprint = lobbyConfigurationFingerprint(f.menu.runtime.snapshot());
+            const auto click = [&](int x, int y) {
+                const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
+                const int tx = (size.first - int(850 * scale)) / 2, ty = (size.second - int(700 * scale)) / 2;
+                f.menu.pointerHeld = false;
+                f.click(tx + int(x * scale), ty + int(y * scale));
+                f.click(tx + int(x * scale), ty + int(y * scale), false);
+            };
+            for (unsigned slot = 0; slot < 15; ++slot) {
+                f.menu.focus = slot * 2; f.menu.syncLobbyScroll(f.menu.runtime.snapshot()); f.draw();
+                if (retained) {
+                    D6R_REQUIRE(f.text("Person: Slot " + std::to_string(slot + 1)));
+                    D6R_REQUIRE(f.frame(46, 362, 180, 22, 2));
+                    D6R_REQUIRE(f.text("State: Completed") && f.text("PgUp/PgDn • ←/→"));
+                    click(230, 370);
+                } else {
+                    const int first = std::min(f.menu.setupScroll, 9);
+                    const int row = 322 - (static_cast<int>(slot) - first) * 24;
+                    D6R_REQUIRE(row >= 202 && row <= 322);
+                    D6R_REQUIRE(f.text("Slot " + std::to_string(slot + 1)));
+                    D6R_REQUIRE(f.frame(164, row - 5, 184, 24, 2));
+                    click(360, row + 3);
+                }
+                D6R_REQUIRE_EQ(static_cast<int>(slot * 2 + 1), f.menu.focus);
+                D6R_REQUIRE_EQ(fingerprint, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+            }
+            if (!host) {
+                f.menu.runtime.pendingHostCommands.clear(); f.menu.runtime.pendingGuestCommands.clear();
+                click(retained ? 420 : 600, retained ? 448 : 438); // A host-only Mode row is inert for Guest.
+                D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty() && f.menu.runtime.pendingGuestCommands.empty());
+                D6R_REQUIRE_EQ(fingerprint, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
+                f.draw(); D6R_REQUIRE(f.text("Leave session") && !f.text("End session"));
+                D6R_REQUIRE(!f.text("↻ Mode: ") && !f.text("Directory: Unavailable • Retry publication (F5)"));
+            }
+        }
+}
+
+D6R_TEST_CASE("UX-NET-04 aligned participant body contains maximum membership at both scroll extremes") {
+    ReviewMenuFixture f;
+    for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true}) {
+        f.lobby(host, retained);
+        f.menu.runtime.current.publicSession = dedicated;
+        auto &state = *f.menu.runtime.current.canonical;
+        state.participants.clear();
+        for (unsigned index = 0; index < 15; ++index)
+            state.participants.push_back({index + 1, index == 0,
+                Network::Replication::ConnectionState::Connected, false, {101 + index}});
+        for (unsigned scroll: {0, 7, 14}) {
+            f.menu.setupScroll = scroll;
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawPlayers(state, host, dedicated);
+            const unsigned visible = retained && (host || dedicated) ? 1 : 2;
+            std::size_t columns = 0;
+            for (const auto &quad: f.recorder.quads) {
+                if (quad.material.getTexture() == Texture{}) continue;
+                ++columns;
+                // All four textual columns fit the white body, not its fixed heading.
+                D6R_REQUIRE(quad.vertices[0].y >= (retained ? 412 : 394));
+                D6R_REQUIRE(quad.vertices[2].y <= (retained ? (host || dedicated ? 434 : 458) : dedicated ? 434 : 440));
+            }
+            D6R_REQUIRE_EQ(std::size_t(visible * 4), columns);
+            if (scroll == 14) D6R_REQUIRE(f.text("Guest 15"));
+        }
+    }
+}
+
+D6R_TEST_CASE("UX-NET-04 wheel handler reaches every participant in three and fifteen person lobbies") {
+    ReviewMenuFixture f;
+    for (unsigned count: {3, 15}) for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true}) {
+        f.lobby(host, retained);
+        f.menu.runtime.current.publicSession = dedicated;
+        auto &state = *f.menu.runtime.current.canonical;
+        const auto examplePlayer = state.players.front();
+        state.participants.clear(); state.players.clear();
+        for (unsigned index = 0; index < count; ++index) {
+            state.participants.push_back({index + 1, index == 0,
+                index % 2 ? Network::Replication::ConnectionState::Reconnecting
+                          : Network::Replication::ConnectionState::Connected, false, {101 + index}});
+            auto player = examplePlayer;
+            player.playerId = 101 + index; player.ownerParticipantId = index + 1;
+            player.rosterPosition = index; player.displayName = "Person " + std::to_string(index + 1);
+            state.players.push_back(player);
+        }
+        const auto wheel = [&](int amount) {
+            f.menu.mouseWheelEvent(MouseWheelEvent(200, 420, 0, amount));
+            f.menu.syncLobbyScroll(f.menu.runtime.snapshot()); // Same production clamp after traversal/update.
+        };
+        const auto drawParticipants = [&] {
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawPlayers(state, host, dedicated); // Do not mistake a roster owner label for a participant row.
+        };
+        wheel(100); // Reset through input, not setupScroll injection.
+        D6R_REQUIRE_EQ(0, f.menu.setupScroll);
+        std::set<unsigned> seen;
+        for (unsigned step = 0; step < count; ++step) {
+            drawParticipants();
+            for (unsigned index = 0; index < count; ++index)
+                if (f.text(index == 0 ? "Host" : "Guest " + std::to_string(index + 1))) seen.insert(index);
+            wheel(-1);
+        }
+        D6R_REQUIRE_EQ(std::size_t(count), seen.size());
+        const int maximum = static_cast<int>(count) - (retained ? 1 : 2);
+        D6R_REQUIRE_EQ(maximum, f.menu.setupScroll);
+        wheel(-100); D6R_REQUIRE_EQ(maximum, f.menu.setupScroll);
+        drawParticipants(); D6R_REQUIRE(f.text("Guest " + std::to_string(count)));
+        wheel(100); D6R_REQUIRE_EQ(0, f.menu.setupScroll);
+        drawParticipants(); D6R_REQUIRE(f.text("Host"));
+        D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
+        D6R_REQUIRE(f.menu.runtime.pendingGuestCommands.empty());
+    }
+}
+
+D6R_TEST_CASE("NET-SOLO setup capacity and ready one-player lobby retain existing Start controls") {
+    ReviewMenuFixture f;
+    f.menu.setupScreen = NetworkMenu::SetupScreen::Host;
+    f.draw();
+    D6R_REQUIRE(f.text("Local players: 1 • Lobby 1–15 • Match 1–15"));
+    f.lobby();
+    auto &state = *f.menu.runtime.current.canonical;
+    state.participants.pop_back(); state.players.pop_back();
+    std::string reason;
+    D6R_REQUIRE(f.menu.startEligible(f.menu.runtime.snapshot(), reason));
+    D6R_REQUIRE(f.menu.confirmation == NetworkMenu::Confirmation::None);
+    state.participants.front().ready = false;
+    D6R_REQUIRE(!f.menu.startEligible(f.menu.runtime.snapshot(), reason));
+    D6R_REQUIRE(reason.find("to be ready") != std::string::npos);
+}
+
+D6R_TEST_CASE("NET-ADM waiting and final-round feedback stay contained and clear on authoritative transitions") {
+    ReviewMenuFixture f;
+    f.lobby(false);
+    auto &state = *f.menu.runtime.current.canonical;
+    f.video.screen = ScreenParameters(1280, 720, 24, 24, 0, false);
+    f.menu.runtime.current.journey = Client::NetworkJourney::Match;
+    state.phase = Network::Replication::Phase::ActiveRound;
+    state.currentRoundNumber = 2; state.completedRounds = 1; state.settings.roundLimit = 3;
+    state.score.players = {{101}, {102}}; state.score.ranking = {101, 102};
+    state.players[1].lifeState = Network::Replication::LifeState::Waiting;
+    f.draw();
+    D6R_REQUIRE(f.text("Your players join next round."));
+    D6R_REQUIRE(f.text("2. Lin  0 • Waiting"));
+    D6R_REQUIRE(f.text("Guest • LAN session • Connected"));
+    D6R_REQUIRE(f.text("Leave session"));
+    state.phase = Network::Replication::Phase::RoundSummary;
+    state.score.winner.noWinner = true;
+    for (const unsigned countdown: {360u, 300u}) {
+        state.roundEndCountdown = countdown;
+        f.draw(); D6R_REQUIRE(f.text("Your players join next round."));
+    }
+    state.phase = Network::Replication::Phase::ActiveRound; state.currentRoundNumber = 3;
+    state.score.winner.noWinner = false;
+    f.draw();
+    D6R_REQUIRE(f.text("Waiting for the next match."));
+    D6R_REQUIRE(!f.text("Your players join next round."));
+    state.phase = Network::Replication::Phase::RoundSummary;
+    f.draw();
+    D6R_REQUIRE(!f.text("Waiting for the next match.") && !f.text("Your players join next round."));
+    state.phase = Network::Replication::Phase::ActiveRound;
+    state.players[1].lifeState = Network::Replication::LifeState::Alive;
+    f.draw(); D6R_REQUIRE(!f.text("Waiting for the next match."));
+    D6R_REQUIRE(!f.text("2. Lin  0 • Waiting"));
+}
+
+D6R_TEST_CASE("NET-ADM ongoing and final browser and join contexts do not promise immediate play") {
+    BrowserPresentationFixture f;
+    for (const auto &phase: {"started", "final-round"}) {
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.row.phase = phase; f.selected();
+        const std::string expected = std::string(phase) == "started"
+            ? "Match in progress. Your players join next round if admitted."
+            : "Final round in progress. You may not play in this match if admitted.";
+        D6R_REQUIRE(f.row.joinable() && f.text(expected));
+        f.menu.browserSelection = f.row;
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        f.draw(); D6R_REQUIRE(f.text(expected));
+        f.menu.browserSelection.reset();
+        f.draw(); D6R_REQUIRE(!f.text("Round 1 in progress. You will play immediately if admitted."));
+    }
+}
+
+D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Refresh and single footer") {
+    BrowserPresentationFixture f;
+    const std::string confirmation = "The host confirms availability when you connect.";
+    const std::string reachability = "A listing does not guarantee reachability.";
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}, std::pair{1920, 1080}})
+    for (const auto &phase: {"started", "final-round"}) for (const bool pagination: {false, true}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        f.row.phase = phase;
+        const std::string context = std::string(phase) == "started"
+            ? "Match in progress. Your players join next round if admitted."
+            : "Final round in progress. You may not play in this match if admitted.";
+        f.deliver({true, {f.row}, pagination ? "cursor-next" : ""});
+        f.menu.selectedListing = f.row.id; f.menu.focus = pagination ? 5 : 0; f.draw();
+        D6R_REQUIRE(f.text(context));
+        D6R_REQUIRE(f.text(confirmation) && f.text(reachability));
+        std::vector<std::pair<float, float>> details;
+        for (const auto &draw: f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &entry) { return entry.texture == draw.material.getTexture(); });
+            if (entry == f.font.fontCache.entryList.end()) continue;
+            if (entry->text.find("Session: " + f.row.sessionId) != 0
+                && entry->text.find("Endpoint: ") != 0
+                && entry->text != context
+                && entry->text != confirmation && entry->text != reachability) continue;
+            const auto &quad = draw;
+            D6R_REQUIRE(quad.vertices[0].x >= 24 && quad.vertices[2].x <= 826);
+            D6R_REQUIRE(quad.vertices[0].y >= 130 && quad.vertices[2].y <= 290);
+            for (const auto &vertex: quad.vertices) {
+                const auto point = quad.view * vertex;
+                D6R_REQUIRE(point.x >= 0 && point.x <= size.first && point.y >= 0 && point.y <= size.second);
+            }
+            details.emplace_back(quad.vertices[0].y, quad.vertices[2].y);
+        }
+        D6R_REQUIRE_EQ(std::size_t(5), details.size()); // Separate full identity/mode and endpoint.
+        std::sort(details.begin(), details.end());
+        for (std::size_t index = 1; index < details.size(); ++index)
+            D6R_REQUIRE(details[index - 1].second <= details[index].first);
+        D6R_REQUIRE(f.fill(28, 68, 252, 32, Color(192)));
+        D6R_REQUIRE(f.fill(296, 68, 252, 32, Color(192)));
+        D6R_REQUIRE(f.fill(564, 68, 252, 32, Color(192)));
+        D6R_REQUIRE(f.fill(710, 518, 112, 24, Color(192)));
+        D6R_REQUIRE(!f.fill(560, 28, 256, 32, Color(192)));
+        D6R_REQUIRE(f.text("Refresh") && f.text("Direct connect") && f.text("Back"));
+        D6R_REQUIRE(f.menu.browserFocusEnabled(1));
+    }
+    f.menu.selectedListing.clear(); f.menu.focus = 0; f.draw();
+    D6R_REQUIRE(!f.text(confirmation));
 }
 
 D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
@@ -1166,29 +2025,728 @@ D6R_TEST_CASE("UX-NET round progress uses current authoritative round during act
     D6R_REQUIRE(!f.text("Rounds: 2|0"));
 }
 
+D6R_TEST_CASE("NET-JOIN-PUB common Direct has ordinary endpoint fields and preserves browser setup") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Entry; menu.focus = 1;
+    menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    menu.browser.pending.wait(); menu.browser.update(); // Complete the new entry-route request before fixture listings.
+    menu.focus = 3; menu.activate();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+    D6R_REQUIRE_EQ(std::string("127.0.0.1"), menu.address);
+    D6R_REQUIRE_EQ(std::string("26660"), menu.port);
+    D6R_REQUIRE_EQ(0, menu.focus);
+    D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    menu.moveFocus(-1);
+    D6R_REQUIRE_EQ(menu.setupFields() + int(menu.availablePersons.size()) + int(menu.localPlayers.size()) * 2 + 1, menu.focus);
+    menu.moveFocus(1); D6R_REQUIRE_EQ(0, menu.focus);
+    f.draw(); D6R_REQUIRE(f.text("Direct connection") && !f.text("Service type:"));
+    menu.address = "operator.example"; menu.port = "34567";
+    menu.moveFocus(1); menu.moveFocus(1);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    menu.enterText("synthetic-pilot-only");
+    D6R_REQUIRE(menu.password == "synthetic-pilot-only");
+    f.draw(); D6R_REQUIRE(f.text("Password:"));
+    D6R_REQUIRE(!f.text("synthetic-pilot-only"));
+    menu.enterText(" rejected whitespace");
+    std::string reason;
+    D6R_REQUIRE(menu.setupValid(reason));
+    D6R_REQUIRE(menu.password == "synthetic-pilot-only rejected whitespace");
+    menu.clearPassword(); menu.enterText(std::string(128, 'x'));
+    menu.enterText("x");
+    D6R_REQUIRE(!menu.passwordFeedback.empty() && menu.password.size() == 128);
+    menu.focus = 0; menu.address = "operator.example";
+    menu.textInputEvent(TextInputEvent("x"));
+    D6R_REQUIRE(menu.password.empty());
+    menu.focus = 2; menu.enterText("another-synthetic-value");
+    Client::DirectoryListing listing;
+    listing.id = std::string(32, 'a'); listing.sessionId = std::string(32, 'b');
+    listing.endpoint = {"192.168.1.23", 34567}; listing.phase = "first-round";
+    listing.players = 2; listing.capacity = 15; listing.passwordRequired = true;
+    listing.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    menu.browser.page = {true, {listing}, {}}; menu.selectedListing = listing.id;
+    menu.browser.received = std::chrono::steady_clock::now();
+    menu.joinSelected();
+    D6R_REQUIRE(menu.browserSelection && !menu.boundDedicated());
+    D6R_REQUIRE_EQ(listing.endpoint.host, menu.address);
+    D6R_REQUIRE_EQ(std::string("34567"), menu.port);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    D6R_REQUIRE_EQ(3, menu.setupFields());
+    f.draw(); D6R_REQUIRE(!f.text("Service type:") && !f.text("Dedicated service"));
+    menu.focus = 0; menu.moveFocus(-1);
+    D6R_REQUIRE_EQ(menu.setupFields() + static_cast<int>(menu.availablePersons.size())
+                   + static_cast<int>(menu.localPlayers.size()) * 2 + 1, menu.focus);
+    f.click(400, 536); D6R_REQUIRE(menu.browserSelection && !menu.boundDedicated());
+    D6R_REQUIRE(f.text("Round 1 in progress. You will play immediately if admitted."));
+    D6R_REQUIRE(!f.text("Invite:"));
+    menu.browser.page.listings.front().passwordRequired = false;
+    menu.joinSelected(); D6R_REQUIRE_EQ(menu.setupFields(), menu.focus);
+    menu.runtime.current.publicSession = true;
+    menu.runtime.current.host = true;
+    menu.runtime.current.journey = Client::NetworkJourney::Reconnecting;
+    menu.runtime.current.endpoint = {"localhost", 26660};
+    f.recorder.draws.clear();
+    menu.drawReconnectPanel(menu.runtime.snapshot(), 850, 700);
+    D6R_REQUIRE(f.text("HOST • RECONNECTING"));
+    D6R_REQUIRE(f.text("Reconnect to keep control. If time expires, the session ends."));
+    D6R_REQUIRE(f.text("End session"));
+}
+
+D6R_TEST_CASE("recording renderer retains interleaved UV and position geometry") {
+    Test::RecordingRenderer renderer;
+    const Vector p0(100, 200), p1(180, 200), p2(180, 216), p3(100, 216);
+    const Vector t0(0, 0), t1(1, 0), t2(1, 1), t3(0, 1);
+    renderer.quad(p0, t0, p1, t1, p2, t2, p3, t3, Material(Texture{}, Color::WHITE));
+    D6R_REQUIRE_EQ(180.0f, renderer.quads.front().vertices[2].x);
+    D6R_REQUIRE_EQ(216.0f, renderer.quads.front().vertices[2].y);
+    D6R_REQUIRE_EQ(1.0f, renderer.quads.front().uv[2].x);
+    D6R_REQUIRE_EQ(1.0f, renderer.quads.front().uv[2].y);
+    D6R_REQUIRE_EQ(180.0f, renderer.draws.front().right);
+}
+
+D6R_TEST_CASE("NET-DIR mixed selected dedicated setup locks endpoint and common Password focus follows protection") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+    row.endpoint = {"arena.example.test", 26660}; row.mode = "deathmatch"; row.phase = "idle";
+    row.hosting = "dedicated"; row.protection = "password"; row.passwordRequired = true; row.admission = "open"; row.capacity = 15;
+    row.expiresAt = 2000000000000;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+    menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+    f.draw();
+    for (const auto *heading: {"Hosting", "Players", "Phase", "Access", "Admission", "Dedicated", "Password", "Idle", "0 / 15"})
+        D6R_REQUIRE(f.text(heading));
+    D6R_REQUIRE(f.text("Ready empty session. Your role is confirmed only after admission."));
+    menu.joinSelected();
+    D6R_REQUIRE(menu.boundDedicated() && menu.focus == 2);
+    std::string reason; D6R_REQUIRE(!menu.setupValid(reason));
+    D6R_REQUIRE_EQ(3, menu.setupFields());
+    const auto endpoint = menu.address, port = menu.port;
+    menu.focus = 0; menu.enterText("tamper"); f.key(SDLK_BACKSPACE);
+    D6R_REQUIRE_EQ(endpoint, menu.address); D6R_REQUIRE_EQ(port, menu.port);
+    menu.focus = 2; menu.enterText("disposable-test-only");
+    f.draw(); D6R_REQUIRE(!f.text("disposable-test-only") && !f.text("↻"));
+    D6R_REQUIRE(f.text("Dedicated service • Selected from browser") && f.text("Address (locked):"));
+    for (int i = 0; i < 30; ++i) { menu.moveFocus(1); D6R_REQUIRE(menu.focus >= 2); }
+    for (int i = 0; i < 30; ++i) { menu.moveFocus(-1); D6R_REQUIRE(menu.focus >= 2); }
+    menu.focus = 2; menu.back();
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.password.empty());
+    D6R_REQUIRE_EQ(row.id, menu.selectedListing);
+    menu.joinSelected(); menu.enterText("disposable-test-only");
+    menu.enterDirectSetup();
+    D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser && menu.password.empty());
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    row.protection = "none"; row.passwordRequired = false;
+    menu.browser.page = {true, {row}, {}}; menu.joinSelected();
+    D6R_REQUIRE(menu.boundDedicated() && menu.focus == menu.setupFields());
+    D6R_REQUIRE(menu.setupValid(reason));
+    menu.focus = 2; menu.enterText(u8" unexpected é ");
+    D6R_REQUIRE(menu.password == u8" unexpected é "); // Never substitute the unlocked PAKE input.
+    menu.runtime.current.publicSession = true; menu.runtime.current.localParticipantId = 2;
+    menu.runtime.current.canonical = canonical(42, Network::Replication::Phase::Lobby);
+    menu.runtime.current.journey = Client::NetworkJourney::Lobby;
+    menu.runtime.applyCanonical(*menu.runtime.current.canonical);
+    menu.update(0); D6R_REQUIRE(menu.password.empty()); // Editable buffer only; worker owns channel state.
+}
+
+D6R_TEST_CASE("NET-PASS confirmed admission wipes editable state even when first GUI observation is recovery or terminal") {
+    using J = Client::NetworkJourney;
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (bool dedicated: {false, true}) for (bool updateFirst: {true, false})
+        for (auto firstSeen: {J::Reconnecting, J::HostEnded, J::Failure, J::Inactive}) {
+        menu.runtime.reset(); menu.clearPassword();
+        menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        menu.focus = 2; menu.enterText("editable before admission");
+        menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
+        menu.runtime.current.publicSession = dedicated;
+        menu.runtime.current.localParticipantId = 2;
+        menu.runtime.applyCanonical(canonical(91, Network::Replication::Phase::Lobby));
+        if (firstSeen == J::Inactive) menu.runtime.reset(); // Worker teardown may reset the snapshot before UI polls.
+        else { menu.runtime.current.journey = firstSeen; menu.runtime.current.canonical.reset(); }
+        if (updateFirst) menu.update(0);
+        else if (firstSeen == J::Inactive) menu.enterText("");
+        else { menu.focus = 0; menu.activate(); } // Event dispatch can precede update; no stale Retry/Edit secret.
+        D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
+        D6R_REQUIRE(!menu.runtime.takeConfirmedAdmission()); // Only a secret-free event was retained, now consumed.
+    }
+    for (auto neverAdmitted: {J::Inactive, J::Starting, J::Cancelling, J::Failure}) {
+        menu.runtime.reset(); menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        menu.focus = 2; menu.enterText("same context correction");
+        menu.runtime.current.journey = neverAdmitted;
+        menu.runtime.current.failure = "Connection not authorized.";
+        menu.update(0);
+        D6R_REQUIRE_EQ(std::string("same context correction"), menu.password);
+        menu.clearPassword();
+    }
+}
+
+D6R_TEST_CASE("NET-PASS actual Host and Direct endpoint edits erase password state but no-op or rejected events retain it") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (auto screen: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
+        menu.runtime.reset(); menu.setupScreen = screen; menu.joinFromBrowser = false; menu.browserSelection.reset();
+        menu.port = "26660"; menu.address = "127.0.0.1";
+        const auto count = menu.localPlayers.size();
+        const auto setPassword = [&] {
+            menu.focus = 2; menu.enterText(" retained é ");
+            menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
+        };
+        setPassword();
+        menu.enterText("\n"); // Rejected whole Password event leaves previous valid correction intact.
+        D6R_REQUIRE_EQ(std::string(" retained é "), menu.password); D6R_REQUIRE(menu.hostSetup.password);
+        menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 1;
+        menu.enterText(""); D6R_REQUIRE(!menu.password.empty());
+        f.key(SDLK_BACKSPACE);
+        D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password && menu.localPlayers.size() == count);
+        D6R_REQUIRE_EQ(std::string("2666"), menu.port);
+        setPassword(); menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 1;
+        menu.enterText("0"); D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
+        setPassword(); menu.port = "123456"; menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 1;
+        menu.enterText("7"); D6R_REQUIRE(!menu.password.empty() && menu.hostSetup.password); // No actual append at limit.
+        menu.port.clear(); f.key(SDLK_BACKSPACE); D6R_REQUIRE(!menu.password.empty()); // No actual removal.
+        menu.clearPassword();
+        if (screen == NetworkMenu::SetupScreen::Join) {
+            setPassword(); menu.focus = 0; menu.enterText("x");
+            D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password && menu.localPlayers.size() == count);
+        } else {
+            setPassword(); menu.hostAddressHighlight = 0; menu.activateListeningChoice();
+            D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password && menu.localPlayers.size() == count);
+        }
+    }
+}
+
+D6R_TEST_CASE("NET-DIR selected targets in both hosting modes stay read-only through correction and explicit Direct clears binding") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (bool dedicated: {false, true}) for (bool protectedSelection: {false, true}) {
+        menu.runtime.reset(); menu.clearPassword();
+        Client::DirectoryListing row;
+        row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+        row.endpoint = {"arena.example.test", 26660}; row.hosting = dedicated ? "dedicated" : "player-hosted";
+        row.protection = protectedSelection ? "password" : "none"; row.passwordRequired = protectedSelection;
+        row.phase = "lobby"; row.players = dedicated ? 0 : 1; row.capacity = 15; row.admission = "open";
+        row.expiresAt = 2000000000000;
+        menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+        menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+        menu.joinSelected();
+        D6R_REQUIRE(menu.boundSelection() && menu.setupFields() == 3);
+        D6R_REQUIRE_EQ(protectedSelection ? 2 : menu.setupFields(), menu.focus);
+        std::string reason;
+        D6R_REQUIRE_EQ(!protectedSelection, menu.setupValid(reason));
+        f.draw();
+        if (!dedicated && !protectedSelection) {
+            D6R_REQUIRE(f.text("Endpoint-only first contact does not authenticate host identity."));
+            D6R_REQUIRE(f.text("The host confirms availability when you connect."));
+        }
+        const auto localCount = menu.localPlayers.size();
+        menu.focus = 2; menu.enterText(" explicit correction ");
+        for (int field: {0, 1}) {
+            menu.focus = field; menu.enterText("tamper"); f.key(SDLK_BACKSPACE);
+            D6R_REQUIRE_EQ(row.endpoint.host, menu.address); D6R_REQUIRE_EQ(std::string("26660"), menu.port);
+            D6R_REQUIRE_EQ(std::string(" explicit correction "), menu.password);
+            D6R_REQUIRE(menu.browserSelection && menu.browserSelection->sessionId == row.sessionId);
+        }
+        menu.focus = 2;
+        for (int direction: {1, -1}) for (int step = 0; step < 30; ++step) {
+            menu.moveFocus(direction); D6R_REQUIRE(menu.focus >= 2);
+        }
+        for (const auto size: {std::pair{850,700}, std::pair{1280,720}, std::pair{1920,1080}}) {
+            f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
+            menu.focus = 2; f.draw();
+            D6R_REQUIRE(f.frame(224,494,586,24,1) && f.frame(224,462,586,24,1));
+            D6R_REQUIRE(f.text("Address (locked):") && f.text("Port (locked):"));
+            D6R_REQUIRE(f.text(dedicated ? "Dedicated service • Selected from browser" : "Player-hosted session • Selected from browser"));
+            D6R_REQUIRE(!f.text("↻") && !f.text("The first admitted participant controls the session."));
+            if (!dedicated) {
+                D6R_REQUIRE(f.text("Session: " + row.sessionId));
+                D6R_REQUIRE(50 + f.font.getTextWidth("Local players: 15 • Lobby 1–15 • Match 2–15", 16) <= 470 - 8);
+                D6R_REQUIRE(470 + f.font.getTextWidth("Session: " + row.sessionId, 16) <= 810);
+                D6R_REQUIRE(!f.text("The service confirms identity, availability, and your role when you connect."));
+                const float scale = std::min(1.35f, std::min(float(size.first)/850, float(size.second)/700));
+                const int tx = (size.first-int(850*scale))/2, ty = (size.second-int(700*scale))/2;
+                for (int y: {506,474}) {
+                    f.click(tx+int(300*scale), ty+int(y*scale)); menu.pointerHeld = false;
+                    D6R_REQUIRE_EQ(2, menu.focus);
+                }
+            }
+        }
+        menu.runtime.current.journey = Client::NetworkJourney::Starting;
+        menu.back(); D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Cancelling);
+        menu.runtime.reset(); // Completed never-admitted cancellation; binding is UI-owned and unchanged.
+        D6R_REQUIRE(menu.boundSelection() && menu.password == " explicit correction ");
+        menu.runtime.current.journey = Client::NetworkJourney::Failure;
+        menu.runtime.current.publicSession = dedicated;
+        menu.runtime.current.failure = "Connection not authorized.";
+        menu.focus = 0; menu.activate();
+        D6R_REQUIRE(menu.boundSelection() && menu.focus == 2 && menu.password == " explicit correction ");
+        D6R_REQUIRE_EQ(localCount, menu.localPlayers.size());
+        menu.back(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.password.empty());
+        D6R_REQUIRE_EQ(row.id, menu.selectedListing);
+        menu.enterDirectSetup();
+        D6R_REQUIRE(!menu.browserSelection && !menu.joinFromBrowser && !menu.boundSelection());
+        D6R_REQUIRE_EQ(0, menu.focus); menu.enterText("x"); // Only independent Direct regains target editing.
+        D6R_REQUIRE(menu.password.empty());
+    }
+}
+
+D6R_TEST_CASE("NET-DIR bound metadata overflow reduces body rows and changed selection permits only browser recovery") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+    row.endpoint = {std::string(63, 'a') + "." + std::string(63, 'b') + "." + std::string(63, 'c') + "." + std::string(61, 'd'), 65535};
+    row.hosting = "dedicated"; row.protection = "password"; row.passwordRequired = true; row.admission = "open"; row.phase = "idle";
+    row.capacity = 15; row.expiresAt = 2000000000000;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+    menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+    menu.joinSelected();
+    D6R_REQUIRE(menu.setupVisibleRows() < 4 && menu.setupVisibleRows() > 0);
+    D6R_REQUIRE_EQ(std::size_t(6), menu.boundContextLines().size());
+    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.draw(); D6R_REQUIRE(f.text("Back") && f.text("Password required"));
+        D6R_REQUIRE(f.text("The service confirms availability and your role when you connect."));
+    }
+    auto &state = menu.runtime.current;
+    state.journey = Client::NetworkJourney::Failure; state.publicSession = true;
+    state.failure = "Connection not authorized.";
+    menu.focus = 0; menu.activate();
+    D6R_REQUIRE(menu.boundDedicated() && menu.focus == 2);
+    D6R_REQUIRE_EQ(row.endpoint.host, menu.address);
+    state.journey = Client::NetworkJourney::Failure; state.publicSession = true;
+    state.selectedSessionChanged = true; state.failure = "Selected session changed. Return to the browser and refresh.";
+    menu.focus = 0; menu.moveFocus(1); D6R_REQUIRE_EQ(0, menu.focus);
+    f.draw(); D6R_REQUIRE(f.text("Return to browser") && !f.text("Retry"));
+    menu.activate(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+}
+
+#if defined(__linux__) && defined(D6R_DEDICATED_SERVICE)
+D6R_TEST_CASE("NET-08 actual selected dedicated password rejection retains unknown role and omits startup advice") {
+    using namespace std::chrono_literals;
+    namespace fs = std::filesystem;
+    ReviewMenuFixture fixture;
+    auto &menu = fixture.menu;
+    const auto port = unusedLoopbackPort();
+    const auto root = fs::temp_directory_path() / ("d6r-net08-password-" + std::to_string(::getpid()) + "-" + std::to_string(port));
+    D6R_REQUIRE(fs::create_directory(root));
+    struct RemoveRoot {
+        fs::path path;
+        ~RemoveRoot() { std::error_code ignored; fs::remove_all(path, ignored); }
+    } removeRoot{root};
+    fs::permissions(root, fs::perms::owner_all);
+    const auto passwordFile = root / "password";
+    { std::ofstream output(passwordFile); output << "correct-disposable-fixture"; D6R_REQUIRE(output.good()); }
+    fs::permissions(passwordFile, fs::perms::owner_read | fs::perms::owner_write);
+    Server::ServerConfig config;
+    config.dedicated = config.transportEnabled = config.passwordFileProvided = true;
+    config.localPlayers = 0; config.listenEndpoint = {"127.0.0.1", port};
+    config.resourcePath = D6R_TEST_RESOURCE_DIR;
+    config.passwordFile = passwordFile.string(); config.readinessSocket = (root / "ready.sock").string();
+    std::atomic<bool> stop{false}, listenerReady{false};
+    std::atomic<unsigned> commits{0};
+    Server::AdmissionRuntimeDependencies dependencies;
+    dependencies.cancelled = [&] { return stop.load(); };
+    dependencies.lifecycleObserver = [&](const auto &event) {
+        if (event.stage == Server::AdmissionLifecycleStage::ListenerReady) listenerReady = true;
+        if (event.stage == Server::AdmissionLifecycleStage::TransactionCommitted) ++commits;
+        return true;
+    };
+    std::ostringstream serverOutput;
+    auto service = std::async(std::launch::async, [&] { return Server::HeadlessServer(config, dependencies).run(serverOutput); });
+    struct StopService {
+        std::atomic<bool> &stop; std::future<int> &service;
+        ~StopService() { stop = true; if (service.valid()) service.wait(); }
+    } stopService{stop, service};
+    const auto readyDeadline = std::chrono::steady_clock::now() + 10s;
+    bool ready = false;
+    while (!ready && std::chrono::steady_clock::now() < readyDeadline) {
+        ready = listenerReady && Server::DedicatedReadiness::check(config.readinessSocket);
+        if (!ready) std::this_thread::sleep_for(5ms);
+    }
+    D6R_REQUIRE(ready);
+    // Selected-listing UI fixture; the service, PAKE exchange and password
+    // rejection are real. No failure, admission, hosting role or crypto result
+    // is injected. This is routine behavioral evidence, not a capture route.
+    Client::DirectoryListing row;
+    row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+    row.endpoint = config.listenEndpoint; row.hosting = "dedicated"; row.phase = "idle";
+    row.passwordRequired = true; row.protection = "password"; row.admission = "open";
+    row.capacity = 15; row.expiresAt = 2000000000000;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+    menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+    menu.joinSelected();
+    menu.enterText("incorrect-disposable-fixture");
+    menu.focus = menu.setupFields() + static_cast<int>(menu.availablePersons.size())
+        + static_cast<int>(menu.localPlayers.size()) * 2;
+    menu.activate();
+    const auto failureDeadline = std::chrono::steady_clock::now() + 10s;
+    while (menu.runtime.snapshot().journey != Client::NetworkJourney::Failure
+           && std::chrono::steady_clock::now() < failureDeadline) {
+        menu.update(.005f); std::this_thread::sleep_for(5ms);
+    }
+    menu.update(0);
+    const auto failure = menu.runtime.snapshot();
+    D6R_REQUIRE(failure.journey == Client::NetworkJourney::Failure);
+    D6R_REQUIRE_EQ(std::string("Connection not authorized."), failure.failure);
+    D6R_REQUIRE(!failure.publicSession && !failure.host && !failure.localParticipantId && !failure.canonical);
+    D6R_REQUIRE_EQ(0u, commits.load());
+    fixture.draw();
+    D6R_REQUIRE(fixture.text("Connection not authorized."));
+    D6R_REQUIRE(!fixture.text("Check that the host session is running and the endpoint is correct."));
+    D6R_REQUIRE(!fixture.text("Retry") && !fixture.text("Retry unavailable"));
+    D6R_REQUIRE(fixture.text("Edit setup") && fixture.text("Return to browser"));
+    D6R_REQUIRE_EQ(0, menu.focus);
+    D6R_REQUIRE(fixture.frame(313, 268, 224, 38, 2));
+    menu.activate();
+    D6R_REQUIRE(menu.boundDedicated() && menu.focus == 2);
+    D6R_REQUIRE_EQ(row.endpoint.host, menu.address);
+    D6R_REQUIRE_EQ(std::to_string(port), menu.port);
+    D6R_REQUIRE_EQ(row.sessionId, menu.browserSelection->sessionId);
+    D6R_REQUIRE(!menu.runtime.snapshot().publicSession && !menu.runtime.snapshot().host);
+    stop = true;
+    D6R_REQUIRE(service.wait_for(5s) == std::future_status::ready);
+    D6R_REQUIRE_EQ(0, service.get());
+}
+#endif
+
+D6R_TEST_CASE("DIRUX01 bound four five six context lines contain full row focus and pointer extents") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    const auto &controls = f.service.getControlsManager().get(0);
+    const std::vector<std::string> hosts{
+        std::string(63, 'a') + "." + std::string(9, 'b'),
+        std::string(63, 'a') + "." + std::string(20, 'b'),
+        std::string(63, 'a') + "." + std::string(63, 'b') + "." + std::string(63, 'c') + "." + std::string(61, 'd')
+    };
+    const auto clickCanvas = [&](int x, int y) {
+        const auto &screen = f.video.getScreen();
+        const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+        f.click((screen.getClientWidth() - int(850 * scale)) / 2 + int(x * scale),
+                (screen.getClientHeight() - int(700 * scale)) / 2 + int(y * scale));
+        menu.pointerHeld = false;
+    };
+    for (std::size_t context = 0; context < hosts.size(); ++context) {
+        Client::DirectoryListing row;
+        row.id = std::string(32, 'a'); row.sessionId = Client::directorySessionId(42);
+        row.hosting = "dedicated"; row.protection = "password"; row.passwordRequired = true; row.admission = "open"; row.phase = "idle";
+        row.endpoint = {hosts[context], 65535}; row.capacity = 15; row.expiresAt = 2000000000000;
+        menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+        menu.browser.page = {true, {row}, {}}; menu.selectedListing = row.id;
+        menu.browser.received = menu.browser.requested = std::chrono::steady_clock::now();
+        menu.joinSelected(); D6R_REQUIRE(menu.boundDedicated());
+        D6R_REQUIRE_EQ(context + 4, menu.boundContextLines().size());
+        for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+            f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+            menu.localPlayers.clear(); menu.availablePersons.clear();
+            for (unsigned slot = 0; slot < 15; ++slot) {
+                const auto name = "Player " + std::to_string(slot + 1);
+                menu.localPlayers.push_back({name, &controls, controls.getDescription()}); menu.availablePersons.push_back(name);
+            }
+            const int base = menu.setupFields() + static_cast<int>(menu.availablePersons.size());
+            for (int slot = 0; slot < 15; ++slot) for (int action = 0; action < 2; ++action) {
+                menu.focus = base + slot * 2 + action; menu.syncSetupScroll(); f.draw();
+                const int baseline = menu.setupFirstRow() - (slot - menu.setupPlayersScroll) * 22;
+                D6R_REQUIRE(baseline - 4 >= 206); // Entire control, outer focus and pointer bounds, not only text baseline.
+                const int bodyTop = menu.setupFirstRow() + 18;
+                D6R_REQUIRE(baseline + 18 <= bodyTop);
+                D6R_REQUIRE(f.frame(action ? 722 : 428, baseline - 4, action ? 100 : 294, 22, 2));
+                D6R_REQUIRE(f.text("Back") && f.text("Password required"));
+                for (const auto &frame: f.recorder.frames)
+                    if (frame.color == Color::BLACK && (frame.position.x == 428 || frame.position.x == 722)) {
+                        D6R_REQUIRE(frame.position.y >= 206);
+                        D6R_REQUIRE(frame.position.y + frame.size.y <= bodyTop);
+                    }
+            }
+            menu.focus = base; menu.syncSetupScroll();
+            std::set<int> reached;
+            menu.focus = 2;
+            for (int step = 0; step < base + 32; ++step) {
+                f.key(SDLK_TAB);
+                if (menu.focus >= base && menu.focus < base + 30) reached.insert((menu.focus - base) / 2);
+            }
+            D6R_REQUIRE_EQ(std::size_t(15), reached.size());
+            reached.clear();
+            for (int step = 0; step < base + 32; ++step) {
+                menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+                D6R_REQUIRE(menu.focus >= 2); // Locked endpoint never becomes editable in reverse traversal.
+                if (menu.focus >= base && menu.focus < base + 30) reached.insert((menu.focus - base) / 2);
+            }
+            D6R_REQUIRE_EQ(std::size_t(15), reached.size());
+            // Exercise actual scaled pointer access at the first and scrolled last slot.
+            for (int slot: {0, 14}) {
+                menu.focus = base + slot * 2; menu.syncSetupScroll();
+                const int baseline = menu.setupFirstRow() - (slot - menu.setupPlayersScroll) * 22;
+                const auto count = menu.localPlayers.size();
+                clickCanvas(450, baseline + 6);
+                D6R_REQUIRE_EQ(base + slot * 2, menu.focus);
+                D6R_REQUIRE_EQ(count, menu.localPlayers.size());
+                clickCanvas(750, 205);
+                D6R_REQUIRE_EQ(count, menu.localPlayers.size());
+            }
+            menu.focus = base; menu.syncSetupScroll();
+            const auto count = menu.localPlayers.size();
+            clickCanvas(750, 205); // No below-inset Remove target.
+            D6R_REQUIRE_EQ(count, menu.localPlayers.size());
+            const int lastBaseline = menu.setupFirstRow() - (menu.setupVisibleRows() - 1) * 22;
+            D6R_REQUIRE(lastBaseline - 4 >= 206);
+            clickCanvas(750, lastBaseline + 6);
+            D6R_REQUIRE_EQ(count - 1, menu.localPlayers.size());
+        }
+    }
+}
+
+D6R_TEST_CASE("NET-PASS common password events preserve exact spaces Unicode and reject whole invalid insertion without sticky state") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (bool bound: {false, true}) {
+        menu.runtime.current = {};
+        menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        menu.joinFromBrowser = bound; menu.browserSelection.reset();
+        menu.address = "arena.example.test"; menu.port = "26660";
+        if (bound) {
+            menu.browserSelection = Client::DirectoryListing{};
+            menu.browserSelection->endpoint = {menu.address, 26660};
+            menu.browserSelection->sessionId = Client::directorySessionId(42);
+            menu.browserSelection->hosting = "dedicated";
+        }
+        menu.focus = 2; menu.clearPassword();
+        std::string reason;
+        menu.textInputEvent(TextInputEvent("AA"));
+        menu.textInputEvent(TextInputEvent(" "));
+        menu.textInputEvent(TextInputEvent("BB"));
+        D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == "AA BB");
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == "AA");
+        menu.clearPassword();
+        menu.enterText("A"); menu.enterText("\xC3\xA9"); menu.enterText("B");
+        D6R_REQUIRE(menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == "A");
+        for (const std::string &invalid: {std::string("\t"), std::string("\n"), std::string(1, '\x7f'), std::string("\xc2\x85"), std::string("\xc3")}) {
+            menu.clearPassword(); menu.enterText("A"); menu.enterText(invalid);
+            D6R_REQUIRE(menu.password == "A" && !menu.passwordFeedback.empty());
+            D6R_REQUIRE(menu.setupValid(reason));
+            menu.enterText("B"); D6R_REQUIRE(menu.password == "AB" && menu.passwordFeedback.empty());
+        }
+        menu.clearPassword(); menu.enterText(std::string(128, 'x'));
+        D6R_REQUIRE(menu.setupValid(reason));
+        menu.enterText("y"); menu.enterText("z"); D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == std::string(128, 'x') && !menu.passwordFeedback.empty());
+        f.key(SDLK_BACKSPACE); D6R_REQUIRE(menu.setupValid(reason));
+        menu.clearPassword(); menu.enterText(std::string(129, 'x')); menu.enterText("A");
+        D6R_REQUIRE(menu.setupValid(reason) && menu.password == "A");
+        menu.clearPassword(); menu.enterText("Case-Sensitive!_09");
+        D6R_REQUIRE(menu.setupValid(reason) && menu.password == "Case-Sensitive!_09");
+        D6R_REQUIRE(menu.localPlayers.size() == 1 && menu.address == "arena.example.test" && menu.port == "26660");
+        D6R_REQUIRE_EQ(bound, menu.browserSelection.has_value());
+    }
+}
+
+D6R_TEST_CASE("NET-PASS common explicit clipboard paste preserves UTF8 spaces and rejects controls or overflow atomically") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Join;
+    menu.address = "arena.example.test"; menu.port = "26660"; menu.focus = 2;
+    const auto paste = [&](const std::string &value) {
+        D6R_REQUIRE(SDL_SetClipboardText(value.c_str()) == 0);
+        menu.keyEvent(KeyPressEvent(SDLK_v, SysEvent::ButtonState::PRESSED, KMOD_CTRL));
+        D6R_REQUIRE(SDL_SetClipboardText("") == 0);
+    };
+    std::string reason;
+    for (const std::string &invalid: {std::string("A\tB"), std::string("\xc2\x85"), std::string("\xed\xa0\x80")}) {
+        menu.clearPassword(); menu.enterText("prefix"); paste(invalid); menu.enterText("Z");
+        D6R_REQUIRE(menu.setupValid(reason));
+        D6R_REQUIRE(menu.password == "prefixZ");
+    }
+    menu.clearPassword(); paste(std::string(129, 'x')); menu.enterText("Z");
+    D6R_REQUIRE(menu.setupValid(reason) && menu.password == "Z");
+    menu.clearPassword(); paste(u8" Exact-Case é ");
+    D6R_REQUIRE(menu.setupValid(reason) && menu.password == u8" Exact-Case é ");
+    menu.clearPassword(); D6R_REQUIRE(menu.password.empty() && menu.setupValid(reason));
+    menu.password.clear(); menu.enterText("private password with spaces");
+    D6R_REQUIRE(menu.password == "private password with spaces");
+}
+
+D6R_TEST_CASE("public reviewed headers failure recovery and full setup slots stay bounded at minimum viewports") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    const auto textQuads = [&](const std::string &prefix) {
+        std::vector<Test::RecordingRenderer::Quad> result;
+        for (const auto &quad : f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                    [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+            if (entry != f.font.fontCache.entryList.end() && entry->text.find(prefix) == 0) result.push_back(quad);
+        }
+        return result;
+    };
+    const auto canvasClick = [&](int x, int y) {
+        const auto &screen = f.video.getScreen();
+        const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
+        f.click((screen.getClientWidth() - int(850 * scale)) / 2 + int(x * scale),
+                (screen.getClientHeight() - int(700 * scale)) / 2 + int(y * scale));
+        menu.pointerHeld = false;
+    };
+    const std::string longestEndpoint = std::string(63, 'a') + "." + std::string(63, 'b')
+            + "." + std::string(63, 'c') + "." + std::string(61, 'd');
+    for (const auto &size : {std::pair{850, 700}, std::pair{1280, 720}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        for (bool host : {false, true}) {
+            f.lobby(host);
+            menu.runtime.current.publicSession = true;
+            menu.runtime.current.endpoint = {longestEndpoint, 65535};
+            f.draw();
+            const auto roles = textQuads(host ? "Host • Dedicated session" : "Guest • Dedicated session");
+            const auto endpoints = textQuads("Endpoint:");
+            D6R_REQUIRE_EQ(1u, roles.size()); D6R_REQUIRE_EQ(1u, endpoints.size());
+            D6R_REQUIRE_EQ(528.0f, roles.front().vertices[0].y);
+            D6R_REQUIRE_EQ(508.0f, endpoints.front().vertices[0].y);
+            D6R_REQUIRE(endpoints.front().vertices[2].x <= 816);
+            D6R_REQUIRE(f.text(host ? "You control this session. Leaving ends it for everyone."
+                                   : "The host controls this session. It ends when the host leaves."));
+            D6R_REQUIRE(!f.text("Directory: Listed") && !f.text("Directory: Unavailable • Retry publication (F5)"));
+        }
+
+        menu.runtime.current = {};
+        menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        menu.address = longestEndpoint; menu.port = "65535";
+        menu.password = "synthetic-review-only";
+        menu.availablePersons.clear(); menu.localPlayers.clear();
+        const auto &controls = f.service.getControlsManager().get(0);
+        for (int slot = 0; slot < 15; ++slot) {
+            const auto name = std::to_string(slot) + std::string(62, 'x');
+            menu.availablePersons.push_back(name);
+            menu.localPlayers.push_back({name, &controls, controls.getDescription()});
+        }
+        const int playerBase = menu.setupFields() + static_cast<int>(menu.availablePersons.size());
+        for (int slot = 0; slot < 15; ++slot) {
+            menu.focus = playerBase + slot * 2; menu.syncSetupScroll(); f.draw();
+            unsigned rows = 0;
+            for (const auto &quad : f.recorder.quads) {
+                if (quad.material.getTexture() == Texture{} && quad.material.getColor() == Color::WHITE
+                    && quad.vertices[0].x == 430 && quad.vertices[2].x == 720) {
+                    ++rows;
+                    D6R_REQUIRE(quad.vertices[0].y >= 206 && quad.vertices[2].y <= 382);
+                }
+            }
+            D6R_REQUIRE_EQ(8u, rows);
+            D6R_REQUIRE(f.frame(428, 362 - (slot - menu.setupPlayersScroll) * 22 - 2, 294, 22, 2));
+        }
+        D6R_REQUIRE_EQ(7, menu.setupPlayersScroll);
+        const auto count = menu.localPlayers.size();
+        canvasClick(760, 204); // Former clipped fifth row must have no pointer target.
+        D6R_REQUIRE_EQ(count, menu.localPlayers.size());
+
+        for (const std::string &reason : {std::string(Network::PublicSession::SecurityFailure),
+                                        std::string("Connection not authorized."),
+                                        std::string(Network::PublicSession::Maintenance),
+                                        std::string(Network::PublicSession::ControllerExpired)}) {
+            const bool terminal = reason == Network::PublicSession::Maintenance || reason == Network::PublicSession::ControllerExpired;
+            menu.runtime.current = {};
+            auto &snapshot = menu.runtime.current;
+            snapshot.publicSession = true; snapshot.journey = Client::NetworkJourney::Failure;
+            snapshot.failure = reason; snapshot.endpoint = {"localhost", 26660};
+            snapshot.retryBlockReason = terminal ? Client::NetworkRetryBlockReason::EndedSession : Client::NetworkRetryBlockReason::InvalidSetup;
+            if (terminal) { snapshot.canonical = canonical(91, Network::Replication::Phase::Lobby); snapshot.localParticipantId = 2; }
+            menu.focus = 0; f.draw();
+            D6R_REQUIRE(f.text(terminal ? "SESSION ENDED" : "CONNECTION FAILED"));
+            menu.joinFromBrowser = true; f.draw();
+            D6R_REQUIRE(f.text("Return to browser") && !f.text("Return to Network"));
+            D6R_REQUIRE_EQ(!terminal, !textQuads("Endpoint:").empty());
+            D6R_REQUIRE_EQ(terminal, f.text("Retry unavailable"));
+            D6R_REQUIRE(!f.text("Retry"));
+            D6R_REQUIRE(f.frame(313, 268, 224, 38, 2)); // Edit setup is focused.
+            const auto retainedFailure = snapshot;
+            canvasClick(100, 285);
+            D6R_REQUIRE(snapshot.journey == Client::NetworkJourney::Failure && menu.focus == 0);
+            f.key(SDLK_TAB); D6R_REQUIRE_EQ(1, menu.focus);
+            f.key(SDLK_TAB); D6R_REQUIRE_EQ(0, menu.focus);
+            f.key(SDLK_RETURN);
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join);
+            D6R_REQUIRE_EQ(reason == "Connection not authorized." ? 2 : 0, menu.focus);
+            menu.runtime.current = retainedFailure;
+            menu.password = "synthetic-review-only";
+            menu.focus = 1; menu.activate();
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.password.empty());
+        }
+
+        menu.runtime.current = {};
+        auto &snapshot = menu.runtime.current;
+        snapshot.publicSession = snapshot.host = true;
+        snapshot.journey = Client::NetworkJourney::Reconnecting;
+        snapshot.endpoint = {"localhost", 26660};
+        snapshot.canonical = canonical(91, Network::Replication::Phase::ActiveRound);
+        snapshot.localParticipantId = 1; snapshot.reconnectSeconds = 1;
+        menu.showConfirmation(NetworkMenu::Confirmation::End); f.draw();
+        std::string consequence;
+        for (const auto &quad : f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                    [&](const auto &item) { return item.texture == quad.material.getTexture(); });
+            if (entry != f.font.fontCache.entryList.end()
+                && (entry->text.find("Reconnect will stop.") == 0 || entry->text.find("reconnect time expires.") != std::string::npos)) {
+                if (!consequence.empty()) consequence += ' ';
+                consequence += entry->text;
+            }
+        }
+        D6R_REQUIRE_EQ(std::string("Reconnect will stop. The session ends when the service receives the request or the reconnect time expires."), consequence);
+        D6R_REQUIRE(f.text("End session for everyone?"));
+        menu.activate(); D6R_REQUIRE(menu.runtime.pendingGuestCommands.empty()); // Opening press remains protected.
+        menu.confirmationInputArmed = true; menu.activate();
+        D6R_REQUIRE_EQ(1u, menu.runtime.pendingGuestCommands.size());
+        const auto action = Network::Lifecycle::deserializeParticipantAction(menu.runtime.pendingGuestCommands.front());
+        D6R_REQUIRE(action && action->kind == Network::Lifecycle::ParticipantActionKind::Leave && action->participantId == 1);
+        menu.runtime.pendingGuestCommands.clear(); menu.runtime.current = {};
+    }
+}
+
 D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller Ready stay visible and blocked") {
     ReviewMenuFixture f;
     ReviewController controller(f);
     auto &menu = f.menu;
     for (auto screen: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
-        menu.setupScreen = screen; menu.port.clear(); menu.focus = 4;
+        menu.setupScreen = screen; menu.port.clear();
+        const int startFocus = menu.setupFields() + 2;
+        menu.focus = startFocus - 1;
         controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
-        D6R_REQUIRE_EQ(5, menu.focus); // Baseline traversal still reaches disabled Start/Connect.
+        D6R_REQUIRE_EQ(startFocus, menu.focus); // Traversal still reaches disabled Start/Connect.
         f.draw(); D6R_REQUIRE(f.frame(275, 82, 300, 32, 1)); D6R_REQUIRE(f.frame(273, 80, 304, 36, 2));
+        const std::string caption = screen == NetworkMenu::SetupScreen::Host ? "Start session" : "Connect";
+        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(caption + " (disabled)"));
         f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(425, 98);
         controller.pulse(SDL_CONTROLLER_BUTTON_A);
         D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
-        D6R_REQUIRE_EQ(5, menu.focus); D6R_REQUIRE(!menu.runtime.supervisor);
-        f.key(SDLK_UP); D6R_REQUIRE_EQ(4, menu.focus);
-        f.key(SDLK_TAB); D6R_REQUIRE_EQ(5, menu.focus);
+        D6R_REQUIRE_EQ(startFocus, menu.focus); D6R_REQUIRE(!menu.runtime.supervisor);
+        f.key(SDLK_UP); D6R_REQUIRE_EQ(startFocus - 1, menu.focus);
+        f.key(SDLK_TAB); D6R_REQUIRE_EQ(startFocus, menu.focus);
+        menu.port = "26660"; f.draw();
+        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.frame(275, 82, 300, 32, 1));
     }
     f.lobby(); menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
-    menu.focus = 13; f.key(SDLK_TAB); D6R_REQUIRE_EQ(14, menu.focus);
-    f.draw(); D6R_REQUIRE(f.frame(408, 54, 210, 24, 1)); D6R_REQUIRE(f.frame(406, 52, 214, 28, 2));
-    D6R_REQUIRE(f.text("Waiting for Guest 2 to be ready."));
-    f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(500, 66); controller.pulse(SDL_CONTROLLER_BUTTON_A);
-    D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
-    D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Lobby);
+    for (bool retained: {false, true}) {
+        menu.runtime.current.canonical->result.available = retained;
+        menu.focus = 13; f.key(SDLK_TAB); D6R_REQUIRE_EQ(14, menu.focus);
+        f.draw(); D6R_REQUIRE(f.frame(408, 54, 210, 24, 1)); D6R_REQUIRE(f.frame(406, 52, 214, 28, 2));
+        D6R_REQUIRE(f.text("Start match")); D6R_REQUIRE(!f.text("Start match (disabled)"));
+        D6R_REQUIRE(f.text("Waiting for Guest 2 to be ready."));
+        f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(500, 66); controller.pulse(SDL_CONTROLLER_BUTTON_A);
+        D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Lobby);
+        menu.runtime.current.canonical->participants[1].ready = true; f.draw();
+        D6R_REQUIRE(f.text("Start match")); D6R_REQUIRE(!f.frame(408, 54, 210, 24, 1));
+        menu.runtime.current.canonical->participants[1].ready = false;
+    }
 
     // Model a removed binding absent from the current control registry, through
     // the existing removal/rescan hook. This is not physical hotplug evidence.
@@ -1202,10 +2760,55 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
     D6R_REQUIRE(!menu.runtime.current.canonical->participants[1].ready);
 }
 
+D6R_TEST_CASE("UX-NET browser captions stay unchanged when join refresh and paging are disabled") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.setupScreen = NetworkMenu::SetupScreen::Browser;
+    const auto captions = [&] {
+        f.draw();
+        for (const auto &caption: {"Join selected", "Refresh", "Direct connect", "Back"}) {
+            D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(std::string(caption) + " (disabled)"));
+        }
+        const bool pagination = menu.browser.hasPrevious() || !menu.browser.result().nextCursor.empty();
+        for (const auto &caption: {"Previous page", "Next page"}) {
+            D6R_REQUIRE_EQ(pagination, f.text(caption));
+            D6R_REQUIRE(!f.text(std::string(caption) + " (disabled)"));
+        }
+    };
+    captions(); // Empty/unavailable: joining and paging are disabled.
+    D6R_REQUIRE(!menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.frame(28, 68, 252, 32, 1));
+    D6R_REQUIRE(!f.frame(28, 108, 252, 24, 1));
+    D6R_REQUIRE(!f.frame(560, 108, 256, 24, 1));
+    menu.focus = 1; f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(100, 76);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
+    D6R_REQUIRE(!menu.browserSelection);
+
+    Client::DirectoryListing row;
+    row.id = row.sessionId = std::string(32, 'a'); row.endpoint = {"127.0.0.1", 26660};
+    row.phase = "lobby"; row.mode = "deathmatch"; row.players = 1; row.capacity = 15;
+    row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
+    menu.browser.page = {true, {row}, "next-page"};
+    menu.browser.received = std::chrono::steady_clock::now(); menu.selectedListing = row.id;
+    captions(); D6R_REQUIRE(menu.browserFocusEnabled(1)); D6R_REQUIRE(menu.browserFocusEnabled(5));
+    D6R_REQUIRE(!f.frame(28, 68, 252, 32, 1));
+    D6R_REQUIRE(!f.frame(560, 108, 256, 24, 1));
+
+    std::promise<Client::DirectoryPage> pending;
+    menu.browser.pending = pending.get_future();
+    captions(); // Loading also disables Refresh, even with retained rows.
+    D6R_REQUIRE(!menu.browserFocusEnabled(1)); D6R_REQUIRE(!menu.browserFocusEnabled(2));
+    D6R_REQUIRE(!menu.browserFocusEnabled(5)); D6R_REQUIRE(f.frame(710, 518, 112, 24, 1));
+    menu.focus = 2; f.key(SDLK_RETURN); f.click(766, 530);
+    D6R_REQUIRE(menu.browser.loading()); D6R_REQUIRE(!menu.browserSelection);
+}
+
 D6R_TEST_CASE("UX-NET-04 settings retain bounded cycle values checkbox states and guest read-only presentation") {
     ReviewMenuFixture f;
-    for (bool retained: {false, true}) for (bool host: {true, false}) {
+    for (bool dedicated: {false, true}) for (bool retained: {false, true}) for (bool host: {true, false}) {
         f.lobby(host, retained);
+        f.menu.runtime.current.publicSession = dedicated;
         auto &state = *f.menu.runtime.current.canonical;
         state.settings.mode = "Team deathmatch"; state.settings.teamCount = 4;
         state.settings.friendlyFire = state.settings.assistance = state.settings.burnableTrees = true;
@@ -1257,6 +2860,78 @@ D6R_TEST_CASE("UX-NET-04 settings retain bounded cycle values checkbox states an
         f.draw();
         D6R_REQUIRE(!f.text("Friendly fire: On") && !f.text("↻ Teams: ") && !f.text("Teams: "));
     }
+}
+
+D6R_TEST_CASE("NET-03 removed service selector has no traversal or scaled pointer target") {
+    ReviewMenuFixture f;
+    ReviewController controller(f);
+    auto &menu = f.menu;
+    menu.enterDirectSetup();
+    menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+    D6R_REQUIRE_EQ(menu.setupFields() + int(menu.availablePersons.size()) + int(menu.localPlayers.size()) * 2 + 1, menu.focus);
+    menu.moveFocus(1); D6R_REQUIRE_EQ(0, menu.focus);
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
+        for (const int x: {230, 790}) {
+            const auto prior = menu.address;
+            menu.focus = 0;
+            const int px = (size.first - int(850 * scale)) / 2 + int(x * scale);
+            const int py = (size.second - int(700 * scale)) / 2 + int(536 * scale);
+            f.click(px, py); D6R_REQUIRE(menu.address == prior && menu.focus == 0);
+            f.click(px, py, false); D6R_REQUIRE(menu.address == prior);
+            D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        }
+        f.draw(); D6R_REQUIRE(!f.frame(222, 524, 590, 28, 2));
+    }
+    D6R_REQUIRE(menu.setupFields() == 3);
+    menu.focus = 0; menu.moveFocus(1); D6R_REQUIRE_EQ(1, menu.focus);
+    f.draw(); D6R_REQUIRE(!f.text("Service type:"));
+}
+
+D6R_TEST_CASE("NET-03 invalid endpoint paste stays invalid rather than normalizing into another destination") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    menu.enterDirectSetup();
+    {
+        menu.password = "synthetic-input-test";
+        for (const std::string &invalid: {std::string("https://operator.example"), std::string("operator.example/path"),
+                                         std::string("operator.example:26660"), std::string("operator example"),
+                                         std::string("::1"), std::string(254, 'a')}) {
+            menu.address.clear(); menu.port = "26660"; menu.focus = 0; menu.enterText(invalid);
+            D6R_REQUIRE_EQ(invalid, menu.address);
+            std::string reason; D6R_REQUIRE(!menu.setupValid(reason));
+            D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        }
+        for (const std::string &invalid: {std::string("+1"), std::string("12 34"), std::string("65536"),
+                                         std::string("0"), std::string("1234567")}) {
+            menu.address = "operator.example"; menu.port.clear(); menu.focus = 1; menu.enterText(invalid);
+            Network::Endpoint endpoint; D6R_REQUIRE(!menu.endpoint(endpoint));
+        }
+    }
+}
+
+D6R_TEST_CASE("dedicated controller uses current whole-row settings and guests cannot enqueue host commands") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    f.lobby(true); menu.runtime.current.publicSession = true;
+    menu.runtime.current.canonical->settings.mode = "Team deathmatch";
+    menu.hostSetup.localPlayerNames = {"Ada"}; menu.hostSetup.roundLimit = 99;
+    f.click(590, 312); // Same Round-limit row as the player-hosted layout.
+    D6R_REQUIRE_EQ(8, menu.focus); D6R_REQUIRE_EQ(1u, menu.hostSetup.roundLimit);
+    D6R_REQUIRE_EQ(1u, menu.runtime.pendingGuestCommands.size());
+    const auto command = Network::HostComposition::deserialize(menu.runtime.pendingGuestCommands.front());
+    D6R_REQUIRE(command && command->kind == Network::HostComposition::Kind::UpdateSetup && command->setup);
+    D6R_REQUIRE_EQ(1u, command->setup->roundLimit);
+    f.click(590, 312, false);
+    menu.keyEvent(KeyPressEvent(SDLK_RETURN, SysEvent::ButtonState::PRESSED, 0, true));
+    D6R_REQUIRE_EQ(1u, menu.runtime.pendingGuestCommands.size());
+    f.lobby(false); menu.runtime.current.publicSession = true;
+    menu.runtime.current.canonical->settings.mode = "Team deathmatch";
+    f.click(590, 312); D6R_REQUIRE_EQ(0, menu.focus);
+    D6R_REQUIRE_EQ(1u, menu.runtime.pendingGuestCommands.size());
+    f.draw(); D6R_REQUIRE(!f.text("↻ Mode: ") && f.text("Mode: "));
+    D6R_REQUIRE(!f.text("Directory: Unavailable • Retry publication (F5)"));
 }
 
 D6R_TEST_CASE("UX-NET-04 settings preserve whole-row press wrap toggles traversal and rejection") {
@@ -1429,7 +3104,8 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
                 D6R_REQUIRE(texts().find("Session is no longer listed.") != std::string::npos);
             }
             D6R_REQUIRE(texts().find("127.0.0.1:" + std::to_string(survivor.endpoint.port)
-                + " deathmatch " + survivor.sessionId.substr(28)) != std::string::npos);
+                ) != std::string::npos);
+            if (retainSelected) D6R_REQUIRE(texts().find("Session: " + survivor.sessionId + " • Mode: deathmatch") != std::string::npos);
             menu.focus = 0; menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
             D6R_REQUIRE_EQ(survivor.id, menu.selectedListing);
             D6R_REQUIRE(menu.browserFocusEnabled(1));
@@ -1438,7 +3114,7 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
         D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
         D6R_REQUIRE(texts().find("No active sessions listed") != std::string::npos);
         requestRefresh(automatic); deliver({true, {rows.front()}, {}});
-        D6R_REQUIRE(texts().find("127.0.0.1:25000 deathmatch aa10") != std::string::npos);
+        D6R_REQUIRE(texts().find("127.0.0.1:25000") != std::string::npos);
     }
     scrollToLast();
     auto reordered = rows;
@@ -1446,7 +3122,8 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     deliver({true, reordered, {}});
     D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
     D6R_REQUIRE_EQ(0, menu.browserScroll);
-    D6R_REQUIRE(texts().find("127.0.0.1:25024 deathmatch aa34") != std::string::npos);
+    D6R_REQUIRE(texts().find("127.0.0.1:25024") != std::string::npos);
+    D6R_REQUIRE(texts().find("Session: " + rows.back().sessionId + " • Mode: deathmatch") != std::string::npos);
     scrollToLast(); deliver({}); // Failed refresh retains data but disables joining.
     D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
     D6R_REQUIRE(!menu.browserFocusEnabled(1));
@@ -1467,11 +3144,11 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     D6R_REQUIRE(rendered.find("Page 1\n") != std::string::npos);
     D6R_REQUIRE(rendered.find("Previous page") < rendered.find("Join selected"));
     D6R_REQUIRE(rendered.find("Next page") < rendered.find("Join selected"));
-    for (int expected: {5, 1, 2, 3, 6, 0}) {
+    for (int expected: {5, 1, 3, 6, 2, 0}) {
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
         menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
     }
-    for (int expected: {6, 3, 2, 1, 5, 0}) {
+    for (int expected: {2, 6, 3, 1, 5, 0}) {
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
         menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
     }
@@ -1485,16 +3162,16 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     D6R_REQUIRE(rendered.find("Page 2\n") != std::string::npos);
     D6R_REQUIRE(rendered.find("127.0.0.1:25000") != std::string::npos);
     menu.focus = 0; menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
-    for (int expected: {4, 5, 1, 2, 3, 6, 0}) {
+    for (int expected: {4, 5, 1, 3, 6, 2, 0}) {
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
         menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
     }
     // Directional/controller traversal shares the same row -> paging -> footer order.
-    for (int expected: {4, 5, 1, 2, 3, 6, 0}) {
+    for (int expected: {4, 5, 1, 3, 6, 2, 0}) {
         menu.moveFocus(1); D6R_REQUIRE_EQ(expected, menu.focus);
     }
     menu.browser.received -= std::chrono::seconds(31);
-    for (int expected: {4, 2, 3, 6, 0}) {
+    for (int expected: {4, 3, 6, 2, 0}) {
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
         D6R_REQUIRE_EQ(expected, menu.focus); // stale Next and Join stay excluded
     }
@@ -1504,8 +3181,11 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     deliver({true, rows, {}});
     D6R_REQUIRE_EQ(0, menu.browserScroll);
     rendered = texts();
-    D6R_REQUIRE(rendered.find("Page 1\n") != std::string::npos);
+    D6R_REQUIRE(rendered.find("Page 1\n") == std::string::npos);
+    D6R_REQUIRE(rendered.find("Previous page") == std::string::npos);
+    D6R_REQUIRE(rendered.find("Next page") == std::string::npos);
     D6R_REQUIRE(rendered.find("127.0.0.1:25000") != std::string::npos);
+    deliver({true, rows, "next-page"}); rendered = texts(); // Paging bounds apply only to a visible group.
     const auto textBounds = [&](const std::string &prefix) {
         for (const auto &quad: recorder.quads) {
             const auto entry = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
@@ -1521,8 +3201,13 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     };
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Previous page").first);
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Next page").first);
-    D6R_REQUIRE(textBounds("Page 1").second < textBounds("LAN-first.").first);
-    D6R_REQUIRE(textBounds("Back").second < textBounds("Join selected").first);
+    D6R_REQUIRE(textBounds("Page 1").second < textBounds("A listing does not guarantee reachability.").first);
+    // Composed UX-NET-10-008 centers the captions in the same y=68, h=32 footer row.
+    for (const auto *caption: {"Join selected", "Direct connect", "Back"}) {
+        const auto bounds = textBounds(caption);
+        D6R_REQUIRE_EQ(76.0f, bounds.first);
+        D6R_REQUIRE_EQ(92.0f, bounds.second);
+    }
 }
 
 D6R_TEST_CASE("NET-ADM reviewed presenter uses authoritative per-player arrival age for every observer") {
@@ -1610,7 +3295,8 @@ D6R_TEST_CASE("NET-DIR browser selection blocks stale full closed and removed se
     D6R_REQUIRE_EQ(2, menu.focus);
     D6R_REQUIRE(menu.browserSelection && menu.browserSelection->id == row.id);
     menu.focus = 0; menu.textInputEvent(TextInputEvent("1"));
-    D6R_REQUIRE(!menu.browserSelection && menu.joinFromBrowser);
+    D6R_REQUIRE(menu.browserSelection && menu.joinFromBrowser && menu.boundSelection());
+    D6R_REQUIRE_EQ(row.endpoint.host, menu.address); // Only explicit browser -> Direct can unbind.
     menu.back(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
     menu.browser.page.listings.clear(); menu.joinSelected();
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
@@ -1647,7 +3333,7 @@ D6R_TEST_CASE("NET-DIR NET-PASS setup rosters retain scrolling and pointer remov
 D6R_TEST_CASE("PR83 capture flat bundle menu Host Join Retry and effective level plans start real matches") {
     using namespace std::chrono_literals;
     D6R_REQUIRE(!std::filesystem::exists("resources"));
-    D6R_REQUIRE(std::filesystem::is_regular_file("duel6r-server"));
+    D6R_REQUIRE(std::filesystem::is_regular_file("duel6r"));
     char name[] = "duel6r-flat-menu-tests";
     char *arguments[] = {name};
     Application application(1, arguments);
@@ -1689,7 +3375,7 @@ D6R_TEST_CASE("PR83 capture flat bundle menu Host Join Retry and effective level
         menu.lastJourney = Client::NetworkJourney::Inactive;
         menu.confirmation = NetworkMenu::Confirmation::None;
         menu.update(0);
-        menu.focus = 6; // Endpoint and password fields, one person, one control/remove pair, then Start/Connect.
+        menu.focus = menu.setupFields() + 3; // Fields, one person, one control/remove pair, then Start/Connect.
     };
     for (unsigned transitions = 0; transitions < 4; ++transitions) {
         const auto port = unusedLoopbackPort();
@@ -2202,7 +3888,21 @@ D6R_TEST_CASE("NET-PASS NET-ADM real protected direct and selected-session joins
         host.setReady(true); guest.setReady(true);
         D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
         host.startMatch();
-        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Match; }));
+        // Match also includes RoundSummary, and each client consumes updates
+        // independently. Capture only after both observe the same live round.
+        D6R_REQUIRE(pumpRuntimes(host, guest, arrival, 10s, [&] {
+            const auto hostState = host.snapshot();
+            const auto guestState = guest.snapshot();
+            return hostState.journey == Client::NetworkJourney::Match
+                    && guestState.journey == Client::NetworkJourney::Match
+                    && hostState.canonical && guestState.canonical
+                    && hostState.canonical->phase == Network::Replication::Phase::ActiveRound
+                    && guestState.canonical->phase == Network::Replication::Phase::ActiveRound
+                    && hostState.canonical->round && guestState.canonical->round
+                    && hostState.canonical->sessionId == guestState.canonical->sessionId
+                    && hostState.canonical->matchId == guestState.canonical->matchId
+                    && hostState.canonical->round->roundId == guestState.canonical->round->roundId;
+        }));
         const auto before = *host.snapshot().canonical;
         D6R_REQUIRE(before.phase == Network::Replication::Phase::ActiveRound && before.round);
         D6R_REQUIRE(arrival.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Arrival one"), player("Arrival two")},
@@ -2255,6 +3955,32 @@ D6R_TEST_CASE("NET-PASS real wrong selected session never allocates or admits a 
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
 }
 
+D6R_TEST_CASE("NET-DIR selected player-hosted identity rejects ended and restarted targets before authority for either protection") {
+    using namespace std::chrono_literals;
+    for (bool protectedSession: {false, true}) {
+        Client::NetworkSessionRuntime host, guest, unused;
+        const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+        Network::HostComposition::Setup setup;
+        setup.localPlayerNames = {"Host"}; setup.fixedLevel = "levels/duel_01.json";
+        setup.password = std::make_shared<Network::SessionPassword>(protectedSession ? "bound-private" : "");
+        D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        const auto selected = Client::directorySessionId(host.snapshot().canonical->sessionId);
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+        host.reset();
+        D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {player("Host")}));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        D6R_REQUIRE(Client::directorySessionId(host.snapshot().canonical->sessionId) != selected);
+        D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {player("Stale guest")}, setup.password, selected));
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] { return guest.snapshot().journey == Client::NetworkJourney::Failure; }));
+        D6R_REQUIRE(guest.snapshot().localParticipantId == 0 && !guest.snapshot().canonical);
+        D6R_REQUIRE(host.snapshot().canonical->players.size() == 1 && host.snapshot().canonical->participants.size() == 1);
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+    }
+}
+
 D6R_TEST_CASE("NET-PASS key lifetime exhaustion restores reserved protected players without respawn") {
     using namespace std::chrono_literals;
     Client::NetworkSessionRuntime host, guest, unused;
@@ -2292,6 +4018,39 @@ D6R_TEST_CASE("NET-PASS key lifetime exhaustion restores reserved protected play
     D6R_REQUIRE(pumpRuntimes(host, guest, unused, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
 }
 
+D6R_TEST_CASE("second jump oracle qualifies one-update observation skew without counting first stale or wrong-scope input") {
+    auto state = canonical(91, Network::Replication::Phase::ActiveRound);
+    state.matchId = 4; state.round = Network::Replication::RoundState{}; state.round->roundId = 7;
+    Network::Replication::PlayerState a, b;
+    a.playerId = 1; b.playerId = 2; a.positionY = b.positionY = 2 * 65536;
+    a.ownerParticipantId = 5; b.ownerParticipantId = 6;
+    auto highA = a, highB = b;
+    highA.actionMask = highB.actionMask = Network::Input::Jump;
+    highA.velocityY = highB.velocityY = 468591; highA.positionY = highB.positionY = 3 * 65536;
+    Test::SecondJumpObservation observation(91, 4, 7, a, b);
+    state.phaseTime = 18;
+    observation.observe(0, state, highA);
+    D6R_REQUIRE(observation.complete(0, true, 15));
+    D6R_REQUIRE(!observation.complete(1, true, 15));
+    // A's next valid canonical update has passed its short high-velocity pulse
+    // before B's tick18 arrives. Old latest(A)&&latest(B) is false at both
+    // observation turns although both produced valid same-edge witnesses.
+    auto lowA = highA; lowA.velocityY = 6 * 65536;
+    D6R_REQUIRE(!(highA.velocityY > 7 * 65536 && b.velocityY > 7 * 65536));
+    D6R_REQUIRE(!(lowA.velocityY > 7 * 65536 && highB.velocityY > 7 * 65536));
+    observation.observe(1, state, highB);
+    D6R_REQUIRE(observation.complete(0, true, 15) && observation.complete(1, true, 15));
+    D6R_REQUIRE(!observation.complete(0, false, 15)); // Rejected/stale/unconfirmed second sequence.
+    D6R_REQUIRE(!observation.complete(0, true, 19)); // Witness preceded the second applied edge.
+    D6R_REQUIRE(!observation.complete(0, true, 1)); // Later first jump cannot use an old edge.
+    Test::SecondJumpObservation wrong(91, 4, 7, a, b);
+    auto wrongOwner = highA; ++wrongOwner.ownerParticipantId;
+    wrong.observe(0, state, wrongOwner);
+    D6R_REQUIRE(!wrong.complete(0, true, 15));
+    ++state.round->roundId; wrong.observe(0, state, highA);
+    D6R_REQUIRE(!wrong.complete(0, true, 15));
+}
+
 D6R_TEST_CASE("network restoration production host and guest jump double jump and land without pose teleport") {
     using namespace std::chrono_literals;
     char name[] = "duel6r-restoration-jump-tests";
@@ -2326,6 +4085,10 @@ D6R_TEST_CASE("network restoration production host and guest jump double jump an
     auto guestControls = PlayerControls::keyboardControls("Guest QA", input,
             SDLK_a, SDLK_d, SDLK_w, SDLK_s, SDLK_f, SDLK_g, SDLK_h);
     Client::NetworkSessionRuntime host, guest, unused;
+#ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
+    Test::ObservedInput::begin();
+    struct EndInputObservation { ~EndInputObservation() { Test::ObservedInput::end(); } } endInputObservation;
+#endif
     Network::HostComposition::Setup setup;
     setup.localPlayerNames = {"Jump host"}; setup.mode = "Deathmatch";
     setup.fixedLevel = "levels/restoration.json"; setup.quickLiquid = false;
@@ -2379,11 +4142,31 @@ D6R_TEST_CASE("network restoration production host and guest jump double jump an
     const auto firstHost = checkedActor(host.snapshot());
     const auto firstGuest = checkedActor(guest.snapshot());
     input.setPressed(SDLK_UP, false); input.setPressed(SDLK_w, false);
+#ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
+    Test::ObservedInput::releaseFirstEdge();
+#endif
     D6R_REQUIRE(waitBoth([](const auto &actor) { return actor.actionMask == 0 && actor.velocityY > 0; }));
     input.setPressed(SDLK_UP, true); input.setPressed(SDLK_w, true);
+#ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
+    Test::ObservedInput::secondEdge();
+    const auto secondContext = host.snapshot();
+    D6R_REQUIRE(secondContext.canonical && secondContext.canonical->round);
+    Test::SecondJumpObservation secondJump(secondContext.canonical->sessionId, secondContext.canonical->matchId,
+                                          secondContext.canonical->round->roundId, firstHost, firstGuest);
+    D6R_REQUIRE(pumpRuntimes(host, guest, unused, 3s, [&] {
+        const auto hs = host.snapshot(), gs = guest.snapshot();
+        const auto h = checkedActor(hs), g = checkedActor(gs);
+        secondJump.observe(0, *hs.canonical, h); secondJump.observe(1, *gs.canonical, g);
+        const auto hApplied = Test::ObservedInput::appliedSecondJump(h.playerId, h.ownerParticipantId);
+        const auto gApplied = Test::ObservedInput::appliedSecondJump(g.playerId, g.ownerParticipantId);
+        return secondJump.complete(0, hApplied.has_value(), hApplied.value_or(0))
+            && secondJump.complete(1, gApplied.has_value(), gApplied.value_or(0));
+    }));
+#else
     D6R_REQUIRE(waitBoth([](const auto &actor) {
         return actor.actionMask == Network::Input::Jump && actor.velocityY > 7 * 65536;
     }));
+#endif
     D6R_REQUIRE(checkedActor(host.snapshot()).positionY > firstHost.positionY);
     D6R_REQUIRE(checkedActor(guest.snapshot()).positionY > firstGuest.positionY);
     input.setPressed(SDLK_UP, false); input.setPressed(SDLK_w, false);
@@ -2932,6 +4715,68 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
     D6R_REQUIRE_NEAR(waterBefore.waterBottom, waterAfter.waterBottom, 0.00001f);
 }
 
+D6R_TEST_CASE("NET-SOLO actual hosted Start works in all modes and host-only following lobby starts again") {
+    using namespace std::chrono_literals;
+    const auto root = std::filesystem::temp_directory_path()
+        / ("duel6r-solo-start-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    std::filesystem::create_directory(root / "data");
+    std::filesystem::create_directory(root / "levels");
+    for (const auto *file: {"blocks.json", "config.script"})
+        std::filesystem::copy_file(std::filesystem::path(D6R_TEST_RESOURCE_DIR) / "data" / file, root / "data" / file);
+    {
+        std::ofstream level(root / "levels/solo.json");
+        level << R"({"width":6,"height":4,"blocks":[1,1,1,1,1,1,1,0,0,0,0,1,1,0,0,0,0,1,1,1,1,1,1,1],"elevators":[]})";
+        D6R_REQUIRE(level.good());
+    }
+    for (const std::string mode: {"Deathmatch", "Predator", "Team deathmatch"}) {
+        Client::NetworkSessionRuntime host, unused, other;
+        Network::HostComposition::Setup setup;
+        setup.localPlayerNames = {"Solo host"}; setup.mode = mode;
+        setup.teamCount = mode == "Team deathmatch" ? 2 : 0;
+        setup.fixedLevel = "levels/solo.json"; setup.roundLimit = 1; setup.quickLiquid = true;
+        D6R_REQUIRE(host.startHost({"127.0.0.1", unusedLoopbackPort()}, D6R_RUNTIME_TEST_SERVER,
+            root.string(), setup, {player("Solo host")}));
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+        D6R_REQUIRE(!everyParticipantReady(host.snapshot(), true));
+        host.setReady(true);
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+        host.startMatch();
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] {
+            const auto snapshot = host.snapshot();
+            return snapshot.journey == Client::NetworkJourney::Match && snapshot.canonical
+                && snapshot.canonical->phase == Network::Replication::Phase::ActiveRound
+                && snapshot.canonical->participants.size() == 1 && snapshot.canonical->players.size() == 1
+                && snapshot.canonical->settings.mode == mode && !snapshot.canonical->result.available;
+        }));
+        const auto firstMatch = host.snapshot().canonical->matchId;
+        if (mode == "Deathmatch") {
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 90s, [&] { return host.snapshot().journey == Client::NetworkJourney::Summary; }));
+            D6R_REQUIRE(host.snapshot().canonical->result.available);
+            D6R_REQUIRE(host.snapshot().canonical->score.winner.noWinner);
+            host.returnToLobby();
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+            D6R_REQUIRE(everyParticipantReady(host.snapshot(), false));
+            host.setReady(true);
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+            host.startMatch();
+            D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] {
+                const auto snapshot = host.snapshot();
+                return snapshot.journey == Client::NetworkJourney::Match && snapshot.canonical
+                    && snapshot.canonical->matchId != firstMatch && !snapshot.canonical->result.available
+                    && snapshot.canonical->participants.size() == 1 && snapshot.canonical->players.size() == 1;
+            }));
+        }
+        host.endSession();
+        D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
+        D6R_REQUIRE(host.supervisor->snapshot().cleanupComplete);
+    }
+}
+
 D6R_TEST_CASE("PR83 real runtime End from naturally completed final summary drains and discards result") {
     using namespace std::chrono_literals;
     // Independent temporary gameplay content, never changes a supplied bundle.
@@ -3132,7 +4977,7 @@ D6R_TEST_CASE("PR83 host emits movement and fire-release masks until exact round
     }
 }
 
-D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during active round-end second") {
+D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team continues after departure") {
     using namespace std::chrono_literals;
     char name[] = "duel6r-pr83-charged-release-tests";
     char *arguments[] = {name};
@@ -3197,14 +5042,15 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
     std::map<Network::Replication::Identity, int> ammo;
     for (const auto &slot : before.players) if (slot.team == 1) ammo.emplace(slot.playerId, slot.ammunition);
     D6R_REQUIRE_EQ(2u, ammo.size());
-    // Real intentional removal of the sole opposing team produces a normal
-    // round win while both the host and remote archer remain alive and charged.
+    // Removing the sole opposing team restores solo play, not a victory. Both
+    // archers must retain their charge and remain controllable without a reset.
     opponent.leave();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 3s, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
-            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::RoundSummary
-                || snapshot.canonical->roundEndCountdown <= 300 || !chargedArchers(snapshot)) return false;
+            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+                || snapshot.canonical->roundEndCountdown != 0 || !chargedArchers(snapshot)
+                || !snapshot.canonical->score.winner.winnerPlayerIds.empty()) return false;
         }
         return true;
     }));
@@ -3212,7 +5058,8 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
     const bool firedOnRelease = pumpRuntimes(host, opponent, ally, 500ms, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
-            if (!snapshot.canonical || snapshot.canonical->roundEndCountdown <= 300) return false;
+            if (!snapshot.canonical || snapshot.canonical->phase != Network::Replication::Phase::ActiveRound
+                || snapshot.canonical->roundEndCountdown != 0) return false;
             for (const auto &[id, previousAmmo] : ammo) {
                 const auto slot = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
                         [id](const auto &player) { return player.playerId == id; });
@@ -3243,7 +5090,7 @@ D6R_TEST_CASE("PR83 latest host and guest charged bow releases fire during activ
                 detail << ";event=" << event.type << ":player=" << event.playerId;
             detail << '\n';
         }
-        Test::fail("host and guest fire charged bows before freezing", __FILE__, __LINE__, detail.str());
+        Test::fail("host and guest fire charged bows during continued solo play", __FILE__, __LINE__, detail.str());
     }
     host.endSession();
     D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 5s, [&] {

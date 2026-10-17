@@ -4373,7 +4373,7 @@ D6R_TEST_CASE("REP-006 REP-007 REP-048 REP-AC-001/006/007 client rejects a new r
     D6R_REQUIRE_EQ(attemptedEvent.eventId, deliveredEvents.front().eventId);
 }
 
-D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption retains the original completed round identity across canonical full incremental and reconnect views") {
+D6R_TEST_CASE("NET-SOLO removal continues current round without identity rewind across full incremental and reconnect views") {
     A::MatchConfig requested = matchConfig();
     requested.roundLimit = 3;
     auto players = roster();
@@ -4420,35 +4420,45 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 production interruption retains the origi
     D6R_REQUIRE(match.phase() == A::MatchPhase::ActiveRound);
     D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 0, A::ActionKind::RemovePlayer,
                               103, 0, 0}) == A::ActionResult::Accepted);
-    D6R_REQUIRE(match.outcome().code == A::OutcomeCode::InterruptedNoWinner);
+    D6R_REQUIRE(match.outcome().code == A::OutcomeCode::None);
     const auto interruption = replication.capture(match);
     D6R_REQUIRE(interruption.has_value());
     D6R_REQUIRE(interruption->round.has_value());
-    D6R_REQUIRE_EQ(completedRoundIdentity, interruption->round->roundId);
+    D6R_REQUIRE_EQ(secondRound->round->roundId, interruption->round->roundId);
     D6R_REQUIRE(incremental.apply(*interruption) == R::ApplyResult::Applied);
     const auto terminalFull = replication.fullSnapshot();
     D6R_REQUIRE(terminalFull.has_value() && terminalFull->state.round.has_value());
-    D6R_REQUIRE_EQ(completedRoundIdentity, terminalFull->state.round->roundId);
+    D6R_REQUIRE_EQ(secondRound->round->roundId, terminalFull->state.round->roundId);
     R::ReplicatedState reconnect;
     D6R_REQUIRE(reconnect.apply(*terminalFull) == R::ApplyResult::Applied);
 
     for (const R::CanonicalState *state: {incremental.state(), reconnect.state()}) {
         D6R_REQUIRE(state != nullptr);
-        D6R_REQUIRE(state->phase == R::Phase::Lobby);
+        D6R_REQUIRE(state->phase == R::Phase::ActiveRound);
         D6R_REQUIRE_EQ(1u, state->completedRounds);
-        D6R_REQUIRE_EQ(std::string("Interrupted"), state->result.state);
-        D6R_REQUIRE(state->score.winner.noWinner);
+        D6R_REQUIRE(!state->result.available);
+        D6R_REQUIRE(!state->score.winner.noWinner);
         D6R_REQUIRE(state->round.has_value());
-        D6R_REQUIRE_EQ(completedRoundIdentity, state->round->roundId);
-        D6R_REQUIRE_EQ(std::vector<R::Identity>({101}), state->round->outcome.winnerPlayerIds);
+        D6R_REQUIRE_EQ(secondRound->round->roundId, state->round->roundId);
+        D6R_REQUIRE(state->round->outcome.winnerPlayerIds.empty());
         D6R_REQUIRE_EQ(101u, state->score.ranking.front());
         D6R_REQUIRE(scoreRow(*state, 101)->cumulativePoints > scoreRow(*state, 102)->cumulativePoints);
-        D6R_REQUIRE(state->result.serialized.find("\"completedRounds\":1") != std::string::npos);
-        D6R_REQUIRE(state->result.serialized.find("\"winnerPlayerIds\":[101]") != std::string::npos);
+        D6R_REQUIRE(state->result.serialized.empty());
     }
+    for (int round = 2; round <= 3; ++round) {
+        D6R_REQUIRE(match.submit({match.currentTick(), sequence++, 20, 101, A::ActionKind::EnvironmentalDamage,
+            101, 0, A::MaximumLife}) == A::ActionResult::Accepted);
+        D6R_REQUIRE(match.currentRoundResult().noWinner);
+        for (unsigned tick = 0; tick < A::RoundEndTotalTicks; ++tick) D6R_REQUIRE(match.advanceOneTick());
+    }
+    D6R_REQUIRE(match.outcome().code == A::OutcomeCode::Completed);
+    const auto completed = replication.capture(match);
+    D6R_REQUIRE(completed && incremental.apply(*completed) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(std::uint8_t(3), incremental.state()->completedRounds);
+    D6R_REQUIRE(incremental.state()->result.available && incremental.state()->score.winner.noWinner);
 }
 
-D6R_TEST_CASE("REP-017 REP-018 REP-025 zero-completed-round interruption exposes no retained round identity") {
+D6R_TEST_CASE("NET-SOLO zero-completed-round removal preserves current active identity on reconnect") {
     A::MatchConfig requested = matchConfig();
     requested.roundLimit = 3;
     A::AuthoritativeMatch match;
@@ -4466,17 +4476,20 @@ D6R_TEST_CASE("REP-017 REP-018 REP-025 zero-completed-round interruption exposes
 
     D6R_REQUIRE(match.submit({match.currentTick(), 1, 20, 0, A::ActionKind::RemovePlayer,
                               102, 0, 0}) == A::ActionResult::Accepted);
-    D6R_REQUIRE(match.outcome().code == A::OutcomeCode::InterruptedNoWinner);
+    D6R_REQUIRE(match.outcome().code == A::OutcomeCode::None);
     const auto interruption = replication.capture(match);
     D6R_REQUIRE(interruption.has_value());
-    D6R_REQUIRE(!interruption->round.has_value());
+    D6R_REQUIRE(interruption->round.has_value());
+    D6R_REQUIRE_EQ(begin->round->roundId, interruption->round->roundId);
     D6R_REQUIRE(incremental.apply(*interruption) == R::ApplyResult::Applied);
-    D6R_REQUIRE(incremental.state() != nullptr && !incremental.state()->round.has_value());
+    D6R_REQUIRE(incremental.state() && incremental.state()->phase == R::Phase::ActiveRound);
+    D6R_REQUIRE(!incremental.state()->result.available);
     const auto terminalFull = replication.fullSnapshot();
-    D6R_REQUIRE(terminalFull.has_value() && !terminalFull->state.round.has_value());
+    D6R_REQUIRE(terminalFull.has_value() && terminalFull->state.round.has_value());
     R::ReplicatedState reconnect;
     D6R_REQUIRE(reconnect.apply(*terminalFull) == R::ApplyResult::Applied);
-    D6R_REQUIRE(reconnect.state() != nullptr && !reconnect.state()->round.has_value());
+    D6R_REQUIRE(reconnect.state() && reconnect.state()->round->roundId == begin->round->roundId);
+    D6R_REQUIRE(!reconnect.state()->result.available && reconnect.state()->score.winner.winnerPlayerIds.empty());
 }
 
 D6R_TEST_CASE("REP-017 REP-018 REP-025 production multi-round capture keeps cumulative leader out of match outcome") {

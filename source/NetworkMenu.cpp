@@ -3,6 +3,7 @@
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -45,14 +46,15 @@ namespace Duel6 {
             Int32 x, y, width, height;
             const char *caption;
         };
-        // Shared visual, pointer and traversal order: rows, paging, then footer.
+        // Shared visual/pointer bounds and cyclic traversal: Refresh, rows,
+        // paging, footer, then Refresh (rows are the implicit first anchor).
         constexpr BrowserAction BrowserActions[] = {
             {4, 28, 108, 252, 24, "Previous page"},
             {5, 560, 108, 256, 24, "Next page"},
             {1, 28, 68, 252, 32, "Join selected"},
-            {2, 292, 68, 256, 32, "Refresh"},
-            {3, 560, 68, 256, 32, "Direct connect"},
-            {6, 560, 28, 256, 32, "Back"}
+            {3, 296, 68, 252, 32, "Direct connect"},
+            {6, 564, 68, 252, 32, "Back"},
+            {2, 710, 518, 112, 24, "Refresh"}
         };
 
         Float32 canvasScale(Int32 width, Int32 height) {
@@ -61,6 +63,30 @@ namespace Duel6 {
         }
 
         std::string onOff(bool value) { return value ? "On" : "Off"; }
+
+        std::string directoryPhase(const Client::DirectoryListing &row) {
+            return row.phase == "idle" ? "Idle" : row.phase == "lobby" ? "Lobby"
+                : row.phase == "first-round" ? "Round 1" : row.phase == "reserved" ? "Reserved"
+                : row.phase == "cleanup" ? "Cleanup" : "Started";
+        }
+
+        std::size_t utf8Length(std::string_view value);
+        std::string utf8Slice(const std::string &value, std::size_t first, std::size_t characters);
+        void appendWrapped(std::vector<std::string> &lines, const std::string &text, std::size_t width) {
+            for (std::size_t offset = 0; offset < utf8Length(text); offset += width)
+                lines.push_back(utf8Slice(text, offset, width));
+        }
+
+        bool publicSecurityFailure(const Client::NetworkRuntimeSnapshot &snapshot) {
+            return snapshot.securityFailure
+                || snapshot.failure == Network::PublicSession::SecurityFailure
+                || snapshot.failure == "Connection not authorized.";
+        }
+
+        bool publicSessionEnded(const Client::NetworkRuntimeSnapshot &snapshot) {
+            return snapshot.publicSession && (snapshot.failure == Network::PublicSession::Maintenance
+                || snapshot.failure == Network::PublicSession::ControllerExpired);
+        }
 
         std::string listeningAddressLabel(const std::string &address) {
             if (address.empty()) return "Select an eligible interface";
@@ -177,6 +203,7 @@ namespace Duel6 {
                                          const Network::Replication::PlayerState &player) {
             if (player.lifeState == Network::Replication::LifeState::Departed) return "Departed";
             if (player.lifeState == Network::Replication::LifeState::Dead) return "Dead";
+            if (player.lifeState == Network::Replication::LifeState::Waiting) return "Waiting";
             const auto owner = std::find_if(state.participants.begin(), state.participants.end(), [&](const auto &value) {
                 return value.participantId == player.ownerParticipantId;
             });
@@ -210,7 +237,8 @@ namespace Duel6 {
                         lines.push_back({"  " + utf8Clipped(player->displayName, lifecycle.empty() ? 18 : 12) + "  "
                                 + (score == state.score.players.end() ? "0" : std::to_string(score->cumulativePoints))
                                 + (lifecycle.empty() ? std::string() : " • " + lifecycle),
-                                player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
+                                player->lifeState == Network::Replication::LifeState::Waiting ? Color::WHITE
+                                    : player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
                     }
                 }
             } else {
@@ -226,7 +254,8 @@ namespace Duel6 {
                             + utf8Clipped(player->displayName, lifecycle.empty() ? 24 : 16) + "  "
                             + (score == state.score.players.end() ? "0" : std::to_string(score->cumulativePoints))
                             + (lifecycle.empty() ? std::string() : " • " + lifecycle),
-                            player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
+                            player->lifeState == Network::Replication::LifeState::Waiting ? Color::WHITE
+                                : player->lifeState == Network::Replication::LifeState::Alive ? Color::YELLOW : Color::RED});
                 }
             }
             return lines;
@@ -456,7 +485,7 @@ namespace Duel6 {
         }
 
         int publicationFocusIndex(const Client::NetworkRuntimeSnapshot &snapshot, std::size_t localPlayerCount) {
-            if (!snapshot.host || snapshot.journey != Client::NetworkJourney::Lobby) return -1;
+            if (!snapshot.host || snapshot.publicSession || snapshot.journey != Client::NetworkJourney::Lobby) return -1;
             const int result = resultFocusIndex(snapshot, localPlayerCount);
             return result >= 0 ? result + 1 : static_cast<int>(localPlayerCount * 2 + 12
                 + (snapshot.canonical ? snapshot.canonical->players.size() : 0));
@@ -491,10 +520,11 @@ namespace Duel6 {
             return count > visible ? count - visible : 0;
         }
 
-        std::size_t lobbyMaximumScroll(const Network::Replication::CanonicalState &state, bool host) {
-            const std::size_t visible = host ? 2 : 3;
-            const std::size_t participantMaximum = state.participants.size() > visible
-                    ? state.participants.size() - visible : 0;
+        constexpr std::size_t OrdinaryLobbyParticipantRows = 2;
+
+        std::size_t lobbyMaximumScroll(const Network::Replication::CanonicalState &state) {
+            const std::size_t participantMaximum = state.participants.size() > OrdinaryLobbyParticipantRows
+                    ? state.participants.size() - OrdinaryLobbyParticipantRows : 0;
             const std::size_t rosterMaximum = state.players.size() > 6 ? state.players.size() - 6 : 0;
             return std::max(participantMaximum, rosterMaximum);
         }
@@ -578,25 +608,89 @@ namespace Duel6 {
     }
 
     void NetworkMenu::activateListeningChoice() {
+        const bool previousAll = listening.all;
+        const auto previousSelected = listening.selected;
         if (hostAddressHighlight == 0) {
             listening.setAll(!listening.all);
             hostAddresses = listening.rows(); hostAddressScroll = 0;
         } else if (hostAddressHighlight <= hostAddresses.size()) {
             listening.toggle(hostAddresses[hostAddressHighlight - 1]);
         } else { hostAddressSelectorOpen = false; focus = 1; }
+        if (previousAll != listening.all || previousSelected != listening.selected) clearPassword();
     }
 
     void NetworkMenu::beforeStart(Context *) { SDL_ShowCursor(SDL_ENABLE); SDL_StartTextInput(); }
     void NetworkMenu::beforeClose(Context *) {
+        // A close-on-press transfers the queued release to the parent context.
+        // Do not retain that press as presentation state when this menu reopens.
+        pointerHeld = false; pointerX = pointerY = 0;
         SDL_StopTextInput(); runtime.reset();
+        clearPassword();
+    }
+
+    void NetworkMenu::clearPassword() {
         Network::Trust::secureEraseMemory(password.data(), password.size()); password.clear();
-        hostSetup.password.reset();
+        hostSetup.password.reset(); passwordFeedback.clear();
+    }
+
+    void NetworkMenu::clearConfirmedPassword() {
+        if (runtime.takeConfirmedAdmission()) clearPassword();
+    }
+
+    NetworkMenu::~NetworkMenu() {
+        // Disposal may bypass beforeClose and the last GUI update. Do not leave
+        // editable ordinary-string storage to an un-erased default destructor.
+        clearPassword();
+    }
+
+    std::vector<std::string> NetworkMenu::boundContextLines() const {
+        std::vector<std::string> lines;
+        if (!boundDedicated()) return lines;
+        const auto &row = *browserSelection;
+        if (utf8Length(row.endpoint.host) > 72)
+            appendWrapped(lines, "Endpoint: " + row.endpoint.host + ":" + std::to_string(row.endpoint.port), 94);
+        appendWrapped(lines, "Session: " + row.sessionId, 94);
+        appendWrapped(lines, "Listed " + directoryPhase(row) + " session • " + std::to_string(row.players)
+            + " / " + std::to_string(row.capacity) + " players", 94);
+        appendWrapped(lines, "The service confirms availability and your role when you connect.", 94);
+        return lines;
+    }
+
+    int NetworkMenu::setupFirstRow() const {
+        if (boundDedicated()) return 292 - std::max(0, static_cast<int>(boundContextLines().size()) - 3) * 20;
+        return 364;
+    }
+
+    int NetworkMenu::setupVisibleRows() const {
+        // Control/pointer bottom is baseline - 2; its outer focus extends another
+        // two pixels. Count only rows whose complete extent stays in the inset.
+        if (boundDedicated()) return std::max(1, (setupFirstRow() - 206 - 4) / 22 + 1);
+        return 8;
+    }
+
+    void NetworkMenu::enterDirectSetup() {
+        clearPassword();
+        browserSelection.reset();
+        if (joinFromBrowser) {
+            address = playerHostedAddress; port = playerHostedPort;
+        }
+        joinFromBrowser = false;
+        setupScreen = SetupScreen::Join; focus = 0;
+    }
+
+    void NetworkMenu::joinEndpoint(const Network::Endpoint &target) {
+        (void) runtime.join(target, networkResources(), localPlayers,
+                std::make_shared<Network::SessionPassword>(password),
+                 browserSelection ? browserSelection->sessionId : "",
+                 browserSelection ? std::optional<bool>(browserSelection->dedicated()) : std::nullopt);
     }
 
     bool NetworkMenu::endpoint(Network::Endpoint &result) const {
+        if (boundSelection()) { result = browserSelection->endpoint; return true; }
         const std::string host = setupScreen == SetupScreen::Host
                 ? (listening.all ? "0.0.0.0" : listening.selected.empty() ? "" : listening.selected.front()) : address;
-        if (host.empty() || host.size() > 253 || port.empty()) return false;
+        if (host.empty() || host.size() > 253 || port.empty() || port.size() > 5
+            || !std::all_of(port.begin(), port.end(), [](unsigned char c) { return c >= '0' && c <= '9'; })) return false;
         try {
             std::size_t used = 0; const auto parsed = std::stoul(port, &used);
             if (used != port.size() || parsed == 0 || parsed > 65535) return false;
@@ -607,15 +701,15 @@ namespace Duel6 {
     std::string NetworkMenu::serverExecutable() const {
 #ifdef __APPLE__
         // SDL_GetBasePath points at Resources in this bundle, not MacOS.
-        return Platform::Darwin::siblingExecutable("duel6r-server");
+        return Platform::Darwin::siblingExecutable("Duel 6 Reloaded");
 #else
         char *base = SDL_GetBasePath();
         std::filesystem::path path = base ? std::filesystem::path(base) : std::filesystem::current_path();
         if (base) SDL_free(base);
 #ifdef D6R_TRANSPORT_WINDOWS
-        return (path / "duel6r-server.exe").lexically_normal().string();
+        return (path / "duel6r.exe").lexically_normal().string();
 #else
-        return (path / "duel6r-server").lexically_normal().string();
+        return (path / "duel6r").lexically_normal().string();
 #endif
 #endif
     }
@@ -632,6 +726,16 @@ namespace Duel6 {
                                                        : "Enter a valid address and port (1–65535).";
             return false;
         }
+        if (setupScreen == SetupScreen::Join && !Network::PublicSession::validEndpoint(address)) {
+            reason = "Enter a valid address and port (1–65535)."; return false;
+        }
+        if (!Network::SessionPassword::valid(password)) {
+            reason = "Use valid UTF-8, no control characters and at most 128 bytes.";
+            return false;
+        }
+        if (setupScreen == SetupScreen::Join && browserSelection && browserSelection->passwordRequired && password.empty()) {
+            reason = "Enter a password"; return false;
+        }
         if (localPlayers.empty()) { reason = "Add at least one local player."; return false; }
         const auto invalidName = std::find_if(localPlayers.begin(), localPlayers.end(),
                 [](const auto &player) { return !Network::Trust::validParticipantName(player.name); });
@@ -643,7 +747,9 @@ namespace Duel6 {
         if (invalid != localPlayers.end()) {
             reason = "Assign a valid control to every local player."; return false;
         }
-        reason = "Ready to start a same-machine or private-LAN session.";
+        reason = setupScreen == SetupScreen::Host ? "Ready to start a player-hosted session."
+            : boundSelection() && !browserSelection->passwordRequired && password.empty()
+                ? "The host confirms availability when you connect." : "Ready to connect.";
         return true;
     }
 
@@ -658,6 +764,11 @@ namespace Duel6 {
 
     bool NetworkMenu::retryEligible(
             const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const {
+        if (snapshot.selectedSessionChanged) { reason = "Return to the browser and refresh."; return false; }
+        if (publicSecurityFailure(snapshot)) {
+            reason = "Edit setup before you retry.";
+            return false;
+        }
         if (!snapshot.retryAllowed) {
             reason = "Edit setup before you retry.";
             if (snapshot.retryBlockReason == Client::NetworkRetryBlockReason::CleanupInProgress)
@@ -691,8 +802,8 @@ namespace Duel6 {
         const auto connected = std::count_if(state.participants.begin(), state.participants.end(), [](const auto &p) {
             return p.connection == Network::Replication::ConnectionState::Connected;
         });
-        if (connected < 2 || state.players.size() < 2) {
-            reason = "Waiting for at least 2 connected participants and players."; return false;
+        if (connected < 1 || state.players.empty()) {
+            reason = "Waiting for a connected participant and player."; return false;
         }
         const auto emptyOwner = std::find_if(state.participants.begin(), state.participants.end(), [](const auto &p) {
             return p.ownedPlayerIds.empty();
@@ -817,7 +928,7 @@ namespace Duel6 {
             return;
         }
         if (snap.journey == Client::NetworkJourney::Match && snap.canonical) {
-            if (snap.host && !snap.directoryAvailable && !snap.directoryRegistering
+            if (snap.host && !snap.publicSession && !snap.directoryAvailable && !snap.directoryRegistering
                 && pointerInside(event.getX(), event.getY(), 16, 32, std::min<Int32>(450, width - 32), 20)) {
                 runtime.retryPublication(); return;
             }
@@ -836,7 +947,7 @@ namespace Duel6 {
         const Int32 ty = (height - Int32(CanvasHeight * scale)) / 2;
         const Int32 x = Int32((event.getX() - tx) / scale), y = Int32((event.getY() - ty) / scale);
         if (x < 0 || x >= CanvasWidth || y < 0 || y >= CanvasHeight) return;
-        if (snap.host && !snap.directoryAvailable && !snap.directoryRegistering
+        if (snap.host && !snap.publicSession && !snap.directoryAvailable && !snap.directoryRegistering
             && snap.journey == Client::NetworkJourney::Lobby && pointerInside(x, y, 40, 500, 650, 24)) {
             focus = publicationFocusIndex(snap, localPlayers.size()); runtime.retryPublication(); return;
         }
@@ -847,9 +958,10 @@ namespace Duel6 {
                 }
         } else if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
             const auto &rows = browser.result().listings;
-            for (int row = 0; row < 12 && browserScroll + row < static_cast<int>(rows.size()); ++row)
+            for (int row = 0; browser.available() && row < 8 && browserScroll + row < static_cast<int>(rows.size()); ++row)
                 if (pointerInside(x, y, 30, 466 - row * 22, 790, 22)) {
-                    selectedListing = rows[browserScroll + row].id; focus = 0; return;
+                    selectedListing = rows[browserScroll + row].id;
+                    selectedSessionIdentity = rows[browserScroll + row].sessionId; focus = 0; return;
                 }
             for (const auto &action: BrowserActions)
                 if (pointerInside(x, y, action.x, action.y, action.width, action.height)) {
@@ -857,7 +969,7 @@ namespace Duel6 {
                     return;
                 }
         } else if (snap.journey == Client::NetworkJourney::Inactive) {
-            const int fields = 3;
+            const int fields = setupFields();
             if (setupScreen == SetupScreen::Host && hostAddressSelectorOpen) {
                 if (pointerInside(x, y, 234, 396, 566, 24)) {
                     hostAddressHighlight = 0; activateListeningChoice(); return;
@@ -877,22 +989,22 @@ namespace Duel6 {
                 }
                 return;
             }
-            if (pointerInside(x, y, 224, EndpointFirstBottom, 586, EndpointHeight)) { focus = 0; return; }
+            if (!boundSelection() && pointerInside(x, y, 224, EndpointFirstBottom, 586, EndpointHeight)) { focus = 0; return; }
             if (pointerInside(x, y, 224, EndpointFirstBottom - 2 * EndpointPitch, 586, EndpointHeight)) { focus = 2; return; }
-            if (pointerInside(x, y, 224, EndpointFirstBottom - EndpointPitch, 586, EndpointHeight)) {
+            if (!boundSelection() && pointerInside(x, y, 224, EndpointFirstBottom - EndpointPitch, 586, EndpointHeight)) {
                 focus = 1;
                 if (setupScreen == SetupScreen::Host) activate();
                 return;
             }
             const std::size_t firstPerson = static_cast<std::size_t>(setupPersonsScroll);
-            for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + SetupVisibleRows; ++index)
-                if (pointerInside(x, y, 50, SetupFirstRow - 1 - static_cast<Int32>(index - firstPerson) * 18, 350, 18)) {
+            for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + setupVisibleRows(); ++index)
+                if (pointerInside(x, y, 50, setupFirstRow() - 1 - static_cast<Int32>(index - firstPerson) * 18, 350, 18)) {
                     focus = fields + static_cast<int>(index); activate(); return;
                 }
             const int playerBase = fields + static_cast<int>(availablePersons.size());
             const std::size_t firstPlayer = static_cast<std::size_t>(setupPlayersScroll);
-            for (std::size_t index = firstPlayer; index < localPlayers.size() && index < firstPlayer + SetupVisibleRows; ++index) {
-                const Int32 rowY = SetupFirstRow - 2 - static_cast<Int32>(index - firstPlayer) * 22;
+            for (std::size_t index = firstPlayer; index < localPlayers.size() && index < firstPlayer + setupVisibleRows(); ++index) {
+                const Int32 rowY = setupFirstRow() - 2 - static_cast<Int32>(index - firstPlayer) * 22;
                 if (pointerInside(x, y, 430, rowY, 290, 18)) {
                     focus = playerBase + static_cast<int>(index) * 2; activate(); return;
                 }
@@ -1024,6 +1136,10 @@ namespace Duel6 {
             if (snap.host && pointerInside(x, y, 275, 72, 300, 32)) { focus = 0; activate(); return; }
             if (pointerInside(x, y, 275, 30, 300, 32)) { focus = snap.host ? 1 : 0; activate(); return; }
         } else if (snap.journey == Client::NetworkJourney::Failure) {
+            if (snap.selectedSessionChanged) {
+                if (pointerInside(x, y, 576, 270, 220, 34)) { focus = 0; activate(); }
+                return;
+            }
             std::string reason; const bool canRetry = retryEligible(snap, reason);
             int selected = 0;
             if (canRetry && pointerInside(x, y, 54, 270, 220, 34)) { focus = selected; activate(); return; }
@@ -1048,25 +1164,26 @@ namespace Duel6 {
             if (scale <= 0) return;
             const int x = static_cast<int>((event.getX() - (screen.getClientWidth() - CanvasWidth * scale) / 2) / scale);
             const int y = static_cast<int>((event.getY() - (screen.getClientHeight() - CanvasHeight * scale) / 2) / scale);
-            if (y < 200 || y >= SetupHeading) return;
+            if (y < 200 || y >= setupFirstRow() + 18) return;
             if (x >= 50 && x < 400) {
                 setupPersonsScroll = std::clamp(setupPersonsScroll - event.getAmountY(), 0,
-                    std::max(0, static_cast<int>(availablePersons.size()) - SetupVisibleRows));
-                if (focus >= 3 && focus < 3 + static_cast<int>(availablePersons.size()))
-                    focus = 3 + std::clamp(focus - 3, setupPersonsScroll, setupPersonsScroll + SetupVisibleRows - 1);
+                    std::max(0, static_cast<int>(availablePersons.size()) - setupVisibleRows()));
+                if (focus >= setupFields() && focus < setupFields() + static_cast<int>(availablePersons.size()))
+                    focus = setupFields() + std::clamp(focus - setupFields(), setupPersonsScroll, setupPersonsScroll + setupVisibleRows() - 1);
             } else if (x >= 430 && x < 820) {
                 setupPlayersScroll = std::clamp(setupPlayersScroll - event.getAmountY(), 0,
-                    std::max(0, static_cast<int>(localPlayers.size()) - SetupVisibleRows));
-                const int base = 3 + static_cast<int>(availablePersons.size());
+                    std::max(0, static_cast<int>(localPlayers.size()) - setupVisibleRows()));
+                const int base = setupFields() + static_cast<int>(availablePersons.size());
                 if (focus >= base && focus < base + static_cast<int>(localPlayers.size()) * 2)
                     focus = base + 2 * std::clamp((focus - base) / 2, setupPlayersScroll,
-                        setupPlayersScroll + SetupVisibleRows - 1) + (focus - base) % 2;
+                        setupPlayersScroll + setupVisibleRows() - 1) + (focus - base) % 2;
             }
             return;
         }
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
+            if (!browser.available()) return;
             browserScroll = std::clamp(browserScroll - event.getAmountY(), 0,
-                std::max(0, static_cast<int>(browser.result().listings.size()) - 12));
+                std::max(0, static_cast<int>(browser.result().listings.size()) - 8));
             return;
         }
         if (confirmation != Confirmation::None) return;
@@ -1082,7 +1199,7 @@ namespace Duel6 {
                 || focus != resultFocusIndex(snap, localPlayers.size()))) {
             const auto maximum = snap.canonical && snap.canonical->result.available
                     ? std::max(snap.canonical->players.size(), snap.canonical->participants.size()) - 1
-                    : snap.canonical ? lobbyMaximumScroll(*snap.canonical, snap.host) : 0;
+                    : snap.canonical ? lobbyMaximumScroll(*snap.canonical) : 0;
             setupScroll = std::clamp(setupScroll - event.getAmountY(), 0, static_cast<int>(maximum));
             focus = static_cast<int>(localPlayers.size()) * 2;
             return;
@@ -1114,14 +1231,14 @@ namespace Duel6 {
         else if (snap.journey == Client::NetworkJourney::Inactive) {
             if (setupScreen == SetupScreen::Entry) count = 3;
             else if (setupScreen == SetupScreen::Browser) count = 7;
-            else count = 3
+            else count = setupFields()
                           + static_cast<int>(availablePersons.size())
                          + static_cast<int>(localPlayers.size()) * 2 + 2;
         } else if (snap.journey == Client::NetworkJourney::Lobby) {
             count = static_cast<int>(localPlayers.size()) * 2 + 2;
             if (snap.host) count += 9 + static_cast<int>(snap.canonical ? snap.canonical->players.size() : 0) + 1;
             if (retainedResult(snap)) ++count;
-            if (snap.host) ++count;
+            if (snap.host && !snap.publicSession) ++count;
         } else if (snap.journey == Client::NetworkJourney::Match && snap.canonical) {
             if (snap.canonical->phase == Network::Replication::Phase::RoundSummary)
                 count = snap.host ? 3 : 2;
@@ -1129,9 +1246,11 @@ namespace Duel6 {
         } else if (snap.journey == Client::NetworkJourney::Summary) count = snap.host ? 3 : 2;
         else if (snap.journey == Client::NetworkJourney::Failure) {
             std::string reason;
-            count = retryEligible(snap, reason) ? 3 : 2;
+            count = snap.selectedSessionChanged ? 1 : retryEligible(snap, reason) ? 3 : 2;
         }
         focus = (focus + direction + count) % count;
+        if (snap.journey == Client::NetworkJourney::Inactive && boundSelection())
+            while (focus < 2) focus = (focus + direction + count) % count;
         if (snap.host && snap.journey == Client::NetworkJourney::Lobby
             && (snap.directoryAvailable || snap.directoryRegistering)
             && focus == publicationFocusIndex(snap, localPlayers.size())) focus = (focus + direction + count) % count;
@@ -1147,15 +1266,15 @@ namespace Duel6 {
     }
 
     void NetworkMenu::syncSetupScroll() {
-        const auto adjust = [](int &first, int count, int selected) {
-            first = std::clamp(first, 0, std::max(0, count - SetupVisibleRows));
+        const auto adjust = [visible = setupVisibleRows()](int &first, int count, int selected) {
+            first = std::clamp(first, 0, std::max(0, count - visible));
             if (selected < 0 || selected >= count) return;
             if (selected < first) first = selected;
-            if (selected >= first + SetupVisibleRows) first = selected - SetupVisibleRows + 1;
+            if (selected >= first + visible) first = selected - visible + 1;
         };
         const int people = static_cast<int>(availablePersons.size());
-        const int playerBase = 3 + people;
-        adjust(setupPersonsScroll, people, focus >= 3 && focus < playerBase ? focus - 3 : -1);
+        const int playerBase = setupFields() + people;
+        adjust(setupPersonsScroll, people, focus >= setupFields() && focus < playerBase ? focus - setupFields() : -1);
         adjust(setupPlayersScroll, static_cast<int>(localPlayers.size()),
                focus >= playerBase ? (focus - playerBase) / 2 : -1);
     }
@@ -1184,7 +1303,7 @@ namespace Duel6 {
             if (focus >= rosterBase && focus < rosterBase + static_cast<int>(roster.size()))
                 selected = static_cast<std::size_t>(focus - rosterBase);
         }
-        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical, snap.host));
+        const int maximum = static_cast<int>(lobbyMaximumScroll(*snap.canonical));
         setupScroll = std::clamp(setupScroll, 0, maximum);
         if (!selected) return;
         if (*selected < static_cast<std::size_t>(setupScroll)) setupScroll = static_cast<int>(*selected);
@@ -1201,10 +1320,12 @@ namespace Duel6 {
 
     void NetworkMenu::activate() {
         auto snap = runtime.snapshot();
+        clearConfirmedPassword();
         if (confirmation != Confirmation::None) {
             if (focus == 0) {
                 if (!confirmationInputArmed) return;
                 const auto accepted = confirmation; confirmation = Confirmation::None;
+                clearPassword();
                 setupScreen = SetupScreen::Entry;
                 if (accepted == Confirmation::End) runtime.endSession(); else runtime.leave();
             } else { confirmation = Confirmation::None; focus = 0; }
@@ -1213,10 +1334,11 @@ namespace Duel6 {
         if (snap.journey == Client::NetworkJourney::Inactive) {
             if (setupScreen == SetupScreen::Entry) {
                 if (focus < 2 && !entryRuntimeAvailable) return;
-                Network::Trust::secureEraseMemory(password.data(), password.size()); password.clear();
-                hostSetup.password.reset();
+                clearPassword();
                 joinFromBrowser = false; browserSelection.reset();
-                if (focus == 0) setupScreen = SetupScreen::Host;
+                if (focus == 0) {
+                    setupScreen = SetupScreen::Host;
+                }
                 else if (focus == 1) {
                     setupScreen = SetupScreen::Browser; browser.refresh();
                     focus = browser.result().listings.empty() ? 3 : 0; return;
@@ -1227,17 +1349,17 @@ namespace Duel6 {
             if (setupScreen == SetupScreen::Browser) {
                 if (focus == 0 || focus == 1) joinSelected();
                 else if (focus == 2) browser.refresh();
-                else if (focus == 3) { setupScreen = SetupScreen::Join; browserSelection.reset(); joinFromBrowser = false; focus = 0; }
+                else if (focus == 3) { enterDirectSetup(); }
                 else if (focus == 4) {
-                    if (browserFocusEnabled(4)) { browser.previous(); browserScroll = 0; selectedListing.clear(); }
+                    if (browserFocusEnabled(4)) { browser.previous(); browserScroll = 0; selectedListing.clear(); selectedSessionIdentity.clear(); }
                 }
                 else if (focus == 5) {
-                    if (browserFocusEnabled(5)) { browser.next(); browserScroll = 0; selectedListing.clear(); }
+                    if (browserFocusEnabled(5)) { browser.next(); browserScroll = 0; selectedListing.clear(); selectedSessionIdentity.clear(); }
                 }
                 else { setupScreen = SetupScreen::Entry; focus = 0; }
                 return;
             }
-            const int fields = 3;
+            const int fields = setupFields();
             if (setupScreen == SetupScreen::Host && focus == 1) {
                 if (hostAddressSelectorOpen) {
                     activateListeningChoice();
@@ -1267,24 +1389,27 @@ namespace Duel6 {
                 return;
             }
             action -= static_cast<int>(localPlayers.size()) * 2;
-            if (action == 1) { setupScreen = joinFromBrowser ? SetupScreen::Browser : SetupScreen::Entry; focus = 0; return; }
+            if (action == 1) { clearPassword(); setupScreen = joinFromBrowser ? SetupScreen::Browser : SetupScreen::Entry; focus = 0; return; }
             std::string reason; Network::Endpoint target;
             if (setupScreen == SetupScreen::Host && !refreshHostAddresses(false)) return;
-            if (!setupValid(reason) || !endpoint(target)) return;
+            if (!setupValid(reason) || !endpoint(target)) {
+                if (browserSelection && browserSelection->passwordRequired && password.empty()) focus = 2;
+                return;
+            }
             hostSetup.localPlayerNames.clear();
             for (const auto &player: localPlayers) hostSetup.localPlayerNames.push_back(player.name);
-            hostSetup.password = std::make_shared<Network::SessionPassword>(password);
-            if (setupScreen == SetupScreen::Host)
+            if (setupScreen == SetupScreen::Host) {
+                hostSetup.password = std::make_shared<Network::SessionPassword>(password);
                 // The graphical client loads data/ and levels/ from its working
                 // content root, including the normal flat packaged runtime.
                 (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers, additionalListenHosts());
-            else (void) runtime.join(target, networkResources(), localPlayers, hostSetup.password,
-                                    browserSelection ? browserSelection->sessionId : "");
+            }
+            else joinEndpoint(target);
             focus = 0; return;
         }
         if (snap.journey == Client::NetworkJourney::Starting) { runtime.cancel(); return; }
         if (snap.journey == Client::NetworkJourney::Lobby) {
-            if (focus == publicationFocusIndex(snap, localPlayers.size())) {
+            if (!snap.publicSession && focus == publicationFocusIndex(snap, localPlayers.size())) {
                 if (!snap.directoryAvailable && !snap.directoryRegistering) runtime.retryPublication();
                 return;
             }
@@ -1371,45 +1496,58 @@ namespace Duel6 {
                 showConfirmation(snap.host ? Confirmation::End : Confirmation::Leave);
             } else if (focus == resultFocusIndex(snap, localPlayers.size())) focus = 0;
         } else if (snap.journey == Client::NetworkJourney::Reconnecting) {
-            showConfirmation(Confirmation::Leave);
+            showConfirmation(snap.host ? Confirmation::End : Confirmation::Leave);
         } else if (snap.journey == Client::NetworkJourney::HostEnded) {
+            clearPassword();
             runtime.reset(); setupScreen = SetupScreen::Entry; focus = 0;
         } else if (snap.journey == Client::NetworkJourney::Failure) {
+            if (snap.selectedSessionChanged) {
+                clearPassword(); runtime.reset(); setupScreen = SetupScreen::Browser; browser.refresh(); focus = 0; return;
+            }
             std::string retryReason;
             const bool canRetry = retryEligible(snap, retryReason);
             int action = focus;
             if (!canRetry) ++action;
             if (action == 0) {
-                if (snap.host && !refreshHostAddresses(false)) {
+                if (snap.host && !snap.publicSession && !refreshHostAddresses(false)) {
                     runtime.reset(); setupScreen = SetupScreen::Host; focus = 0; return;
                 }
                 Network::Endpoint target; if (!endpoint(target)) return;
                 runtime.reset();
-                if (snap.host) (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers, additionalListenHosts());
-                else (void) runtime.join(target, networkResources(), localPlayers, std::make_shared<Network::SessionPassword>(password),
-                                        browserSelection ? browserSelection->sessionId : "");
+                if (snap.host && !snap.publicSession) (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers, additionalListenHosts());
+                else joinEndpoint(target);
             } else if (action == 1) {
-                runtime.reset(); setupScreen = snap.host ? SetupScreen::Host : SetupScreen::Join;
-                if (snap.host) (void) refreshHostAddresses(false);
+                runtime.reset(); setupScreen = snap.host && !snap.publicSession ? SetupScreen::Host : SetupScreen::Join;
+                if (snap.host && !snap.publicSession) (void) refreshHostAddresses(false);
+                if (boundSelection()) { focus = browserSelection->passwordRequired
+                        || snap.failure == "Connection not authorized." ? 2 : setupFields(); return; }
                 if (!snap.host && snap.failure == "Connection not authorized.") { focus = 2; return; }
             }
-            else { runtime.reset(); setupScreen = joinFromBrowser ? SetupScreen::Browser : SetupScreen::Entry;
-                   if (joinFromBrowser) browser.refresh(); }
+            else { clearPassword(); runtime.reset();
+                    const bool returnToBrowser = joinFromBrowser;
+                   setupScreen = returnToBrowser ? SetupScreen::Browser : SetupScreen::Entry;
+                   if (returnToBrowser) browser.refresh(); }
             focus = 0;
         }
     }
 
     void NetworkMenu::back() {
         const auto snap = runtime.snapshot();
+        clearConfirmedPassword();
         if (hostAddressSelectorOpen) { hostAddressSelectorOpen = false; focus = 1; return; }
         if (confirmation != Confirmation::None) { confirmation = Confirmation::None; focus = 0; return; }
         if (snap.journey == Client::NetworkJourney::Starting) runtime.cancel();
         else if (snap.journey == Client::NetworkJourney::Inactive) {
+            clearPassword();
             if (setupScreen == SetupScreen::Entry) close();
             else { setupScreen = setupScreen == SetupScreen::Join && joinFromBrowser ? SetupScreen::Browser : SetupScreen::Entry; focus = 0; }
         } else if (snap.journey == Client::NetworkJourney::Failure) {
-            runtime.reset(); setupScreen = SetupScreen::Entry; focus = 0;
+            clearPassword();
+            runtime.reset(); setupScreen = joinFromBrowser ? SetupScreen::Browser : SetupScreen::Entry;
+            if (joinFromBrowser) browser.refresh();
+            focus = 0;
         } else if (snap.journey == Client::NetworkJourney::HostEnded) {
+            clearPassword();
             runtime.reset(); setupScreen = SetupScreen::Entry; focus = 0;
         } else if (snap.journey == Client::NetworkJourney::Lobby) {
             focus = static_cast<int>(localPlayers.size()) * 2 + 1;
@@ -1426,13 +1564,14 @@ namespace Duel6 {
                && snapshot.journey == Client::NetworkJourney::Inactive
                && (((setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join) && focus == 2)
                    || (setupScreen == SetupScreen::Host && focus == 0)
-                   || (setupScreen == SetupScreen::Join && (focus == 0 || focus == 1)));
+                     || (setupScreen == SetupScreen::Join && !boundSelection() && (focus == 0 || focus == 1)));
     }
 
     void NetworkMenu::keyEvent(const KeyPressEvent &event) {
         if (!event.isPressed() || event.isRepeat()) return;
         const auto snap = runtime.snapshot();
-        if (event.getCode() == SDLK_F5 && snap.host) {
+        clearConfirmedPassword();
+        if (event.getCode() == SDLK_F5 && snap.host && !snap.publicSession) {
             if (!snap.directoryAvailable && !snap.directoryRegistering) runtime.retryPublication();
             return;
         }
@@ -1456,6 +1595,12 @@ namespace Duel6 {
         // Keep text keys consumed even if a later event moves focus before the
         // next input poll. Explicit navigation below still handles its own keys.
         if (editingEndpoint(snap)) consumeKey();
+        if (focus == 2 && editingEndpoint(snap)
+            && event.getCode() == SDLK_v && event.hasModifier(SysEvent::KeyModifier::CTRL)) {
+            char *text = SDL_GetClipboardText();
+            if (text) { enterText(text); Network::Trust::secureEraseMemory(text, std::strlen(text)); SDL_free(text); }
+            return;
+        }
         if (confirmation != Confirmation::None) {
             if (event.getCode() == SDLK_ESCAPE) backKey();
             else if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) activateKey();
@@ -1535,14 +1680,15 @@ namespace Duel6 {
         }
         if (event.getCode() == SDLK_ESCAPE) backKey();
         else if (event.getCode() == SDLK_TAB || event.getCode() == SDLK_DOWN)
-            focusKey((setupScreen == SetupScreen::Browser || setupScreen == SetupScreen::Entry) && event.getCode() == SDLK_TAB
+            focusKey(event.getCode() == SDLK_TAB
                      && event.hasModifier(SysEvent::KeyModifier::SHIFT) ? -1 : 1);
         else if (event.getCode() == SDLK_UP) focusKey(-1);
         else if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) activateKey();
         else if ((setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join)
                  && snap.journey == Client::NetworkJourney::Inactive) {
-            std::string *field = focus == 2 ? &password : setupScreen == SetupScreen::Join && focus == 0 ? &address : &port;
-            if (((setupScreen == SetupScreen::Join && (focus == 0 || focus == 1))
+            std::string *field = focus == 2 ? &password
+                    : setupScreen == SetupScreen::Join && focus == 0 ? &address : &port;
+            if (((setupScreen == SetupScreen::Join && !boundSelection() && (focus == 0 || focus == 1))
                  || (setupScreen == SetupScreen::Host && focus == 0) || focus == 2)
                 && event.getCode() == SDLK_BACKSPACE && !field->empty()) {
                 consumeKey();
@@ -1551,30 +1697,40 @@ namespace Duel6 {
                     while (begin > 0 && (static_cast<unsigned char>((*field)[begin]) & 0xc0) == 0x80) --begin;
                     Network::Trust::secureEraseMemory(field->data() + begin, field->size() - begin);
                     field->resize(begin);
-                } else { field->pop_back(); if (setupScreen == SetupScreen::Join) browserSelection.reset(); }
+                    passwordFeedback.clear();
+                } else { field->pop_back(); clearPassword(); }
             }
         }
     }
 
     void NetworkMenu::textInputEvent(const TextInputEvent &event) {
+        enterText(event.getText());
+    }
+
+    void NetworkMenu::enterText(std::string_view text) {
+        clearConfirmedPassword();
         if (runtime.snapshot().journey != Client::NetworkJourney::Inactive
             || (setupScreen != SetupScreen::Host && setupScreen != SetupScreen::Join)) return;
         if (focus == 2) {
-            const std::string text(event.getText());
-            if (text.size() <= 128 - password.size() && std::all_of(text.begin(), text.end(), [](unsigned char c) {
-                    return c >= 32 && c != 127;
-                })) password += text;
+            if (text.size() > 128 - password.size() || !Network::SessionPassword::valid(text)) {
+                passwordFeedback = "Use valid UTF-8, no control characters and at most 128 bytes.";
+                return;
+            }
+            password.append(text); passwordFeedback.clear();
             return;
         }
         const bool addressField = setupScreen == SetupScreen::Join && focus == 0;
         const bool portField = setupScreen == SetupScreen::Host ? focus == 0 : focus == 1;
+        if (boundSelection()) return;
         if (!addressField && !portField) return;
-        if (setupScreen == SetupScreen::Join) browserSelection.reset();
         std::string *field = addressField ? &address : &port;
-        for (char c: std::string(event.getText())) {
-            const bool allowed = portField ? c >= '0' && c <= '9'
-                                           : std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == ':';
-            if (allowed && field->size() < (portField ? 5u : 253u)) field->push_back(c);
+        // Keep rejected syntax recognizable instead of deleting URL punctuation,
+        // whitespace or port signs and accidentally connecting to a different name.
+        // One overflow character leaves overlength input invalid until corrected.
+        const std::size_t limit = portField ? 6u : 254u;
+        if (field->size() < limit && !text.empty()) {
+            field->append(text.substr(0, limit - field->size()));
+            clearPassword();
         }
     }
 
@@ -1593,7 +1749,7 @@ namespace Duel6 {
             const auto previousIndex = std::distance(previousRows.begin(), previous);
             browser.update();
             const auto &rows = browser.result().listings;
-            browserScroll = std::clamp(browserScroll, 0, std::max(0, static_cast<int>(rows.size()) - 12));
+            browserScroll = std::clamp(browserScroll, 0, std::max(0, static_cast<int>(rows.size()) - 8));
             const auto selected = std::find_if(rows.begin(), rows.end(),
                 [&](const auto &row) { return row.id == selectedListing; });
             // Keep a retained selection visible if refresh reorders it, without undoing wheel scrolling.
@@ -1601,16 +1757,21 @@ namespace Duel6 {
                 const int index = static_cast<int>(std::distance(rows.begin(), selected));
                 if (index != previousIndex) {
                     if (index < browserScroll) browserScroll = index;
-                    if (index >= browserScroll + 12) browserScroll = index - 11;
+                    if (index >= browserScroll + 8) browserScroll = index - 7;
                 }
             }
             // A missing identity stays as a tombstone for "Session is no longer listed";
-            // never silently select another host. Failed refresh retains inspection-only rows.
-            if (!browserFocusEnabled(focus)) focus = rows.empty() ? 3 : 0;
+            // never silently select another host. Failed refresh hides retained data until recovery.
+            // A manual Refresh keeps its existing focus while temporarily disabled.
+            // Traversal and activation still use browserFocusEnabled; initial reads
+            // and other unavailable focus targets retain the normal fallback.
+            if (!browserFocusEnabled(focus) && !(focus == 2 && browser.loading()))
+                focus = browserFocusEnabled(0) ? 0 : browser.loading() ? 3 : 2;
         }
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();
         const auto currentSnapshot = runtime.snapshot();
+        clearConfirmedPassword();
         if (confirmation == Confirmation::None && currentSnapshot.journey == Client::NetworkJourney::Lobby
             && currentSnapshot.host && currentSnapshot.canonical
             && currentSnapshot.canonical->settings.mode != "Team deathmatch") {
@@ -1871,33 +2032,36 @@ namespace Duel6 {
     }
 
     void NetworkMenu::selectBrowserRow(int direction) {
+        if (!browser.available()) return;
         const auto &rows = browser.result().listings;
         if (rows.empty()) return;
         const auto current = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
         const int index = current == rows.end() ? 0 : std::clamp(static_cast<int>(current - rows.begin()) + direction, 0, static_cast<int>(rows.size()) - 1);
-        selectedListing = rows[index].id;
+        selectedListing = rows[index].id; selectedSessionIdentity = rows[index].sessionId;
         if (index < browserScroll) browserScroll = index;
-        if (index >= browserScroll + 12) browserScroll = index - 11;
+        if (index >= browserScroll + 8) browserScroll = index - 7;
     }
 
     void NetworkMenu::joinSelected() {
-        if (browser.loading() || browser.stale()) return;
+        if (!browser.available() || browser.loading() || browser.stale()) return;
         const auto &rows = browser.result().listings;
         const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
-        if (selected == rows.end() || !selected->joinable()) return;
+        if (selected == rows.end() || !browserFocusEnabled(1)) return;
         browserSelection = *selected;
+        if (!joinFromBrowser) { playerHostedAddress = address; playerHostedPort = port; }
         joinFromBrowser = true;
         address = selected->endpoint.host; port = std::to_string(selected->endpoint.port);
-        Network::Trust::secureEraseMemory(password.data(), password.size()); password.clear();
-        setupScreen = SetupScreen::Join; focus = selected->passwordRequired ? 2 : 3;
+        clearPassword();
+        setupScreen = SetupScreen::Join; focus = selected->passwordRequired ? 2 : setupFields();
     }
 
     bool NetworkMenu::browserFocusEnabled(int index) const {
-        if (index == 0) return !browser.result().listings.empty();
+        if (index == 0) return browser.available() && !browser.result().listings.empty();
         if (index == 1) {
             const auto &rows = browser.result().listings;
             const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
-            return selected != rows.end() && selected->joinable() && !browser.stale() && !browser.loading();
+            return browser.available() && selected != rows.end() && (selectedSessionIdentity.empty() || selectedSessionIdentity == selected->sessionId)
+                && selected->joinable() && !browser.stale() && !browser.loading();
         }
         if (index == 2) return !browser.loading();
         if (index == 4) return browser.hasPrevious() && !browser.loading();
@@ -1908,52 +2072,84 @@ namespace Duel6 {
     void NetworkMenu::drawBrowser() const {
         drawPanel(24, 24, 802, 544, "BROWSE SESSIONS");
         const auto &rows = browser.result().listings;
-        const std::string status = browser.loading() ? (rows.empty() ? "Loading sessions..." : "Refreshing... Previous results may be out of date.")
-            : browser.stale() ? "Directory unavailable. Previous results may be out of date." : "Sessions listed";
-        drawClippedText(30, 516, status, 98);
+        const bool visibleRows = browser.available();
+        const bool replacement = !browser.loading() && (!visibleRows || rows.empty());
+        if (browser.loading()) drawClippedText(30, 516,
+            visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 83);
+        else if (visibleRows && browser.stale()) drawClippedText(30, 516,
+            "Directory unavailable. Previous results may be out of date.", 83);
         renderer.quadXY(Vector(28, 490), Vector(794, 20), Color(170));
-        drawText(30, 494, "Session / endpoint"); drawText(382, 494, "Players");
-        drawText(480, 494, "Phase"); drawText(590, 494, "Password"); drawText(704, 494, "Admission");
-        drawField(28, 200, 794, 290);
+        drawText(30, 494, "Session / endpoint"); drawText(286, 494, "Hosting");
+        drawText(398, 494, "Players"); drawText(470, 494, "Phase");
+        drawText(574, 494, "Access"); drawText(670, 494, "Admission");
+        drawField(28, 292, 794, 198);
+        if (replacement) {
+            drawText(36, 470, !visibleRows
+                ? "Directory unavailable. Direct connection and local play are still available."
+                : browser.result().nextCursor.empty()
+                    ? "No active sessions listed. You can host a session or connect directly."
+                    : "No active sessions on this page. Continue with Next page.", Color(89));
+        }
         const Client::DirectoryListing *selected = nullptr;
-        for (const auto &row: rows) if (row.id == selectedListing) selected = &row;
-        for (int index = browserScroll; index < static_cast<int>(rows.size()) && index < browserScroll + 12; ++index) {
+        if (visibleRows) for (const auto &row: rows) if (row.id == selectedListing
+            && (selectedSessionIdentity.empty() || row.sessionId == selectedSessionIdentity)) selected = &row;
+        for (int index = browserScroll; visibleRows && index < static_cast<int>(rows.size()) && index < browserScroll + 8; ++index) {
             const auto &row = rows[index]; const Int32 y = 470 - (index - browserScroll) * 22;
             const bool selection = row.id == selectedListing;
             if (selection) renderer.quadXY(Vector(30, y - 4), Vector(790, 22), Color(0, 0, 200));
             const Color rowColor = selection ? Color::WHITE : Color::BLACK;
             drawClippedText(34, y, (selection ? "> " : "  ") + row.endpoint.host + ":" + std::to_string(row.endpoint.port)
-                + " " + row.mode + " " + row.sessionId.substr(28), 42, rowColor);
-            drawText(382, y, std::to_string(row.players) + "/" + std::to_string(row.capacity), rowColor);
-            drawText(480, y, row.phase == "lobby" ? "Lobby" : row.phase == "first-round" ? "Round 1" : "Started", rowColor);
-            drawText(590, y, row.passwordRequired ? "Required" : "None", rowColor);
-            drawText(704, y, browser.stale() || browser.loading() ? "Unknown" : row.phase == "closed" ? "Closed" : row.players >= row.capacity ? "Full" : row.joinable() ? "Open" : "Expired", rowColor);
+                , 31, rowColor);
+            drawText(286, y, row.dedicated() ? "Dedicated" : "Player-hosted", rowColor);
+            drawText(398, y, std::to_string(row.players) + " / " + std::to_string(row.capacity), rowColor);
+            drawText(470, y, directoryPhase(row), rowColor);
+            drawText(574, y, row.passwordRequired ? "Password" : "No password", rowColor);
+            const auto admission = row.admissionState();
+            drawText(670, y, browser.stale() || browser.loading() ? "Unconfirmed" : admission == "busy" ? "Busy"
+                : admission == "closed" ? "Closed" : row.players >= row.capacity ? "Full" : "Open", rowColor);
             drawFocusKeyline(30, y - 4, 790, 22, selection && focus == 0);
         }
-        if (rows.empty() && !browser.loading()) drawWrappedText(36, 436,
-            browser.available() ? (browser.result().nextCursor.empty()
-                ? "No active sessions listed. You can host a session or connect directly."
-                : "No active sessions on this page. Continue with Next page.")
-                                : "Directory unavailable. Direct connection and local play are still available.", 92, 3);
-        std::string reason = selected ? "Host validates capacity, compatibility and admission again." : selectedListing.empty() ? "Select a session." : "Session is no longer listed.";
+        std::string reason = selected ? "The host confirms availability when you connect."
+            : !visibleRows ? "Refresh successfully before joining. Availability unconfirmed."
+            : selectedListing.empty() ? "" : "Session is no longer listed. Refresh and reselect.";
+        if (selected && selected->joinable() && selected->phase == "started")
+            reason = "Match in progress. Your players join next round if admitted.";
+        if (selected && selected->joinable() && selected->phase == "final-round")
+            reason = "Final round in progress. You may not play in this match if admitted.";
         if (selected && !selected->joinable()) reason = (selected->players >= selected->capacity ? "Session is full. " : "")
-            + std::string(selected->phase == "closed" ? "Admission is closed." : "");
-        if (browser.stale() || browser.loading()) reason = "Refresh successfully before joining. Availability unconfirmed.";
-        if (selected && !selected->joinable() && selected->players < selected->capacity && selected->phase != "closed")
+            + std::string(selected->admissionState() == "busy" ? "Cleanup in progress. Admission is temporarily unavailable."
+                : selected->admissionState() == "closed" ? "Admission is closed." : "");
+        if (selected && selected->expiresAt <= std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count())
             reason = "Session listing expired. Refresh before joining.";
-        drawText(24, 180, selected ? "Session " + selected->sessionId + " • " + selected->endpoint.host + ":"
-            + std::to_string(selected->endpoint.port) + " • " + selected->mode : "Selected session");
-        drawClippedText(24, 156, reason, 100);
-        drawText(24, 136, selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host)
-                == Network::Trust::EndpointScope::Loopback
-                ? "Same-machine endpoint. Only clients on the host machine can connect."
-                : "LAN-first. A listing does not guarantee reachability.");
-        const std::string page = "Page " + std::to_string(browser.pageNumber());
-        drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 112, page);
+        if (browser.stale() || browser.loading()) reason = "Refresh successfully before joining. Availability unconfirmed.";
+        std::vector<std::string> details;
+        if (selected) {
+            appendWrapped(details, "Session: " + selected->sessionId + " • Mode: " + selected->mode, 98);
+            appendWrapped(details, "Endpoint: " + selected->endpoint.host + ":" + std::to_string(selected->endpoint.port), 98);
+            if (selected->dedicated() && selected->phase == "idle")
+                appendWrapped(details, "Ready empty session. Your role is confirmed only after admission.", 98);
+        }
+        appendWrapped(details, reason, 98);
+        if (selected && (selected->phase == "started" || selected->phase == "final-round"))
+            appendWrapped(details, "The host confirms availability when you connect.", 98);
+        if (selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host) == Network::Trust::EndpointScope::Loopback) {
+            appendWrapped(details, "Same-machine endpoint. Only clients on the host machine can connect.", 98);
+            appendWrapped(details, "Loopback address; not verified as the advertised host on this machine.", 98);
+        }
+        appendWrapped(details, "A listing does not guarantee reachability.", 98);
+        for (std::size_t index = 0; index < details.size(); ++index)
+            drawText(30, 272 - static_cast<Int32>(index) * 18, details[index]);
+        const bool pagination = browser.hasPrevious() || !browser.result().nextCursor.empty();
+        if (pagination) {
+            const std::string page = "Page " + std::to_string(browser.pageNumber());
+            drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 112, page);
+        }
         for (const auto &action: BrowserActions) {
+            if (!pagination && (action.focus == 4 || action.focus == 5)) continue;
             const bool enabled = browserFocusEnabled(action.focus);
             drawButton(action.x, action.y, action.width, action.height,
-                std::string(action.caption) + (enabled ? "" : " (disabled)"), focus == action.focus, enabled);
+                action.caption, focus == action.focus, enabled);
         }
     }
 
@@ -1977,9 +2173,9 @@ namespace Duel6 {
         drawPanel(24, 24, 802, 544, "");
     }
 
-    void NetworkMenu::drawPlayers(const Network::Replication::CanonicalState &state, bool host) const {
-        Int32 y = host ? 416 : 440;
-        const std::size_t visible = state.result.available ? (host ? 1 : 2) : (host ? 2 : 3);
+    void NetworkMenu::drawPlayers(const Network::Replication::CanonicalState &state, bool host, bool dedicated) const {
+        Int32 y = state.result.available && !host && !dedicated ? 440 : 416;
+        const std::size_t visible = state.result.available ? (host || dedicated ? 1 : 2) : OrdinaryLobbyParticipantRows;
         const std::size_t first = std::min<std::size_t>(setupScroll,
                 state.participants.size() > visible ? state.participants.size() - visible : 0);
         for (std::size_t participantIndex = first;
@@ -2033,8 +2229,9 @@ namespace Duel6 {
             }
         }
         std::vector<std::string> statusRows;
-        statusRows.push_back(std::string(snap.host ? "Host" : "Guest") + " • LAN session • " + connectionState);
-        if (snap.host) statusRows.push_back(snap.directoryAvailable ? "Directory: Listed"
+        statusRows.push_back(std::string(snap.host ? "Host" : "Guest")
+                             + (snap.publicSession ? " • Dedicated session • " : " • LAN session • ") + connectionState);
+        if (snap.host && !snap.publicSession) statusRows.push_back(snap.directoryAvailable ? "Directory: Listed"
             : snap.directoryRegistering ? "Directory: Registering…" : "Directory: Unavailable • Retry publication (F5)");
         const std::string right = "Session only scores • Optional scripts disabled";
         const bool rightFits = static_cast<Int32>((utf8Length(statusRows.front()) + utf8Length(right)) * 8 + 56) <= width;
@@ -2054,6 +2251,21 @@ namespace Duel6 {
             drawText(20, 20 + static_cast<Int32>(row) * 16, statusRows[row], Color::YELLOW);
         if (rightFits)
             drawText(width - 20 - static_cast<Int32>(utf8Length(right)) * 8, 20, right, Color::YELLOW);
+        const bool waiting = (state.phase == Network::Replication::Phase::ActiveRound
+            || (state.phase == Network::Replication::Phase::RoundSummary && state.currentRoundNumber < state.settings.roundLimit))
+            && std::any_of(state.players.begin(), state.players.end(), [&](const auto &player) {
+                return player.ownerParticipantId == snap.localParticipantId
+                    && player.lifeState == Network::Replication::LifeState::Waiting;
+            });
+        if (waiting) {
+            const Int32 feedbackWidth = width - 400;
+            renderer.setBlendFunc(BlendFunc::SrcAlpha);
+            renderer.quadXY(Vector(16, 24 + statusHeight), Vector(feedbackWidth, 24), Color(0, 0, 255, 179));
+            renderer.setBlendFunc(BlendFunc::None);
+            drawWrappedText(20, 28 + statusHeight, state.currentRoundNumber < state.settings.roundLimit
+                ? "Your players join next round." : "Waiting for the next match.",
+                static_cast<std::size_t>((feedbackWidth - 8) / 8), 2, Color::YELLOW);
+        }
         if (interactive) {
             const bool roundSummary = state.phase == Network::Replication::Phase::RoundSummary;
             if (snap.host && roundSummary) {
@@ -2115,7 +2327,7 @@ namespace Duel6 {
         const Int32 panelHeight = std::min<Int32>(340, height - 32);
         const Int32 x = (width - panelWidth) / 2;
         const Int32 y = (height - panelHeight) / 2;
-        drawPanel(x, y, panelWidth, panelHeight, "RECONNECTING");
+        drawPanel(x, y, panelWidth, panelHeight, snap.publicSession && snap.host ? "HOST • RECONNECTING" : "RECONNECTING");
         const auto columns = static_cast<std::size_t>(std::max<Int32>(12, (panelWidth - 48) / 8));
         drawWrappedText(x + 24, y + panelHeight - 38,
                 "Reconnecting to " + snap.endpoint.host + ':' + std::to_string(snap.endpoint.port) + "…",
@@ -2129,7 +2341,9 @@ namespace Duel6 {
             drawWrappedText(x + 24, y + panelHeight - 198,
                     "Reserved players receive no input and remain in play", columns, 2);
         }
-        drawButton(x + panelWidth / 2 - 100, y + 24, 200, 34, "Leave session", true, true, true);
+        if (snap.publicSession && snap.host)
+            drawWrappedText(x + 24, y + 86, "Reconnect to keep control. If time expires, the session ends.", columns, 2);
+        drawButton(x + panelWidth / 2 - 100, y + 24, 200, 34, snap.host ? "End session" : "Leave session", true, true, true);
     }
 
     void NetworkMenu::drawHostEndedPanel(
@@ -2155,11 +2369,19 @@ namespace Duel6 {
 
     void NetworkMenu::drawLobby(const Client::NetworkRuntimeSnapshot &snap) const {
         const auto &state = *snap.canonical;
-        drawClippedText(42, snap.host ? 528 : 516, (snap.host ? "Host" : "Guest") + std::string(" • Network session • ")
-                                + snap.endpoint.host + ":" + std::to_string(snap.endpoint.port) + " • "
-                                + std::to_string(state.participants.size()) + " participants • "
-                                + std::to_string(state.players.size()) + " players", 96);
-        if (snap.host) {
+        if (snap.publicSession) {
+            drawText(42, 528, std::string(snap.host ? "Host" : "Guest") + " • Dedicated session • "
+                     + std::to_string(state.participants.size()) + " participants • "
+                     + std::to_string(state.players.size()) + " players");
+            drawClippedText(42, 508, "Endpoint: " + snap.endpoint.host + ":" + std::to_string(snap.endpoint.port), 96);
+            drawWrappedText(42, 488, snap.host ? "You control this session. Leaving ends it for everyone."
+                                             : "The host controls this session. It ends when the host leaves.", 96, 2);
+        } else drawClippedText(42, snap.host ? 528 : 516, (snap.host ? "Host" : "Guest")
+                               + std::string(" • Network session • ") + snap.endpoint.host + ":"
+                               + std::to_string(snap.endpoint.port) + " • "
+                               + std::to_string(state.participants.size()) + " participants • "
+                               + std::to_string(state.players.size()) + " players", 96);
+        if (snap.host && !snap.publicSession) {
             if (snap.directoryAvailable || snap.directoryRegistering)
                 drawText(42, 504, snap.directoryAvailable ? "Directory: Listed" : "Directory: Registering…");
             else drawButton(40, 500, 650, 24, "Directory: Unavailable • Retry publication (F5)",
@@ -2167,15 +2389,16 @@ namespace Duel6 {
             if (!snap.directoryAvailable && !snap.directoryRegistering)
                 drawText(42, 484, "Session is still running. Share the endpoint for direct connection.");
         }
-        const Int32 participantTop = snap.host ? 476 : 500;
+        const Int32 participantTop = snap.publicSession ? 476 : state.result.available ? (snap.host ? 476 : 500) : 482;
         const Int32 participantBottom = state.result.available ? 410 : 392;
-        drawPanel(40, participantBottom, 358, participantTop - participantBottom, "PARTICIPANTS");
-        renderer.quadXY(Vector(42, participantTop - 40), Vector(354, 20), Color(170));
+        const Int32 participantWidth = state.result.available ? 358 : 526;
+        drawPanel(40, participantBottom, participantWidth, participantTop - participantBottom, "PARTICIPANTS");
+        renderer.quadXY(Vector(42, participantTop - 40), Vector(participantWidth - 4, 20), Color(170));
         drawText(44, participantTop - 36, "Role"); drawText(142, participantTop - 36, "Connection");
         drawText(254, participantTop - 36, "Readiness"); drawText(350, participantTop - 36, "Owned");
-        drawField(42, participantBottom + 2, 354, participantTop - 42 - participantBottom);
-        drawPlayers(state, snap.host);
-        const Int32 settingsBottom = state.result.available ? 350 : 232;
+        drawField(42, participantBottom + 2, participantWidth - 4, participantTop - 42 - participantBottom);
+        drawPlayers(state, snap.host, snap.publicSession);
+        const Int32 settingsBottom = state.result.available ? 350 : 196;
         const Int32 settingsLeft = state.result.available ? 406 : LobbySettingLeft - 6;
         const Int32 settingsWidth = 816 - settingsLeft;
         drawPanel(settingsLeft, settingsBottom, settingsWidth, 482 - settingsBottom, "HOST MATCH SETTINGS");
@@ -2322,7 +2545,7 @@ namespace Duel6 {
             drawClippedText(42, 116, reason.empty() ? "All participants are ready." : reason, 96);
             drawText(42, 94, "Optional scripts are disabled for network play.");
             const int startIndex = readyIndex + 10 + static_cast<int>(roster.size());
-            drawButton(408, 54, 210, 24, eligible ? "Start match" : "Start match (disabled)", focus == startIndex, eligible);
+            drawButton(408, 54, 210, 24, "Start match", focus == startIndex, eligible);
             drawButton(670, 54, 150, 24, "End session", focus == startIndex + 1);
         } else {
             drawText(42, 116, "Host settings and authoritative roster order are read-only.");
@@ -2454,9 +2677,13 @@ namespace Duel6 {
         const Int32 panelHeight = std::min<Int32>(260, height - 32);
         const Int32 left = (width - panelWidth) / 2, bottom = (height - panelHeight) / 2;
         const Int32 buttonWidth = std::min<Int32>(230, (panelWidth - 80) / 2);
-        const auto journey = runtime.snapshot().journey;
+        const auto snapshot = runtime.snapshot();
+        const auto journey = snapshot.journey;
         const std::string prompt = confirmation == Confirmation::End ? "End session for everyone?" : "Leave session?";
-        const std::string consequence = confirmation == Confirmation::End ? std::string()
+        const std::string consequence = confirmation == Confirmation::End
+                ? snapshot.publicSession && journey == Client::NetworkJourney::Reconnecting
+                    ? "Reconnect will stop. The session ends when the service receives the request or the reconnect time expires."
+                    : std::string()
                 : journey == Client::NetworkJourney::Reconnecting
                   ? "Your reserved players will be removed now and reconnect will stop."
                 : journey == Client::NetworkJourney::Match
@@ -2524,7 +2751,8 @@ namespace Duel6 {
         else if (snap.journey == Client::NetworkJourney::Lobby) title = "NETWORK LOBBY";
         else if (snap.journey == Client::NetworkJourney::Summary) title = "MATCH SUMMARY";
         else if (snap.journey == Client::NetworkJourney::Reconnecting) title = "RECONNECTING";
-        else if (snap.journey == Client::NetworkJourney::Failure) title = snap.host ? "SESSION ENDED" : "CONNECTION FAILED";
+        else if (snap.journey == Client::NetworkJourney::Failure)
+            title = (snap.publicSession ? publicSessionEnded(snap) : snap.host) ? "SESSION ENDED" : "CONNECTION FAILED";
         else if (snap.journey == Client::NetworkJourney::HostEnded && snap.canonical
                  && snap.canonical->phase == Network::Replication::Phase::Lobby) title = "NETWORK LOBBY";
         else if (snap.journey == Client::NetworkJourney::HostEnded && snap.canonical
@@ -2533,19 +2761,25 @@ namespace Duel6 {
         drawPanel(24, 24, 802, 544, title);
 
         if (snap.journey == Client::NetworkJourney::Inactive) {
-            const int fields = 3;
-            drawText(50, 524, browserSelection && setupScreen == SetupScreen::Join
+            const int fields = setupFields();
+            if (boundSelection()) drawText(50, 524, boundDedicated()
+                ? "Dedicated service • Selected from browser" : "Player-hosted session • Selected from browser");
+            else drawClippedText(50, 524, browserSelection && setupScreen == SetupScreen::Join
                 ? "Selected session: " + browserSelection->endpoint.host + ":" + std::to_string(browserSelection->endpoint.port)
-                : SetupScope);
-            for (int field = 0; field < fields; ++field)
-                drawField(224, EndpointFirstBottom - field * EndpointPitch, 586, EndpointHeight, focus == field);
+                 : setupScreen == SetupScreen::Join ? "Direct connection" : SetupScope, 94);
+            for (int field = 0; field < 3; ++field) {
+                if (boundSelection() && field < 2)
+                    drawButton(224, EndpointFirstBottom - field * EndpointPitch, 586, EndpointHeight, "", false, false);
+                else drawField(224, EndpointFirstBottom - field * EndpointPitch, 586, EndpointHeight, focus == field);
+            }
             Int32 y = EndpointFirstBottom + 4;
             if (setupScreen == SetupScreen::Join) {
-                drawText(50, y, "Address:");
-                drawClippedText(228, y, address + (focus == 0 ? " <" : ""), 72);
+                drawText(50, y, boundSelection() ? "Address (locked):" : "Address:");
+                const auto value = address + (focus == 0 && !boundSelection() ? "_" : "");
+                drawText(228, y, focus == 0 && utf8Length(value) > 72 ? utf8Slice(value, utf8Length(value) - 72, 72) : utf8Clipped(value, 72));
                 y -= EndpointPitch;
-                drawText(50, y, "Port:");
-                drawText(228, y, port + (focus == 1 ? " <" : ""));
+                drawText(50, y, boundSelection() ? "Port (locked):" : "Port:");
+                drawText(228, y, port + (focus == 1 && !boundSelection() ? " <" : ""));
             } else {
                 drawText(50, y, "Port:");
                 drawText(228, y, port + (focus == 0 ? " <" : ""));
@@ -2554,19 +2788,25 @@ namespace Duel6 {
                 drawClippedText(228, y, listeningSummary(), 64);
                 drawText(786, y, "v");
             }
-            drawText(50, 434, setupScreen == SetupScreen::Host ? "Password (optional):" : "Password:");
-            drawText(228, 434, std::string(std::min<std::size_t>(utf8Length(password), 40), '*'));
-            drawText(50, 410, setupScreen == SetupScreen::Host ? "Leave empty for no password."
-                : "Enter a password only if the host requires one.");
-            if (browserSelection && setupScreen == SetupScreen::Join && browserSelection->passwordRequired)
-                drawText(600, 410, "Password required");
-            drawPanel(46, 202, 358, 202, "PERSONS");
-            drawPanel(426, 202, 398, 202, "LOCAL PLAYERS AND CONTROLS");
-            drawField(48, 206, 354, 176);
-            drawField(428, 206, 394, 176);
+            drawText(50, 434, "Password:");
+            const std::string mask(utf8Length(password), '*');
+            const auto shownMask = mask + (focus == 2 ? "_" : "");
+            drawText(228, 434, utf8Length(shownMask) > 72 ? utf8Slice(shownMask, utf8Length(shownMask) - 72, 72) : shownMask);
+            drawText(50, 410, browserSelection && setupScreen == SetupScreen::Join && browserSelection->passwordRequired
+                ? "Password required" : "Password optional");
+            if (boundDedicated()) {
+                const auto context = boundContextLines();
+                for (std::size_t line = 0; line < context.size(); ++line)
+                    drawText(50, 382 - static_cast<Int32>(line) * 20, context[line]);
+            }
+            const int panelHeight = boundDedicated() ? setupFirstRow() + 40 - 202 : 202;
+            drawPanel(46, 202, 358, panelHeight, "PERSONS");
+            drawPanel(426, 202, 398, panelHeight, "LOCAL PLAYERS AND CONTROLS");
+            drawField(48, 206, 354, panelHeight - 26);
+            drawField(428, 206, 394, panelHeight - 26);
             const std::size_t firstPerson = static_cast<std::size_t>(setupPersonsScroll);
-            y = SetupFirstRow;
-            for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + SetupVisibleRows; ++index, y -= 18) {
+            y = setupFirstRow();
+            for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + setupVisibleRows(); ++index, y -= 18) {
                 const bool selected = std::any_of(localPlayers.begin(), localPlayers.end(), [&](const auto &p) { return p.name == availablePersons[index]; });
                 const bool focused = focus == fields + static_cast<int>(index);
                 if (focused) renderer.quadXY(Vector(50, y - 1), Vector(350, 18), Color(0, 0, 200));
@@ -2574,9 +2814,9 @@ namespace Duel6 {
                                         + (selected ? " • Selected" : " • Add"), 42, focused ? Color::WHITE : Color::BLACK);
                 drawFocusKeyline(50, y - 1, 350, 18, focus == fields + static_cast<int>(index));
             }
-            y = SetupFirstRow; const int playerBase = fields + static_cast<int>(availablePersons.size());
+            y = setupFirstRow(); const int playerBase = fields + static_cast<int>(availablePersons.size());
             const std::size_t firstPlayer = static_cast<std::size_t>(setupPlayersScroll);
-            for (std::size_t index = firstPlayer; index < localPlayers.size() && index < firstPlayer + SetupVisibleRows; ++index, y -= 22) {
+            for (std::size_t index = firstPlayer; index < localPlayers.size() && index < firstPlayer + setupVisibleRows(); ++index, y -= 22) {
                 drawField(430, y - 2, 290, 18, focus == playerBase + static_cast<int>(index) * 2);
                 drawClippedText(434, y, (focus == playerBase + static_cast<int>(index) * 2 ? "> " : "  ")
                                        + localPlayers[index].name + " • "
@@ -2584,16 +2824,26 @@ namespace Duel6 {
                 drawButton(724, y - 2, 96, 18, "Remove", focus == playerBase + static_cast<int>(index) * 2 + 1);
             }
             std::string reason; const bool valid = setupValid(reason);
-            drawText(50, 182, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 2–15");
+            drawText(50, 182, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 1–15");
+            if (boundSelection() && !boundDedicated())
+                drawText(470, 182, "Session: " + browserSelection->sessionId);
             drawText(50, 160, browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "first-round"
                 ? "Round 1 in progress. You will play immediately if admitted."
-                : "Listing does not guarantee reachability. Direct play remains available.");
-            drawText(50, 138, reason);
+                : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "started"
+                    ? "Match in progress. Your players join next round if admitted."
+                : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "final-round"
+                    ? "Final round in progress. You may not play in this match if admitted."
+                 : setupScreen == SetupScreen::Join && !browserSelection && password.empty()
+                    && (!browserSelection || !browserSelection->passwordRequired)
+                ? "Endpoint-only first contact does not authenticate host identity."
+                 : "Listing does not guarantee reachability. Direct play remains available.");
+            drawText(50, 138, passwordFeedback.empty() ? reason : passwordFeedback);
             if (browserSelection && setupScreen == SetupScreen::Join)
-                drawText(50, 118, "The host confirms availability when you connect.");
+                drawText(50, 118, !browserSelection->passwordRequired && password.empty()
+                    ? "Endpoint-only first contact does not authenticate host identity."
+                    : "The host confirms availability when you connect.");
             const int footer = playerBase + static_cast<int>(localPlayers.size()) * 2;
-            drawAction(82, valid ? (setupScreen == SetupScreen::Host ? "Start session" : "Connect")
-                                 : (setupScreen == SetupScreen::Host ? "Start session (disabled)" : "Connect (disabled)"), focus == footer, valid);
+            drawAction(82, setupScreen == SetupScreen::Host ? "Start session" : "Connect", focus == footer, valid);
             drawAction(38, "Back", focus == footer + 1);
             if (setupScreen == SetupScreen::Host && hostAddressSelectorOpen) {
                 drawPanel(224, 202, 586, 252, "LISTENING INTERFACE");
@@ -2659,17 +2909,21 @@ namespace Duel6 {
         } else if (snap.journey == Client::NetworkJourney::Failure) {
             drawWrappedText(130, 470, snap.failure.empty() ? "Connection could not be completed." : snap.failure,
                             72, 3);
-            if (!snap.host) drawClippedText(130, 404,
+            if ((!snap.host || snap.publicSession) && !snap.canonical && snap.localParticipantId == 0
+                && snap.retryBlockReason != Client::NetworkRetryBlockReason::TerminalReconnect
+                && snap.retryBlockReason != Client::NetworkRetryBlockReason::EndedSession) drawClippedText(130, 404,
                     "Endpoint: " + snap.endpoint.host + ':' + std::to_string(snap.endpoint.port), 72);
-            if (!snap.host) drawWrappedText(130, 374,
+            if (!snap.host && !snap.publicSession && !boundDedicated() && !publicSecurityFailure(snap)) drawWrappedText(130, 374,
                     "Check that the host session is running and the endpoint is correct.", 72, 2);
             std::string retryReason;
             const bool canRetry = retryEligible(snap, retryReason);
             int selected = 0;
-            drawButton(54, 270, 220, 34, canRetry ? "Retry" : "Retry unavailable", canRetry && focus == selected++, canRetry);
-            drawButton(315, 270, 220, 34, "Edit setup", focus == selected++);
+            if (!publicSecurityFailure(snap) && !snap.selectedSessionChanged)
+                drawButton(54, 270, 220, 34, canRetry ? "Retry" : "Retry unavailable", canRetry && focus == selected++, canRetry);
+            drawButton(315, 270, 220, 34, "Edit setup", !snap.selectedSessionChanged && focus == selected, !snap.selectedSessionChanged);
+            if (!snap.selectedSessionChanged) ++selected;
             drawButton(576, 270, 220, 34, joinFromBrowser ? "Return to browser" : "Return to Network", focus == selected);
-            if (!canRetry) drawWrappedText(54, 238, retryReason, 92, 4);
+            if (!canRetry && !publicSecurityFailure(snap) && !snap.selectedSessionChanged) drawWrappedText(54, 238, retryReason, 92, 4);
         }
         if (confirmation != Confirmation::None) drawConfirmation();
         renderer.setViewMatrix(Matrix::IDENTITY);

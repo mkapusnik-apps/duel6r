@@ -159,7 +159,7 @@ D6R_TEST_CASE("Darwin CLI generated and explicit seeds cannot bypass physical ad
                                   Restriction::QueryFailure, Restriction::ShortResult, Restriction::None}) {
             restriction = denied; initializations = 0; d6rRandomFailureAt(0);
             char name[] = "cli-admission", option[] = "--authoritative-match";
-            char scenario[] = "--scenario=interrupted", seed[] = "--seed=424242";
+            char scenario[] = "--scenario=solo", seed[] = "--seed=424242";
             std::string resource = std::string("--resources=") + D6R_HARDWARE_RESOURCES;
             char *arguments[] = {name, option, resource.data(), scenario, seed};
             unsigned files = 0, hashes = 0, factories = 0, worlds = 0;
@@ -184,7 +184,7 @@ D6R_TEST_CASE("Darwin CLI generated and explicit seeds cannot bypass physical ad
                 D6R_REQUIRE(Network::SecureSession::supported()); // Physical support is never fabricated.
                 D6R_REQUIRE_EQ(0, status);
                 D6R_REQUIRE(files > 0 && hashes > 0 && factories == 1 && worlds == 1);
-                D6R_REQUIRE(output.str().find("authoritative-match-interrupted-no-winner") != std::string::npos);
+                D6R_REQUIRE(output.str().find("authoritative-match-ended-intentionally") != std::string::npos);
                 if (!explicitSeed) D6R_REQUIRE(d6rRandomCalls() > 0);
             } else {
                 D6R_REQUIRE(status != 0);

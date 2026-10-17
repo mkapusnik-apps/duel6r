@@ -1,4 +1,5 @@
 #include "SessionTransport.h"
+#include "PublicSession.h"
 #include "ResolverProtocol.h"
 #ifdef __APPLE__
 #include "../platform/DarwinChild.h"
@@ -907,10 +908,12 @@ namespace Duel6::Network {
               std::array<std::uint8_t, 4> source = {},
               std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation = {},
               bool encrypted = false, bool server = false,
-              std::shared_ptr<const SessionPassword> password = {}, SecureSessionLimits secureLimits = {})
-                : socket(socket), outbound(std::move(outbound)), now(std::move(now)), source(source),
+              std::shared_ptr<const SessionPassword> password = {}, SecureSessionLimits secureLimits = {},
+              TransportTimePoint handshakeDeadline = {},
+              InboundTransportDependencies inbound = {})
+                : socket(socket), outbound(std::move(outbound)), inbound(std::move(inbound)), now(std::move(now)), source(source),
                   acceptanceTime(acceptedAt), admissionReservation(std::move(admissionReservation)),
-                  lastInboundActivity(acceptedAt), lastOutboundProgress(acceptedAt), lastLivenessPing(acceptedAt) {
+                   lastInboundActivity(acceptedAt), lastOutboundProgress(acceptedAt), lastLivenessPing(acceptedAt) {
             admissionComplete.store(!this->admissionReservation);
             if (!configureConnectedSocket(socket)) {
                 failure.store(TransportFailure::SystemError);
@@ -918,9 +921,12 @@ namespace Duel6::Network {
                 closeSocketOnce();
                 return;
             }
-            if (encrypted) secure = std::make_unique<SecureSession>(static_cast<std::intptr_t>(socket), server, std::move(password), secureLimits);
-            reader = std::thread([this, server] {
-                if (secure && !secure->handshake(Clock::now() + std::chrono::seconds(server ? 3 : 10),
+            if (encrypted) secure = std::make_unique<SecureSession>(static_cast<std::intptr_t>(socket), server,
+                    std::move(password), secureLimits);
+            if (handshakeDeadline == TransportTimePoint{})
+                handshakeDeadline = acceptedAt + std::chrono::seconds(server ? 3 : 10);
+            reader = std::thread([this, handshakeDeadline] {
+                if (secure && !secure->handshake(handshakeDeadline,
                         [this] { return stop.load() || closeRequested.load(); })) {
                     fail(TransportFailure::NotAuthorized);
                     return;
@@ -1023,19 +1029,24 @@ namespace Duel6::Network {
             return true;
         }
 
-        TransportInputSnapshot sealAndDrainInput() {
+        TransportInputSnapshot sealAndDrainInput(std::size_t maximumFrames) {
+            if (inbound.beforeInputSeal) inbound.beforeInputSeal();
+            // Same boundary as the final authenticated read and its publication.
+            // No input->inner inversion, and no wait for unseal under inner lock.
+            std::lock_guard<std::mutex> acceptanceLock(inputAcceptanceMutex);
             TransportInputSnapshot snapshot;
             std::size_t released = 0;
             {
                 std::lock_guard<std::mutex> inputLock(inputMutex);
                 inputSealed = true;
-                snapshot.frames.reserve(input.size());
-                while (!input.empty()) {
+                maximumFrames = std::min(maximumFrames, MaxQueuedTransportFrames);
+                snapshot.frames.reserve(std::min(input.size(), maximumFrames));
+                while (!input.empty() && snapshot.frames.size() < maximumFrames) {
                     released += input.front().payload.size();
                     snapshot.frames.push_back(std::move(input.front()));
                     input.pop_front();
                 }
-                inputBytes = 0;
+                inputBytes -= released;
                 std::lock_guard<std::mutex> terminalLock(terminalMutex);
                 snapshot.state = state.load();
                 snapshot.terminalAt = terminalTime.load();
@@ -1049,6 +1060,7 @@ namespace Duel6::Network {
 
             if (writer.joinable() && writer.get_id() != std::this_thread::get_id()) writer.join();
             stop.store(true);
+            inputSealChanged.notify_all();
             if (!socketClosed.load()) shutdownSocket(socket);
             if (reader.joinable() && reader.get_id() != std::this_thread::get_id()) reader.join();
             closeSocketOnce();
@@ -1059,6 +1071,9 @@ namespace Duel6::Network {
 
         void requestClose() {
             std::lock_guard<std::mutex> terminalLock(terminalMutex);
+            // Only a legally usable context may drain within the existing close
+            // budget. Fatal inner/outer errors close immediately; authenticated
+            // application-owned input remains available to the outcome consumer.
             ClientState expected = ClientState::Connected;
             if (state.compare_exchange_strong(expected, ClientState::Closing)) {
                 closeDeadline = Clock::now() + GracefulCloseDeadline;
@@ -1107,6 +1122,7 @@ namespace Duel6::Network {
         std::unique_ptr<SecureSession> secure;
         std::atomic<bool> secureReady{false};
         const OutboundTransportDependencies outbound;
+        const InboundTransportDependencies inbound;
         const std::function<TransportTimePoint()> now;
         std::atomic<bool> socketClosed{false};
         std::atomic<bool> stop{false};
@@ -1117,6 +1133,9 @@ namespace Duel6::Network {
         std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation;
         std::thread reader;
         std::thread writer;
+        // Lock order: acceptance -> inner -> input -> terminal. Writers only
+        // acquire inner; neither terminal nor input ever acquires acceptance.
+        std::mutex inputAcceptanceMutex;
         std::mutex inputMutex;
         std::deque<TransportFrame> input;
         std::size_t inputBytes = 0;
@@ -1193,9 +1212,17 @@ namespace Duel6::Network {
             outputChanged.notify_all();
         }
 
+        bool waitForUnsealedInput(std::unique_lock<std::mutex> &lock) {
+            while (inputSealed && !stop.load() && state.load() == ClientState::Connected) {
+                inputSealChanged.wait_for(lock, std::chrono::milliseconds(100));
+            }
+            return !stop.load() && state.load() == ClientState::Connected;
+        }
+
         void queueControl(std::uint16_t kind) {
             std::lock_guard<std::mutex> lock(outputMutex);
-            if (stop.load() || controlOutput.size() + activeControlFrames >= MaxQueuedControlFrames) return;
+            if (stop.load()
+                || controlOutput.size() + activeControlFrames >= MaxQueuedControlFrames) return;
             if ((activeControlFrames != 0 && activeControlKind == kind)
                 || std::any_of(controlOutput.begin(), controlOutput.end(), [kind](const PendingFrame &frame) {
                     return frame.kind == kind;
@@ -1204,7 +1231,8 @@ namespace Duel6::Network {
             outputChanged.notify_one();
         }
 
-        bool readExact(std::uint8_t *target, std::size_t size) {
+        bool readExact(std::uint8_t *target, std::size_t size, const std::function<void()> &completed = {},
+                       bool *aggregateReserved = nullptr) {
             std::size_t offset = 0;
             Clock::time_point progress = Clock::now();
             while (offset < size && !stop.load()) {
@@ -1223,14 +1251,51 @@ namespace Duel6::Network {
                     }
                     continue;
                 }
+                if (completed && inbound.beforeApplicationRead) inbound.beforeApplicationRead();
+                std::unique_lock<std::mutex> acceptanceLock(inputAcceptanceMutex, std::defer_lock);
+                if (completed) {
+                    acceptanceLock.lock();
+                    std::unique_lock<std::mutex> inputLock(inputMutex);
+                    if (inputSealed) {
+                        // Reserved, partial staging is not accepted application
+                        // input. Release its budget while paused, not its bytes.
+                        if (aggregateReserved && *aggregateReserved) {
+                            Trust::processQueueBudget().release(size);
+                            *aggregateReserved = false;
+                        }
+                        acceptanceLock.unlock();
+                        if (!waitForUnsealedInput(inputLock)) return false;
+                        continue; // Recheck after reacquiring the boundary.
+                    }
+                    if (stop.load() || state.load() != ClientState::Connected) return false;
+                    if (aggregateReserved && !*aggregateReserved) {
+                        if (!Trust::processQueueBudget().reserve(size)) {
+                            inputLock.unlock(); acceptanceLock.unlock();
+                            if (Clock::now() - progress >= ProgressDeadline) {
+                                fail(TransportFailure::InboundStalled, true); return false;
+                            }
+                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                            continue;
+                        }
+                        *aggregateReserved = true;
+                    }
+                }
                 std::ptrdiff_t count;
-                if (secure) count = secure->receive(target + offset, size - offset);
-                else {
-#ifdef D6R_TRANSPORT_WINDOWS
-                    count = recv(socket, reinterpret_cast<char *>(target + offset), static_cast<int>(size - offset), 0);
-#else
-                    count = recv(socket, target + offset, size - offset, 0);
-#endif
+                if (secure) count = secure->receive(target + offset, size - offset, [&](std::size_t bytes) {
+                    if (offset + bytes == size && completed) completed();
+                });
+                else count = recv(socket, reinterpret_cast<char *>(target + offset), static_cast<int>(size - offset), 0);
+                if (!secure && count > 0 && offset + static_cast<std::size_t>(count) == size && completed) completed();
+                if (acceptanceLock.owns_lock()) acceptanceLock.unlock();
+                if (secure && count == -2) {
+                    const auto current = Clock::now();
+                    if (current - lastTransportActivity() >= ReceiveIdleDeadline
+                        || (offset > 0 && current - progress >= ProgressDeadline)) {
+                        fail(TransportFailure::InboundStalled, true); return false;
+                    }
+                    queueLivenessProbeIfDue(lastTransportActivity());
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    continue;
                 }
                 if (count > 0) {
                     offset += static_cast<std::size_t>(count);
@@ -1279,10 +1344,16 @@ namespace Duel6::Network {
                 }
                 if (kind == ApplicationFrame) {
                     std::unique_lock<std::mutex> lock(inputMutex);
-                    inputSealChanged.wait(lock, [&] {
-                        return !inputSealed || stop.load() || state.load() != ClientState::Connected;
-                    });
-                    if (stop.load() || state.load() != ClientState::Connected) break;
+                    if (!waitForUnsealedInput(lock)) break;
+                    const auto blocked = Clock::now();
+                    while ((input.size() >= MaxQueuedTransportFrames
+                        || inputBytes + payloadSize > MaxQueuedTransportPayloadBytes) && !stop.load()) {
+                        if (Clock::now() - blocked >= ProgressDeadline) {
+                            lock.unlock(); fail(TransportFailure::InboundStalled, true); return;
+                        }
+                        lock.unlock(); std::this_thread::sleep_for(std::chrono::milliseconds(10)); lock.lock();
+                    }
+                    if (stop.load()) break;
                 }
                 bool aggregateReserved = false;
                 const auto aggregateBlockedSince = Clock::now();
@@ -1295,10 +1366,41 @@ namespace Duel6::Network {
                 }
                 if (!aggregateReserved) break;
                 std::vector<std::uint8_t> payload(payloadSize);
-                if (payloadSize > 0 && !readExact(payload.data(), payload.size())) {
-                    Trust::processQueueBudget().release(payloadSize);
+                struct StagingEraseGuard {
+                    std::vector<std::uint8_t> &payload;
+                    ~StagingEraseGuard() {
+                        // Discarded partial/plaintext staging can contain a
+                        // credential before its APP frame is complete. A move
+                        // transfers ownership to the queue; erase only storage
+                        // still owned by this local vector on every exit.
+                        Trust::secureEraseMemory(payload.data(), payload.size());
+                    }
+                } stagingErase{payload};
+                bool delivered = false;
+                const auto deliver = [&] {
+                    if (kind != ApplicationFrame) return;
+                    const auto receivedAt = now ? now() : Clock::now();
+                    if (inbound.beforeApplicationPublish) inbound.beforeApplicationPublish(receivedAt);
+                    std::lock_guard<std::mutex> lock(inputMutex);
+                    // The acceptance boundary excludes seal until this complete
+                    // authenticated frame, with its original timestamp, is owned
+                    // by the queue. The inner lock excludes a competing fatal.
+                    // Allocate the queue node while local staging is still
+                    // guarded. Default-allocator vector move assignment cannot
+                    // throw; only then publish timestamp and byte accounting.
+                    input.emplace_back();
+                    input.back().payload = std::move(payload);
+                    input.back().receivedAt = receivedAt;
+                    inputBytes += payloadSize;
+                    delivered = true;
+                };
+                if (payloadSize > 0 && !readExact(payload.data(), payload.size(),
+                        kind == ApplicationFrame ? std::function<void()>(deliver) : std::function<void()>{},
+                        kind == ApplicationFrame ? &aggregateReserved : nullptr)) {
+                    if (aggregateReserved) Trust::processQueueBudget().release(payloadSize);
                     break;
                 }
+                if (delivered) continue;
                 if (kind == LivenessPing) {
                     Trust::processQueueBudget().release(payloadSize);
                     queueControl(LivenessPong);
@@ -1310,12 +1412,13 @@ namespace Duel6::Network {
                 }
 
                 std::unique_lock<std::mutex> lock(inputMutex);
-                inputSealChanged.wait(lock, [&] {
-                    return !inputSealed || stop.load() || state.load() != ClientState::Connected;
-                });
+                if (!waitForUnsealedInput(lock)) {
+                    Trust::processQueueBudget().release(payload.size());
+                    break;
+                }
                 const auto blockedSince = Clock::now();
                 while ((input.size() >= MaxQueuedTransportFrames
-                        || inputBytes + payload.size() > MaxQueuedTransportPayloadBytes) && !stop.load()) {
+                         || inputBytes + payload.size() > MaxQueuedTransportPayloadBytes) && !stop.load()) {
                     if (Clock::now() - blockedSince >= ProgressDeadline) {
                         lock.unlock();
                         Trust::processQueueBudget().release(payload.size());
@@ -1325,6 +1428,10 @@ namespace Duel6::Network {
                     lock.unlock();
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     lock.lock();
+                }
+                if (!waitForUnsealedInput(lock)) {
+                    Trust::processQueueBudget().release(payload.size());
+                    break;
                 }
                 if (stop.load() || state.load() != ClientState::Connected) {
                     Trust::processQueueBudget().release(payload.size());
@@ -1346,6 +1453,7 @@ namespace Duel6::Network {
 
         OutboundSendOutcome sendFrameSegment(std::uint16_t kind, const std::uint8_t *data, std::size_t size) const {
             if (secure) {
+                // Outer TLS is a BIO byte carrier only; framing never bypasses PAKE.
                 const auto count = secure->send(data, size);
                 if (count > 0) return {OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
                 return count == -2 ? OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0} : OutboundSendOutcome{};
@@ -1437,7 +1545,7 @@ namespace Duel6::Network {
 #ifdef D6R_TRANSPORT_WINDOWS
                 outboundWait(std::chrono::milliseconds(20));
 #else
-                if (outbound.send) outboundWait(std::chrono::milliseconds(20));
+                if (outbound.send) outboundWait(std::chrono::milliseconds(5));
 #endif
             }
             return offset == total;
@@ -1508,7 +1616,9 @@ namespace Duel6::Network {
         return impl->sendSensitive(std::move(payload));
     }
     bool TcpConnection::receive(TransportFrame &frame) { return impl->receive(frame); }
-    TransportInputSnapshot TcpConnection::sealAndDrainInput() { return impl->sealAndDrainInput(); }
+    TransportInputSnapshot TcpConnection::sealAndDrainInput(std::size_t maximumFrames) {
+        return impl->sealAndDrainInput(maximumFrames);
+    }
 
     AdmissionAcceptanceEnqueueResult TcpConnection::enqueueAdmissionAcceptance(
             std::vector<std::uint8_t> payload,
@@ -1542,6 +1652,8 @@ namespace Duel6::Network {
             ClientState expected = ClientState::NotStarted;
             if (!state.compare_exchange_strong(expected, ClientState::Resolving)) return false;
             endpoint = value;
+            if (dependencies.enforceNetworkSessionPolicy)
+                endpoint.host = PublicSession::endpointIdentity(value.host);
             worker = std::thread([this] { connectLoop(); });
             return true;
         }
@@ -1588,6 +1700,9 @@ namespace Duel6::Network {
 
         void connectLoop() {
             const auto deadline = dependencyNow(dependencies) + StartupDeadline;
+            if (dependencies.password && !dependencies.secureSession) {
+                finishFailure(TransportFailure::InvalidEndpoint); return;
+            }
             if (dependencies.secureSession && !SecureSession::supported(dependencies.secureLimits.hardwarePermitted)) {
                 finishFailure(TransportFailure::SecureUnavailable); return;
             }
@@ -1642,7 +1757,9 @@ namespace Duel6::Network {
                         std::make_unique<TcpConnection::Impl>(static_cast<SocketHandle>(outcome.nativeSocket),
                                                                dependencies.outbound,
                                                                dependencyNow(dependencies), dependencies.now, std::array<std::uint8_t, 4>{},
-                                                               nullptr, dependencies.secureSession, false, dependencies.password, dependencies.secureLimits)));
+                                                               nullptr, dependencies.secureSession, false, dependencies.password,
+                                                                 dependencies.secureLimits, deadline,
+                                                                dependencies.inbound)));
                 if (active->state() != ClientState::Connected) {
                     if (active->terminalAt() != TransportTimePoint{}) {
                         std::lock_guard<std::mutex> lock(mutex);
@@ -1937,7 +2054,9 @@ namespace Duel6::Network {
                 auto connection = std::shared_ptr<TcpConnection>(new TcpConnection(
                         std::make_unique<TcpConnection::Impl>(accepted, dependencies.outbound, acceptedAt,
                                                                dependencies.now, peerAddress,
-                                                               std::move(admissionReservation), dependencies.secureSession, true, dependencies.password, dependencies.secureLimits)));
+                                                                std::move(admissionReservation), dependencies.secureSession, true, dependencies.password,
+                                                                 dependencies.secureLimits, acceptedAt + std::chrono::seconds(3),
+                                                                dependencies.inbound)));
                 connections.push_back(connection);
                 pending.push_back(connection);
                 }

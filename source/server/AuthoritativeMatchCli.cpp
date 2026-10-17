@@ -444,6 +444,25 @@ namespace Duel6::Server::Authoritative {
         }
     }
 
+    void validateAuthoritativeMatchArguments(int argc, char **argv) {
+        (void) parse(argc, argv);
+    }
+
+    bool recognizedAuthoritativeMatchArguments(int argc, char **argv) {
+        for (int index = 1; index < argc; ++index) {
+            const std::string argument = argv[index] ? argv[index] : "";
+            if (argument == "--authoritative-match" || argument == "--actions-stdin") continue;
+            bool known = false;
+            for (const auto *prefix : {"--resources=", "--match-mode=", "--teams=", "--friendly-fire=",
+                    "--level-plan=", "--level=", "--fixed-level=", "--rounds=", "--assistance=",
+                    "--quick-liquid=", "--burnable-trees=", "--seed=", "--host-participant=",
+                    "--player=", "--scenario=", "--diagnostic-fixture="})
+                if (startsWith(argument, prefix)) { known = true; break; }
+            if (!known) return false;
+        }
+        return true;
+    }
+
     bool authoritativeMatchRequested(int argc, char **argv) {
         for (int index = 1; index < argc; ++index)
             if (argv[index] && std::string(argv[index]) == "--authoritative-match") return true;
@@ -570,9 +589,14 @@ namespace Duel6::Server::Authoritative {
                     }
                 }
                 while (match.outcome().code == OutcomeCode::None) match.advanceOneTick();
-            } else if (options.scenario == "interrupted") {
+            } else if (options.scenario == "solo") {
                 submitChecked(match, {0, 1, options.config.hostParticipantId, 0,
                                       ActionKind::RemovePlayer, options.roster.back().playerId, 0, 0});
+                for (unsigned tick = 0; tick < FixedTickRate; ++tick)
+                    if (!match.advanceOneTick()) break;
+                if (match.phase() != MatchPhase::ActiveRound || match.outcome().code != OutcomeCode::None)
+                    throw std::runtime_error("Solo diagnostic did not continue active play");
+                match.submitHostControl(options.config.hostParticipantId, ActionKind::EndSession);
             } else if (options.scenario == "runtime-failure") {
                 submitChecked(match, {0, 1, options.config.hostParticipantId, 0,
                                       ActionKind::RuntimeFailure, 0, 0, 0});

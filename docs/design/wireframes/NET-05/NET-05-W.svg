@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1080" viewBox="0 0 1280 1080">
+  <title>NET-05-W — Connected waiting for next round</title>
+  <desc>NET-05-waiting-for-next-round on a 1280 by 900 client. Reuses the existing undivided arena, ranking, progress, event, network-status and session-action allocation. A later admitted guest owns waiting players without active bodies. Persistent feedback above network status is noninteractive. No modal, dimming, new action or spectator mode. Top-left diagram coordinates; annotations are outside the client.</desc>
+  <rect width="1280" height="1080" fill="white"/>
+  <g fill="none" stroke="black">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <rect x="970" y="24" width="285" height="145"/>
+    <path d="M50 340H180V280H300V390H480 M830 380H960V315H1225"/>
+    <rect x="16" y="738" width="1072" height="40"/>
+    <rect x="1096" y="782" width="168" height="34"/>
+    <rect x="16" y="844" width="1248" height="40"/>
+    <path d="M16 924H1264" stroke-dasharray="5 5"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="16">
+    <text x="24" y="45">Existing events</text><text x="525" y="45">Existing round progress</text>
+    <text x="986" y="50">Existing live ranking / roster</text>
+    <text x="986" y="82">Host player • Current state</text>
+    <text x="986" y="114">Guest player • Waiting</text>
+    <text x="420" y="220">ONE UNDIVIDED SHARED ARENA</text>
+    <text x="50" y="440">Existing spawned players / terrain / hazards / pickups</text>
+    <text x="24" y="763">Your players join next round.</text>
+    <text x="1105" y="805">Leave session</text>
+    <text x="24" y="862">Guest • LAN session • Connected</text>
+    <text x="825" y="862">Session only scores • Optional scripts disabled</text>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="14">
+    <text x="16" y="954">ANNOTATIONS — existing content placeholders are not new interface copy.</text>
+    <text x="16" y="981">Waiting is textual roster state, not living/winner styling or score/result participation. No owned actor.</text>
+    <text x="16" y="1008">Keep arena undimmed; feedback captures no focus/input. Existing Tab score access and Leave confirmation remain.</text>
+    <text x="16" y="1035">At 1280×720 wrap feedback above network status without covering ranking, events, progress or actions.</text>
+    <text x="16" y="1062">Authoritative eligible spawn clears feedback/marker exactly once. UX-NET-05-017–024; NET-ADM-013–016.</text>
+  </g>
+</svg>

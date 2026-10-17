@@ -1,0 +1,884 @@
+#!/usr/bin/env python3
+"""Owned common-channel client/service journeys and bounded TCP fault relay.
+
+The relay forwards encrypted PAKE records unchanged; it has no certificate,
+password, PROXY header or authority. Protocol-peer scenarios use an explicit
+maintained-PAKE application peer with disposable credentials instead.
+"""
+import contextlib
+from collections import deque
+import errno
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import select
+import shutil
+import socket
+import ssl
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+
+INVITE = "staging-test-only-0123456789abcdef0123456789abcdef"
+ROTATED = "staging-rotated-abcdef0123456789abcdef0123456789"
+OTHER = "production-test-only-abcdef0123456789abcdef0123456789"
+RELAY_TIMEOUT = 2  # Preserve the fixture's existing socket I/O budget.
+RELAY_QUEUE_LIMIT = 4 * 1024 * 1024
+
+
+def port():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def proxy_header(source="198.51.100.7"):
+    return (b"\r\n\r\n\0\r\nQUIT\n" + b"\x21\x11\0\x0c"
+            + socket.inet_aton(source) + socket.inet_aton("127.0.0.1")
+            + struct.pack("!HH", 40000, 26661))
+
+
+class ChannelPeer:
+    next_source = 100
+
+    def __init__(self, backend, control_root=None, end_write_race=False, summary_order=False, frontend_port=0, opaque_inner=True):
+        self.opaque_inner = opaque_inner
+        self.backend = backend
+        self.source = f"127.0.0.{ChannelPeer.next_source}"
+        ChannelPeer.next_source += 1
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", frontend_port))
+        self.port = self.listener.getsockname()[1]
+        self.listener.listen()
+        self.listener.settimeout(.1)
+        self.stop = threading.Event()
+        self.workers = []
+        self.application_bytes = 0
+        self.handshakes = 0
+        self.frames = deque(maxlen=64)
+        self.events = deque(maxlen=64)
+        self.evidence_lock = threading.Lock()
+        self.forwarded_ends = 0
+        self.eof_observation = None
+        self.end_write_race = end_write_race
+        self.summary_order = summary_order
+        self.controller_summary_held = threading.Event()
+        self.guest_summary_seen = threading.Event()
+        self.race_write_failed = threading.Event()
+        self.control_root = control_root
+        self.block_reconnect = False
+        self.reconnect_after = 0
+        self.connection_count = 0
+        self.thread = threading.Thread(target=self.accept)
+        self.thread.start()
+
+    def action(self):
+        if self.control_root:
+            try:
+                return (self.control_root / "action").read_text().split()
+            except FileNotFoundError:
+                pass
+        return []
+
+    def record(self, connection, stage, direction="none", code=0):
+        # Local connection aliases and fixed stages/codes only, never payloads,
+        # exception text, credentials, endpoints or certificate details.
+        if connection <= 8:
+            with self.evidence_lock:
+                self.events.append((connection, direction, stage, code))
+
+    def evidence(self):
+        with self.evidence_lock:
+            return "relay events=" + repr(list(self.events)) + "; frame tail=" + repr(list(self.frames))
+
+    def begin_eof_observation(self, connection):
+        with self.evidence_lock:
+            self.eof_observation = dict(connection=connection, ends=0, complete=False)
+
+    def complete_eof_observation(self, connection):
+        with self.evidence_lock:
+            assert self.eof_observation and self.eof_observation["connection"] == connection, "EOF observation binding"
+            self.eof_observation["complete"] = True
+
+    def record_forwarded_end(self, connection, count):
+        with self.evidence_lock:
+            self.forwarded_ends += count
+            observation = self.eof_observation
+            if observation and not observation["complete"] and observation["connection"] == connection:
+                observation["ends"] += count
+
+    @staticmethod
+    def is_end(payload):
+        return len(payload) == 16 and payload[:8] == b"D6LC\0\2\0\3"
+
+    @staticmethod
+    def replication_phase(payload):
+        # Phase-only view of the fixed v3 snapshot/update prefix: header plus
+        # five uint64 fields. Never decode/log result or credential payloads.
+        if len(payload) < 49: return None
+        identifier, version, kind = struct.unpack("<IHH", payload[:8])
+        if identifier != 0x44365250 or version != 3 or kind not in (1, 2): return None
+        return payload[48] if payload[48] <= 4 else None
+
+    def summary_output_blocked(self, connection):
+        if not getattr(self, "summary_order", False): return False
+        if connection == 1 and self.controller_summary_held.is_set():
+            return not (self.control_root / "summary-release").exists()
+        return connection == 2 and self.guest_summary_seen.is_set() and not self.controller_summary_held.is_set()
+
+    def synchronize_end_write_race(self, client, backend, connection):
+        """Order a real End before a genuine closed-write-half failure.
+
+        Only used by the permanent regression. No terminal message/outcome is
+        injected: the caller already holds actual backend End bytes. Confirm
+        actual EOF, then use ordinary client traffic against a closed write half.
+        The before-fix relay discarded End when this send raised BrokenPipeError.
+        """
+        self.record(connection, "race-end-pending", "backend-to-client")
+        deadline = time.monotonic() + RELAY_TIMEOUT
+        while True:
+            try:
+                trailing = backend.recv(65536)
+                assert not trailing, "End regression expected the service's final record"
+                break
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, "End regression backend EOF deadline"
+                select.select([backend], [], [], min(.01, remaining))
+            except OSError as error:
+                self.record(connection, "race-backend-read-error", "backend-to-client", error.errno or 0)
+                raise
+        self.record(connection, "race-backend-eof", "backend-to-client")
+        self.record(connection, "race-backend-shutdown-attempt", "client-to-backend")
+        try:
+            backend.shutdown(socket.SHUT_WR)
+        except OSError as error:
+            self.record(connection, "race-backend-shutdown-error", "client-to-backend", error.errno or 0)
+            # TCP may already have completed its close handshake after EOF.
+            # This is shutdown evidence only, never the qualifying write failure.
+            # Still consume ordinary client traffic and attempt the actual send.
+            if error.errno != errno.ENOTCONN: raise
+        else:
+            self.record(connection, "race-backend-shutdown-complete", "client-to-backend")
+        self.record(connection, "race-client-read-attempt", "client-to-backend")
+        while True:
+            try:
+                traffic = client.recv(65536)
+                assert traffic, "End regression requires ordinary active client traffic"
+                break
+            except (BlockingIOError, ssl.SSLWantReadError, ssl.SSLWantWriteError) as error:
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, "End regression client traffic deadline"
+                select.select([] if isinstance(error, ssl.SSLWantWriteError) else [client],
+                              [client] if isinstance(error, ssl.SSLWantWriteError) else [], [], min(.01, remaining))
+            except OSError as error:
+                self.record(connection, "race-client-read-error", "client-to-backend", error.errno or 0)
+                raise
+        self.record(connection, "race-opposite-write-attempt", "client-to-backend")
+        try:
+            backend.send(traffic)
+        except OSError as error:
+            if error.errno not in (errno.EPIPE, errno.ENOTCONN):
+                self.record(connection, "race-opposite-write-unexpected-error", "client-to-backend", error.errno or 0)
+                raise
+            self.race_write_failed.set()
+            self.record(connection, "race-opposite-write-failed", "client-to-backend", error.errno or 0)
+            raise
+        raise AssertionError("End regression did not reach closed write half")
+
+    def accept(self):
+        while not self.stop.is_set():
+            fields = self.action()
+            if len(fields) == 3 and fields[1] == "observed-eof":
+                # The native ambiguity assertion has completed, before runtime
+                # unwinding can send a legitimate controller teardown Leave.
+                self.complete_eof_observation(int(fields[0]))
+                (self.control_root / "action").unlink()
+                (self.control_root / "acted").touch()
+            if len(fields) == 3 and fields[1] == "resume":
+                self.block_reconnect = False
+                (self.control_root / "action").unlink()
+                (self.control_root / "acted").touch()
+            try:
+                raw, _ = self.listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            self.connection_count += 1
+            worker = threading.Thread(target=self.relay, args=(raw, self.connection_count))
+            self.workers.append(worker)
+            worker.start()
+
+    def relay(self, raw, connection_id):
+        try:
+            raw.settimeout(RELAY_TIMEOUT)
+            raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            with raw as client:
+                self.handshakes += 1
+                if getattr(self, "observe_latest_binding", False):
+                    pending = self.control_root / f"outer-binding-{connection_id}.tmp"
+                    pending.write_text(str(connection_id))
+                    pending.replace(self.control_root / "outer-latest-binding")
+                if getattr(self, "hold_initial_inner", False):
+                    (self.control_root / f"outer-handshake-{connection_id}").touch()
+                    while not self.stop.is_set():
+                        time.sleep(.01)
+                    return
+                if connection_id > 2:
+                    while not self.stop.is_set() and (self.block_reconnect or time.monotonic() < self.reconnect_after):
+                        time.sleep(.01)
+                    if self.stop.is_set():
+                        return
+                with socket.create_connection(("127.0.0.1", self.backend), timeout=2,
+                                              source_address=(self.source, 0)) as backend:
+                    backend.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    self.relay_streams(client, backend, connection_id)
+        except (OSError, ssl.SSLError) as error:
+            self.record(connection_id, "connection-error", code=error.errno or 0)
+            pass  # Invalid certificates and deliberate disconnects are scenarios.
+        finally:
+            raw.close()
+
+    def relay_streams(self, client, backend, connection_id):
+        """Bounded FIFO relay: losing one write leg must not discard the other.
+
+        Nonblocking SSL retries follow their requested readiness; select alone
+        does not establish that a complete TLS record can be read. Preserve the
+        previous 2s I/O budget for stalled output and directional close draining.
+        """
+        client.setblocking(False)
+        backend.setblocking(False)
+        streams = (backend, client)  # Drain backend output before new input.
+        incoming = {stream: bytearray() for stream in streams}
+        outgoing = {stream: deque() for stream in streams}
+        queued = {stream: 0 for stream in streams}
+        read_open = {stream: True for stream in streams}
+        write_open = {stream: True for stream in streams}
+        read_want = {stream: "read" for stream in streams}
+        write_want = {stream: "write" for stream in streams}
+        close_deadline = None
+        malicious_frame_seen = False
+        race_done = False
+
+        def direction(source):
+            return "backend-to-client" if source is backend else "client-to-backend"
+
+        def begin_close():
+            nonlocal close_deadline
+            if close_deadline is None:
+                close_deadline = time.monotonic() + RELAY_TIMEOUT
+
+        def enqueue(destination, data, end_markers=0):
+            assert queued[destination] + len(data) <= RELAY_QUEUE_LIMIT, "relay FIFO limit"
+            # Hold exactly the same bytes across SSLWant* retries. Appending to
+            # the FIFO cannot change the in-progress SSL write arguments.
+            # One absolute item deadline includes FIFO waiting, partial sends
+            # and every SSL retry. Progress never replenishes sendall's budget.
+            outgoing[destination].append([data, end_markers, time.monotonic() + RELAY_TIMEOUT])
+            queued[destination] += len(data)
+
+        def lose_backend_write(stage, code=0):
+            self.record(connection_id, stage, "client-to-backend", code)
+            write_open[backend] = False
+            read_open[client] = False  # No destination for subsequent input.
+            outgoing[backend].clear()
+            queued[backend] = 0
+            begin_close()
+            # Backend receive and queued client output remain available.
+
+        def lose_client_write(stage, code=0):
+            self.record(connection_id, stage, "backend-to-client", code)
+            write_open[client] = False
+            read_open[backend] = False  # No recipient for subsequent output.
+            outgoing[client].clear()
+            queued[client] = 0
+            begin_close()
+            # Still flush already accepted input (notably controller Leave)
+            # before propagating client EOF to the service.
+
+        while not self.stop.is_set():
+            now = time.monotonic()
+            if close_deadline is not None and now >= close_deadline:
+                self.record(connection_id, "close-budget")
+                return
+            if not read_open[client] and not outgoing[backend] and write_open[backend]:
+                # Flush accepted input before propagating EOF to the service.
+                try:
+                    backend.shutdown(socket.SHUT_WR)
+                    write_open[backend] = False
+                except OSError as error:
+                    lose_backend_write("half-close-error", error.errno or 0)
+                begin_close()
+            if not any(read_open.values()) and not any(outgoing.values()):
+                return
+
+            action_path = self.control_root / "action" if self.control_root else None
+            if action_path and not incoming[backend]:
+                fields = self.action()
+                if (len(fields) == 3 and int(fields[0]) == connection_id and fields[1] != "resume"
+                        and (not getattr(self, "application_peer", False) or fields[1] in ("eof", "expiry", "recovery"))):
+                    _, action, session = fields
+                    action_path.unlink()
+                    if action in ("eof", "expiry", "recovery"):
+                        if action == "eof": self.begin_eof_observation(connection_id)
+                        self.record(connection_id, "deliberate-unconfirmed-loss")
+                        self.block_reconnect = action != "recovery"
+                        self.reconnect_after = time.monotonic() + .75
+                        (self.control_root / "acted").touch()
+                        return
+                    identity = int(session) + (action == "wrong")
+                    payload = b"D6PE" + bytes([action != "controller"]) + struct.pack("<Q", identity)
+                    enqueue(client, struct.pack("!IHHI", 0x44365254, 1, 0, len(payload)) + payload)
+                    (self.control_root / "acted").touch()
+
+            reads, writes = set(), set()
+            for source in streams:
+                destination = client if source is backend else backend
+                if read_open[source] and queued[destination] <= RELAY_QUEUE_LIMIT - 65536:
+                    (writes if read_want[source] == "write" else reads).add(source)
+                if write_open[source] and outgoing[source]:
+                    if source is not client or not self.summary_output_blocked(connection_id):
+                        (reads if write_want[source] == "read" else writes).add(source)
+            readable, writable, _ = select.select(list(reads), list(writes), [], .01)
+
+            for source in streams:
+                destination = client if source is backend else backend
+                ready = source in (writable if read_want[source] == "write" else readable)
+                if not read_open[source] or not ready or queued[destination] > RELAY_QUEUE_LIMIT - 65536:
+                    continue
+                try:
+                    data = source.recv(65536)
+                    read_want[source] = "read"
+                except ssl.SSLWantWriteError:
+                    read_want[source] = "write"; continue
+                except (ssl.SSLWantReadError, BlockingIOError):
+                    read_want[source] = "read"; continue
+                except OSError as error:
+                    self.record(connection_id, "read-error", direction(source), error.errno or 0)
+                    data = b""
+                if not data:
+                    self.record(connection_id, "read-eof", direction(source))
+                    read_open[source] = False
+                    begin_close()
+                    if source is backend:
+                        if malicious_frame_seen:
+                            (self.control_root / "attack-rejected").touch()
+                        lose_backend_write("backend-eof")
+                    continue
+                if source is client:
+                    self.application_bytes += len(data)
+                if getattr(self, "opaque_inner", False):
+                    # Common PAKE records remain opaque to this TCP fault relay.
+                    # Never decode credentials or bypass the maintained channel.
+                    enqueue(destination, data)
+                    continue
+                buffer = incoming[source]
+                buffer.extend(data)
+                end_markers = 0
+                while len(buffer) >= 12:
+                    identifier, version, kind, size = struct.unpack("!IHHI", buffer[:12])
+                    assert identifier == 0x44365254 and version == 1 and kind <= 2 and size <= 1048576, "relay envelope"
+                    if len(buffer) < 12 + size:
+                        break
+                    with self.evidence_lock:
+                        self.frames.append((connection_id, "server" if source is backend else "client", kind, size))
+                    if getattr(self, "summary_order", False) and source is backend and self.replication_phase(buffer[12:12 + size]) == 3:
+                        if connection_id == 1:
+                            self.controller_summary_held.set()
+                            self.record(connection_id, "summary-controller-held", "backend-to-client")
+                        elif connection_id == 2:
+                            self.guest_summary_seen.set()
+                    if source is backend and self.is_end(buffer[12:12 + size]):
+                        end_markers += 1
+                        self.record(connection_id, "end-observed", "backend-to-client")
+                    if source is client and self.control_root and (self.control_root / "attack.bin").exists():
+                        if bytes(buffer[12:12 + size]) == (self.control_root / "attack.bin").read_bytes():
+                            malicious_frame_seen = True
+                    del buffer[:12 + size]
+                enqueue(destination, data, end_markers)
+                if end_markers and self.end_write_race and connection_id == 3 and not race_done:
+                    race_done = True
+                    try:
+                        self.synchronize_end_write_race(client, backend, connection_id)
+                    except OSError as error:
+                        read_open[backend] = False  # Operation-specific synchronization evidence is retained above.
+                        lose_backend_write("race-sync-error", error.errno or 0)
+
+            for destination in (client, backend):
+                if not write_open[destination] or not outgoing[destination]:
+                    continue
+                item = outgoing[destination][0]
+                if time.monotonic() >= item[2]:
+                    if destination is backend:
+                        lose_backend_write("write-budget")
+                        continue
+                    lose_client_write("write-budget")
+                    continue
+                ready = destination in (readable if write_want[destination] == "read" else writable)
+                # Check the original absolute item deadline BEFORE scheduling.
+                # Holding a real final record never replenishes the 2s budget.
+                if destination is client and self.summary_output_blocked(connection_id): continue
+                if not ready:
+                    continue
+                try:
+                    sent = destination.send(item[0])
+                    assert sent > 0, "relay write progress"
+                    write_want[destination] = "write"
+                except ssl.SSLWantReadError:
+                    write_want[destination] = "read"; continue
+                except (ssl.SSLWantWriteError, BlockingIOError):
+                    write_want[destination] = "write"; continue
+                except OSError as error:
+                    if destination is backend:
+                        lose_backend_write("write-error", error.errno or 0)
+                        continue
+                    lose_client_write("write-error", error.errno or 0)
+                    continue
+                queued[destination] -= sent
+                if sent == len(item[0]):
+                    outgoing[destination].popleft()
+                    if item[1]:
+                        self.record_forwarded_end(connection_id, item[1])
+                        self.record(connection_id, "end-forwarded", "backend-to-client", item[1])
+                else:
+                    item[0] = item[0][sent:]
+
+    def close(self):
+        self.stop.set()
+        self.listener.close()
+        self.thread.join(3)
+        for worker in self.workers:
+            worker.join(3)
+            assert not worker.is_alive(), "TLS fixture worker leaked"
+
+
+@contextlib.contextmanager
+def service(server, root, invitation, frontend_port=None, *, backend_port=None, process_handle=None, readiness_name="ready.sock"):
+    backend = backend_port or port()
+    invite = root / "invite"
+    if invitation is not None:
+        invite.write_text(invitation)
+        invite.chmod(0o600)
+    ready = root / readiness_name
+    with (root / "server.log").open("w+") as log:
+        arguments = [str(server), "--server", "--dedicated", "--transport", "--host=127.0.0.1",
+            f"--port={backend}", f"--resources={root}",
+            f"--readiness-socket={ready}"]
+        if invitation is not None:
+            arguments += [f"--password-file={invite}"]
+        if frontend_port is not None:
+            assert os.environ.get("D6R_DIRECTORY_URL", "").startswith("http://127.0.0.1:"), "requires owned local directory fixture"
+            arguments += ["--advertise-host=arena.example.test", f"--advertise-port={frontend_port}"]
+        env = dict(os.environ, SDL_VIDEODRIVER="unavailable-test-driver",
+                   SDL_AUDIODRIVER="unavailable-test-driver")
+        env.pop("DISPLAY", None)
+        env.pop("WAYLAND_DISPLAY", None)
+        process = subprocess.Popen(arguments, cwd=root, env=env, stdout=log, stderr=log)
+        if process_handle is not None:
+            process_handle["process"] = process
+        try:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                assert process.poll() is None, "dedicated service exited before readiness"
+                check = subprocess.run([str(server), "--server", f"--check-ready={ready}"], cwd=root, env=env,
+                                       capture_output=True, timeout=2)
+                if check.returncode == 0:
+                    assert check.stdout == b"ready\n" and not check.stderr, "readiness probe output"
+                    break
+                time.sleep(.05)
+            else:
+                raise AssertionError("dedicated readiness deadline")
+            yield backend, ready
+        finally:
+            process.terminate()
+            try:
+                process.wait(5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(5)
+            log.seek(0)
+            output = log.read()
+            assert all(value not in output for value in (INVITE, ROTATED, OTHER)), "server logged invitation"
+            assert "initialization" not in output.lower() and "application information" not in output.lower(), "client initialization"
+
+
+def malformed_proxy(backend):
+    valid = proxy_header()
+    cases = [b"PROXY TCP4 198.51.100.7 127.0.0.1 40000 26661\r\n",
+             valid[:12] + b"\x20" + valid[13:],  # LOCAL
+             valid[:13] + b"\x12" + valid[14:],  # UDP
+             valid[:13] + b"\x21" + valid[14:],  # IPv6
+             valid[:14] + b"\xff\xff" + valid[16:],
+              valid[:24] + b"\0\0" + valid[26:], valid[:15]]
+    # A real maintained legacy certificate-TLS ClientHello, not PAKE. No roots,
+    # certificate bypass or application bytes are involved in this direction.
+    incoming, outgoing = ssl.MemoryBIO(), ssl.MemoryBIO()
+    legacy = ssl.create_default_context().wrap_bio(incoming, outgoing, server_hostname="legacy.invalid")
+    try:
+        legacy.do_handshake()
+    except ssl.SSLWantReadError:
+        pass
+    cases.append(outgoing.read())
+    for payload in cases:
+        with socket.create_connection(("127.0.0.1", backend), timeout=2) as sock:
+            sock.settimeout(2)
+            sock.sendall(payload)
+            try:
+                assert sock.recv(1) == b"", "malformed PROXY reached application"
+            except ConnectionResetError:
+                pass
+
+
+def source_accounting(backend):
+    # Quotas use actual accepted TCP peers, never a forwarded source claim.
+    with contextlib.ExitStack() as stack:
+        def connect(source):
+            sock = stack.enter_context(socket.create_connection(("127.0.0.1", backend), timeout=2,
+                                                               source_address=(source, 0)))
+            sock.settimeout(.15)
+            return sock
+        held = [connect("127.0.0.40") for _ in range(4)]
+        for sock in held:
+            try:
+                sock.recv(1)
+                raise AssertionError("per-source allowance closed too early")
+            except socket.timeout:
+                pass
+        excess = connect("127.0.0.40")
+        excess.settimeout(1)
+        try:
+            assert excess.recv(1) == b"", "fifth pending source admission accepted"
+        except ConnectionResetError:
+            pass
+        other = connect("127.0.0.41")
+        try:
+            other.recv(1)
+            raise AssertionError("independent source was rejected")
+        except socket.timeout:
+            pass
+
+
+@contextlib.contextmanager
+def authenticated_peer(executable, backend, root, scenario, *, process_handle=None):
+    """A genuine maintained-inner application endpoint, not an opaque relay hack.
+
+    Only protocol observation/injection cases use this extra authenticated peer.
+    Ordinary production flow, certificate negatives, recovery and expiry still
+    use the unmodified opaque PKI/inner route directly to the actual service.
+    """
+    endpoint = port()
+    with (root / "peer.log").open("w+") as log:
+        process = subprocess.Popen([str(executable), str(endpoint), str(backend), str(root), scenario],
+                                   stdin=subprocess.PIPE, stdout=log, stderr=log, text=True)
+        if process_handle is not None:
+            process_handle["process"] = process
+        try:
+            process.stdin.write(INVITE + "\n")
+            process.stdin.close()
+            deadline = time.monotonic() + 5
+            while not (root / "peer-ready").exists():
+                assert process.poll() is None and time.monotonic() < deadline, "authenticated peer startup"
+                time.sleep(.01)
+            yield endpoint
+        finally:
+            process.terminate()
+            try:
+                process.wait(5)
+            except subprocess.TimeoutExpired:
+                process.kill(); process.wait(5)
+            log.seek(0)
+            output = log.read()
+            assert all(value not in output for value in (INVITE, ROTATED, OTHER)), "peer logged Password"
+
+
+def failure_context(root, handles, peer, *, result=None, timed_out=False):
+    """Bounded receipt before peer/service context managers tear down evidence.
+
+    Do not expose payloads, paths, peer text or session/credential identities.
+    Logging trouble must not replace or turn the original failure into success.
+    """
+    try:
+        def safe_log(text):
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", errors="replace")
+            output = []
+            for line in (text or "").splitlines()[:32]:
+                if any(secret in line for secret in (INVITE, ROTATED, OTHER)):
+                    output.append("withheld-secret-line")
+                elif "participant-id=" in line or "player-ids=" in line:
+                    output.append("admission-identity=withheld")
+                elif line.startswith(("PASS ", "FAIL public dedicated:", "client-receipt ", "runtime alias=",
+                                      "peer-receipt ", "Dedicated trusted-proxy backend;",
+                                      "duel6r-server transport ", "duel6r server error:", "admitted", "Directory:")):
+                    output.append(line[:512])
+                else:
+                    output.append("withheld-unclassified-line")
+            return output
+
+        receipt = {"version": 1, "before_teardown": True, "timeout": timed_out,
+                   "processes": {}, "logs": {}, "markers": {}, "receipts": {}}
+        for alias in ("service", "authenticated-peer"):
+            process = handles.get(alias, {}).get("process")
+            receipt["processes"][alias] = {"observed": process is not None,
+                                          "status": None if process is None else process.poll()}
+        if result is not None:
+            receipt["processes"]["client"] = {"status": result.returncode}
+            receipt["logs"]["client_stdout"] = safe_log(result.stdout)
+            receipt["logs"]["client_stderr"] = safe_log(result.stderr)
+        for name in ("server.log", "peer.log"):
+            path = root / name
+            if path.exists():
+                with path.open() as stream:
+                    receipt["logs"][name] = safe_log(stream.read(8192))
+        for name in ("action", "acted", "attack.bin", "attack-rejected"):
+            receipt["markers"][name] = (root / name).exists()
+        for path in [root / "client-failure-context", *sorted(root.glob("peer-receipt-*"))[:8]]:
+            if path.exists():
+                with path.open() as stream:
+                    receipt["receipts"][path.name] = safe_log(stream.read(4096))
+        receipt["relay"] = peer.evidence()  # Fixed aliases/codes, never bytes.
+        encoded = json.dumps(receipt, sort_keys=True)
+        (root / "failure-context.json").write_text(encoded)
+        print("public-fixture-failure-context=" + encoded, flush=True)
+    except Exception:
+        print("public-fixture-failure-context: receipt unavailable", flush=True)
+
+
+def cross_architecture_provenance(client, server):
+    """Enforce native ARM service and disclose the approved emulated client."""
+    assert platform.machine().lower() in ("aarch64", "arm64"), "native ARM host required"
+    for name, path, machine in (("service", server, 183), ("client", client, 62),
+                                ("client-resolver", client.with_name("duel6r-resolver"), 62)):
+        with path.open("rb") as stream:
+            header = stream.read(20)
+        assert header[:6] == b"\x7fELF\x02\x01" and int.from_bytes(header[18:20], "little") == machine, \
+            f"wrong {name} ELF architecture"
+        print(f"cross-architecture {name} ELF-machine={machine} sha256={hashlib.sha256(path.read_bytes()).hexdigest()}", flush=True)
+    print("cross-architecture native-aarch64-service / emulated-x86_64-client", flush=True)
+
+
+def reuse_client(arguments, environment, password, server, ready, root):
+    """Coordinate the real native probe without changing protocol/deadlines."""
+    process = subprocess.Popen(arguments, cwd=root, env=environment, stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    absolute = time.monotonic() + 140  # Existing fixture process failsafe.
+    try:
+        process.stdin.write(password + "\n")
+        process.stdin.close()
+        process.stdin = None
+        acknowledged = False
+        while process.poll() is None:
+            if time.monotonic() >= absolute:
+                raise subprocess.TimeoutExpired(arguments, 140)
+            if not acknowledged and (root / "reuse-ended").exists():
+                probe = subprocess.run([str(server), "--server", f"--check-ready={ready}"],
+                                       cwd=root, env=environment, capture_output=True, timeout=2)
+                if probe.returncode == 0:
+                    assert probe.stdout == b"ready\n" and not probe.stderr, "fresh native readiness output"
+                    (root / "reuse-ready").touch()
+                    acknowledged = True
+                    print("PASS production service readiness after confirmed End, before fresh admission", flush=True)
+            time.sleep(.01)
+        output, errors = process.communicate(timeout=max(.01, absolute - time.monotonic()))
+        return subprocess.CompletedProcess(arguments, process.returncode, output, errors)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+
+
+def main():
+    client, server, resources = map(lambda value: Path(value).resolve(), sys.argv[1:4])
+    review = len(sys.argv) > 4
+    cases = sys.argv[4:]
+    if cases == ["--cross-architecture"]:
+        cross_architecture_provenance(client, server)
+        cases = ["flow-reuse"]
+    end_eof_regressions = cases == ["--end-eof-regressions"]
+    if end_eof_regressions:
+        # One synchronized forwarding race, distinct unconfirmed loss, then the
+        # existing real flow journeys. Original arena, inputs/deadlines remain.
+        cases = ["flow-race", "flow-fatal-before-end", "notice-eof-match"] + ["flow"] * 4
+    if cases == ["--review-regressions"]:
+        cases = [f"notice-{reason}-{phase}" for phase in ("lobby", "match", "summary")
+                 for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry", "summary-return", "summary-return-ordered"]
+    if cases == ["--authorization-regressions"]:
+        cases = ["attack-start", "attack-setup", "attack-roster", "attack-return", "attack-advance"]
+    with tempfile.TemporaryDirectory(prefix="duel6r-public-test-") as temp:
+        root = Path(temp)
+        shutil.copytree(resources / "data", root / "data")
+        (root / "levels").mkdir()
+        width, height = (10, 3) if review and not end_eof_regressions and not any(c.startswith("flow") for c in cases) else (24, 8)
+        blocks = [int(x in (0, width - 1) or y in (0, height - 1))
+                  for y in range(height) for x in range(width)]
+        (root / "levels" / "arena.json").write_text(json.dumps(
+            dict(width=width, height=height, blocks=blocks, elevators=[])))
+        if cases == ["--service-only"]:
+            # Real packaged service/probe on both Linux service architectures,
+            # without enabling a dedicated client on ARM64. Reuse this fixture's
+            # protected backend and negative PROXY/source-accounting scenarios.
+            initial = {p.relative_to(root): p.read_bytes() for directory in ("data", "levels")
+                       for p in (root / directory).rglob("*") if p.is_file()}
+            for password in (None, "", INVITE):
+                with service(server, root, password) as (backend, ready):
+                    malformed_proxy(backend)
+                    source_accounting(backend)
+                assert not ready.exists(), "readiness socket leaked after shutdown"
+                probe = subprocess.run([str(server), "--server", f"--check-ready={ready}"],
+                                       cwd=root, capture_output=True, timeout=2)
+                assert probe.returncode == 1 and not probe.stdout, "stopped service reported ready"
+                with socket.socket() as released:
+                    released.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    released.bind(("127.0.0.1", backend))
+                current = {p.relative_to(root): p.read_bytes() for directory in ("data", "levels")
+                           for p in (root / directory).rglob("*") if p.is_file()}
+                assert current == initial, "headless service changed client/gameplay data"
+            print("PASS actual headless dedicated startup/readiness, absent/empty/protected Password, "
+                    "legacy-input rejection/actual-peer accounting, shutdown/socket release and no client data writes", flush=True)
+            return
+        # Resolver uses executable-relative lookup. Stage a separate test copy.
+        executable = root / client.name
+        shutil.copy2(client, executable)
+        shutil.copy2(client.with_name("duel6r-resolver"), root / "duel6r-resolver")
+        def run(peer, invitation, scenario, trusted=True, handles=None, readiness=None):
+            env = dict(os.environ)
+            forwarded_before = peer.forwarded_ends
+            try:
+                arguments = [str(executable), str(peer.port), str(root), scenario]
+                if scenario == "flow-reuse":
+                    assert readiness is not None, "owned native readiness path required"
+                    result = reuse_client(arguments, env, invitation, server, readiness, root)
+                else:
+                    result = subprocess.run(arguments, cwd=root, env=env, input=invitation + "\n",
+                                            capture_output=True, text=True, timeout=140)
+            except subprocess.TimeoutExpired:
+                failure_context(root, handles or {}, peer, timed_out=True)
+                raise
+            peer.case_result = result
+            if result.returncode != 0:
+                failure_context(root, handles or {}, peer, result=result)
+            assert all(value not in result.stdout + result.stderr for value in (INVITE, ROTATED, OTHER)), "client logged invitation"
+            assert result.returncode == 0, result.stdout + result.stderr + peer.evidence()
+            if scenario == "summary-return-ordered":
+                assert (root / "summary-controller-held").exists() and (root / "summary-guest-seen").exists(), "authenticated peer did not hold real summary records"
+                assert all((root / name).exists() for name in (
+                    "summary-end-armed", "summary-service-End-before-fatal", "summary-write-failed",
+                    "peer-End-received-2", "end-forwarded-2",
+                )), "ordered summary relay did not preserve actual End across a failed reverse write"
+                print("PASS authenticated summary End forwarded after failed reverse write", flush=True)
+            if scenario in ("flow", "flow-race") and not peer.opaque_inner:
+                assert peer.forwarded_ends >= forwarded_before + 2, "End was observed but not forwarded; " + peer.evidence()
+            if scenario == "flow-race":
+                assert all((root / p).exists() for p in ("flow-service-End-before-fatal", "race-write-failed", "end-forwarded-3")), "authenticated peer missed qualified End-before-fatal"
+                print("PASS authenticated application peer forwarded actual End after fatal opposite inner write", flush=True)
+            if scenario == "flow-fatal-before-end":
+                assert (root / "flow-negative-qualified").exists() and not (root / "end-forwarded-3").exists(), "negative ordering invented End or missed qualification"
+            if scenario == "notice-eof-match":
+                observation = peer.eof_observation
+                assert observation and observation["complete"] and observation["connection"] == 2, "EOF observation did not finish before unwind"
+                assert observation["ends"] == 0, "unconfirmed affected-connection EOF must not become End"
+                print("PASS unconfirmed active-match loss stays distinct from End", flush=True)
+            print(result.stdout.strip(), flush=True)
+        if review:
+            failures = []
+            for iteration, scenario in enumerate(cases, 1):
+                # Independent service instances preserve all negative scenarios
+                # after a production failure without carrying stranded sessions.
+                for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release",
+                             "summary-end-arm", "summary-end-armed", "summary-service-End-before-fatal", "summary-write-failed",
+                             "client-failure-context", "failure-context.json"):
+                    (root / name).unlink(missing_ok=True)
+                for pattern in ("peer-*", "end-forwarded-*", "summary-controller-held", "summary-guest-seen", "race-write-failed"):
+                    for evidence in root.glob(pattern):
+                        evidence.unlink()
+                for evidence in root.glob("flow-*"):
+                    evidence.unlink()
+                frontend = port() if scenario in ("directory", "directory-reservation") else None
+                handles = {"service": {}, "authenticated-peer": {}}
+                with service(server, root, INVITE, frontend, process_handle=handles["service"]) as (backend, ready):
+                    observe_application = (scenario.startswith("attack-") or scenario in ("flow-race", "flow-fatal-before-end")
+                        or scenario == "summary-return-ordered" or (scenario.startswith("notice-") and "eof" not in scenario))
+                    helper = (authenticated_peer(server.with_name("duel6r-public-authenticated-peer"), backend, root, scenario,
+                                                 process_handle=handles["authenticated-peer"])
+                              if observe_application else contextlib.nullcontext(backend))
+                    with helper as relay_backend:
+                        peer = ChannelPeer(relay_backend, root,
+                                       False, False, frontend or 0)
+                        peer.application_peer = observe_application
+                        try:
+                            run(peer, INVITE, scenario, handles=handles, readiness=ready)
+                        except (AssertionError, subprocess.TimeoutExpired) as error:
+                            if not (root / "failure-context.json").exists():
+                                failure_context(root, handles, peer, result=getattr(peer, "case_result", None))
+                            failures.append(scenario)
+                            print(f"FAIL iteration {iteration} {scenario}: {str(error)[:1000]}", flush=True)
+                            print(peer.evidence(), flush=True)  # Fixed aliases/codes, never application payloads.
+                            print("authenticated peer stages=" + repr([(p.name, p.read_text()) for p in sorted(root.glob("peer-*-*"))]), flush=True)
+                            print("authenticated End observations=" + repr([p.name for p in sorted(root.glob("end-forwarded-*"))]
+                                  + (["race-write-failed"] if (root / "race-write-failed").exists() else [])), flush=True)
+                        finally:
+                            peer.close()
+            assert not failures, "Public review regressions failed: " + ", ".join(failures)
+            return
+        with service(server, root, INVITE) as (backend, ready):
+            malformed_proxy(backend)
+            print("PASS legacy PROXY and certificate-TLS input rejected by common channel", flush=True)
+            source_accounting(backend)
+            print("PASS actual TCP-peer pending accounting", flush=True)
+            peer = ChannelPeer(backend)
+            try:
+                run(peer, OTHER, "unauthorized")
+                run(peer, INVITE, "flow")
+                assert peer.application_bytes > 0 and peer.handshakes >= 4
+                assert subprocess.run([str(server), "--server", f"--check-ready={ready}"], capture_output=True, timeout=2).returncode == 0
+            finally:
+                peer.close()
+            peer = ChannelPeer(backend)
+            try:
+                run(peer, INVITE, "concurrent")
+            finally:
+                peer.close()
+        with service(server, root, ROTATED) as (backend, _):
+            peer = ChannelPeer(backend)
+            try:
+                run(peer, INVITE, "unauthorized")
+                run(peer, ROTATED, "flow")
+            finally:
+                peer.close()
+        print("PASS invitation rotation, non-disclosing logs, readiness after reset", flush=True)
+        # The opposite profile mismatch uses a real ordinary TLS endpoint.
+        # This fixture is rejection evidence only, never a supported frontend.
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                        "-subj", "/CN=legacy.invalid", "-keyout", str(root / "legacy.key"),
+                        "-out", str(root / "legacy.pem")], check=True, capture_output=True, timeout=15)
+        class LegacyPeer(ChannelPeer):
+            def __init__(self):
+                self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                self.context.load_cert_chain(root / "legacy.pem", root / "legacy.key")
+                super().__init__(0)
+            def relay(self, raw, connection_id):
+                raw.settimeout(3)
+                try:
+                    with self.context.wrap_socket(raw, server_side=True) as secure:
+                        self.application_bytes += len(secure.recv(1))
+                except (OSError, ssl.SSLError):
+                    pass
+                finally:
+                    raw.close()
+        legacy = LegacyPeer()
+        try:
+            run(legacy, INVITE, "legacy-profile")
+            assert legacy.connection_count == 1 and legacy.application_bytes == 0, "legacy profile probing/disclosure"
+        finally:
+            legacy.close()
+
+
+if __name__ == "__main__":
+    main()

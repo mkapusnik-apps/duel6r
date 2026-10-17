@@ -12,8 +12,12 @@
 #include "CompatibilityManifest.h"
 
 namespace Duel6::Network {
-    constexpr std::uint32_t AdmissionProtocolVersion = 2;
-    inline constexpr std::string_view NetworkReleaseId = "duel6r-network-r1";
+    constexpr std::uint32_t AdmissionProtocolVersion = 3;
+    inline constexpr std::string_view NetworkReleaseId = "duel6r-network-r2";
+    enum class HostingKind : std::uint8_t { Unbound = 0, PlayerHosted = 1, Dedicated = 2 };
+    inline bool validHostingKind(HostingKind kind) {
+        return kind == HostingKind::PlayerHosted || kind == HostingKind::Dedicated;
+    }
     inline constexpr std::array<std::string_view, 3> RequiredAdmissionCapabilities{{
             "d6r.compatibility-admission.v1",
             "d6r.gameplay-manifest.v1",
@@ -28,6 +32,7 @@ namespace Duel6::Network {
         std::vector<std::string> localPlayerNames;
         GameplayManifest gameplayManifest;
         std::uint64_t expectedSessionId = 0; // Zero only for explicit direct joining.
+        HostingKind expectedHostingKind = HostingKind::Unbound;
     };
 
     enum class AdmissionResultCode : std::uint16_t {
@@ -41,7 +46,8 @@ namespace Duel6::Network {
         MatchAlreadyStarted = 8,
         SessionFull = 9,
         HostPolicyRejected = 10,
-        Admitted = 11
+        Admitted = 11,
+        SelectedSessionChanged = 12
     };
 
     struct AdmissionResult {
@@ -55,6 +61,8 @@ namespace Duel6::Network {
     struct AdmissionIdentitySet {
         std::uint64_t participantId = 0;
         std::vector<std::uint64_t> playerIds;
+        std::uint64_t sessionId = 0; // Always encoded; production offers identify the prepared session.
+        HostingKind hostingKind = HostingKind::PlayerHosted;
     };
 
     using AdmissionOfferPayload = AdmissionIdentitySet;

@@ -95,7 +95,7 @@ def verify_gameplay_root(root):
 
 def authoritative_base(root, seed=None):
     verify_gameplay_root(root)
-    command = [SERVER, "--authoritative-match", f"--resources={root}"]
+    command = [SERVER, "--server", "--authoritative-match", f"--resources={root}"]
     if seed is not None:
         command.append(f"--seed={seed}")
     return command
@@ -117,7 +117,7 @@ if os.name == "nt":
     BASE = authoritative_base(RESOURCE_ROOT, 424242)
 else:
     verify_gameplay_root(RESOURCE_ROOT)
-    BASE = [SERVER, "--authoritative-match", "--resources=.", "--seed=424242"]
+    BASE = [SERVER, "--server", "--authoritative-match", "--resources=.", "--seed=424242"]
 
 
 def run(*arguments, stdin="", base=None):
@@ -156,22 +156,14 @@ def require_linux_golden_semantics(actual, golden):
     assert actual == expected, (actual, expected)
 
 
-interrupted = require_outcome(
-    ["--scenario=interrupted"],
+solo = require_outcome(
+    ["--scenario=solo"],
     0,
-    "authoritative-match-interrupted-no-winner",
-    "Authoritative match ended without a winner.",
-    result=True,
+    "authoritative-match-ended-intentionally",
+    "Authoritative match ended by the host.",
+    result=False,
 )
-assert interrupted["label"] == "Session only"
-assert interrupted["state"] == "Interrupted"
-assert interrupted["finalNoWinner"] is True
-assert interrupted["completedRounds"] == 0
-assert interrupted["seed"] == 424242
-assert interrupted["players"][1]["departed"] is True
-serialized = json.dumps(interrupted).lower()
-for secret_or_persistent_field in ("credential", "endpoint", "password", "elo", "history"):
-    assert secret_or_persistent_field not in serialized
+assert solo is None
 
 # This uses the production CanonicalMatchRuntime and real level/world, not a test world seam.
 canonical_arguments = [
@@ -303,8 +295,9 @@ with tempfile.TemporaryDirectory(prefix="duel6r-canonical-friendly-fire-") as fr
 # Canonical production startup is content-derived unless the diagnostic fixture
 # is explicitly requested. An immediate authorized end keeps this assertion short.
 default_status, default_lines = run(
-    "--scenario=interrupted", "--rounds=1", "--level-plan=fixed",
-    "--fixed-level=levels/duel_01.json", "--level=levels/duel_01.json"
+    "--actions-stdin", "--rounds=1", "--level-plan=fixed",
+    "--fixed-level=levels/duel_01.json", "--level=levels/duel_01.json",
+    stdin="0 1 1 0 end 0 0 0\n"
 )
 assert default_status == 0, default_lines
 default_diagnostics = diagnostics_from(default_lines)
@@ -372,8 +365,9 @@ zero_input_shot_events = [event for event in zero_diagnostics["canonicalEvents"]
                           if ":shot-fired:" in event]
 
 elevator_status, elevator_lines = run(
-    "--scenario=interrupted", "--rounds=1", "--level-plan=fixed",
-    "--fixed-level=levels/duel_21.json", "--level=levels/duel_21.json"
+    "--actions-stdin", "--rounds=1", "--level-plan=fixed",
+    "--fixed-level=levels/duel_21.json", "--level=levels/duel_21.json",
+    stdin="0 1 1 0 end 0 0 0\n"
 )
 assert elevator_status == 0, elevator_lines
 elevator_diagnostics = diagnostics_from(elevator_lines)

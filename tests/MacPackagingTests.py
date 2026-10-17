@@ -204,6 +204,25 @@ printf '%s %s' "$D6R_MACOS_ARCH" "$D6R_MACOS_MINIMUM"
         with self.assertRaisesRegex(RuntimeError, "Missing or external macOS network helper"):
             package.stage_helpers(self.build, app)
 
+    def test_gameplay_resources_belong_in_resources_not_executable_directory(self):
+        for name in ("data", "levels"):
+            resource = self.resources / name / "fixture.json"
+            resource.parent.mkdir()
+            resource.write_text("current gameplay resource")
+        app = self.stage()
+        for name in package.HELPERS:
+            (self.build / name).write_bytes(name.encode())
+        package.stage_helpers(self.build, app)
+        for name in ("data", "levels"):
+            with self.subTest(resource=name):
+                self.assertEqual("current gameplay resource",
+                                 (app / "Contents/Resources" / name / "fixture.json").read_text())
+                unexpected = app / "Contents/MacOS" / name
+                unexpected.mkdir()
+                with self.assertRaisesRegex(RuntimeError, "Unexpected executable entry"):
+                    package.stage_helpers(self.build, app)
+                unexpected.rmdir()
+
     def test_static_mbedtls_notices_configuration_and_archive_identities_are_included(self):
         prefix = self.build / "mbedtls"
         source = self.build / "mbedtls-src"

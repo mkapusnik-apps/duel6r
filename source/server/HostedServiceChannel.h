@@ -2,6 +2,7 @@
 #define DUEL6_SERVER_HOSTEDSERVICECHANNEL_H
 
 #include <memory>
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -36,6 +37,8 @@ namespace Duel6::Server {
 #else
         int statusDescriptor = -1;
         int controlDescriptor = -1;
+        std::int64_t ownedLeader = 0;
+        std::int64_t owningParent = 0;
 #endif
         bool stopped = false;
         bool intentionalEnd = false;

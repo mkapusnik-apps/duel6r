@@ -96,8 +96,8 @@ The budgets apply while the participant remains connected. They do not extend th
 
 ## Non-goals
 
-- Public Internet, NAT traversal, relays, discovery, or matchmaking.
-- Host migration, join-in-progress, spectators, or dedicated hosting.
+- Guaranteed public Internet quality, NAT traversal, relays, automatic LAN discovery, or matchmaking.
+- Host migration, spectators, or dedicated hosting outside the approved pilot. NET-ADM owns round-one admission; NET-PUB and HSL-PUB own dedicated lifecycle differences.
 - Lag compensation for hit evaluation.
 - Prediction of authoritative gameplay outcomes.
 - A new graphical screen or a visual-layout decision.

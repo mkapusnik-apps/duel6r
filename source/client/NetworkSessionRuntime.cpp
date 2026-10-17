@@ -89,7 +89,7 @@ namespace Duel6::Client {
     bool NetworkSessionRuntime::join(const Network::Endpoint &endpoint, const std::string &resourcePath,
                                      std::vector<NetworkLocalPlayer> localPlayers,
                                      std::shared_ptr<const Network::SessionPassword> password,
-                                     std::string expectedSessionId) {
+                                      std::string expectedSessionId, std::optional<bool> expectedDedicated) {
         if (localPlayers.empty() || localPlayers.size() > Network::MaxNetworkPlayers
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
                 return Network::Trust::validParticipantName(player.name);
@@ -103,22 +103,34 @@ namespace Duel6::Client {
             current.journey = NetworkJourney::Starting;
         }
         guestCancelled = false;
-        guestWorker = std::thread([this, endpoint, resourcePath, password = std::move(password), expectedSessionId = std::move(expectedSessionId)] {
+        guestWorker = std::thread([this, endpoint, resourcePath, expectedDedicated,
+                                  password = std::move(password), expectedSessionId = std::move(expectedSessionId)] {
             Server::ServerConfig config; config.admissionClient = true; config.listenEndpoint = endpoint;
             config.resourcePath = resourcePath; config.localPlayers = static_cast<std::uint8_t>(players.size());
             for (const auto &player: players) config.localPlayerNames.push_back(player.name);
             Server::AdmissionRuntimeDependencies dependencies;
             dependencies.sessionPassword = password;
             dependencies.secureLimits = sessionLimits;
+            dependencies.expectedHostingKind = expectedDedicated
+                ? (*expectedDedicated ? Network::HostingKind::Dedicated : Network::HostingKind::PlayerHosted)
+                : Network::HostingKind::Unbound;
+            dependencies.guestHostingKind = [this](Network::HostingKind kind) {
+                std::lock_guard<std::mutex> lock(mutex);
+                current.publicSession = kind == Network::HostingKind::Dedicated;
+            };
             if (!expectedSessionId.empty()) {
                 try {
                     if (expectedSessionId.size() != 32 || expectedSessionId.substr(0, 16) != std::string(16, '0'))
+                        throw std::invalid_argument("Invalid selected session.");
+                    if (expectedSessionId.find_first_not_of("0123456789abcdef") != std::string::npos)
                         throw std::invalid_argument("Invalid selected session.");
                     dependencies.expectedSessionId = std::stoull(expectedSessionId.substr(16), nullptr, 16);
                     if (dependencies.expectedSessionId == 0) throw std::invalid_argument("Invalid selected session.");
                 } catch (...) {
                     std::lock_guard<std::mutex> lock(mutex);
                     current.journey = NetworkJourney::Failure;
+                    current.selectedSessionChanged = true;
+                    current.retryAllowed = false;
                     current.failure = "Selected session changed. Return to the browser and refresh.";
                     return;
                 }
@@ -127,6 +139,7 @@ namespace Duel6::Client {
             dependencies.guestAdmission = [this](auto participant, const auto &playerIds) {
                 std::lock_guard<std::mutex> lock(mutex);
                 current.localParticipantId = participant;
+                confirmedAdmissionPending = true;
                 ownedPlayerBindings.clear();
                 for (std::size_t index = 0; index < playerIds.size() && index < players.size(); ++index)
                     ownedPlayerBindings[playerIds[index]] = index;
@@ -150,6 +163,11 @@ namespace Duel6::Client {
             };
             dependencies.guestAdmissionOutcome = [this](auto outcome, bool local) {
                 std::lock_guard<std::mutex> lock(mutex);
+                if (outcome == Network::AdmissionResultCode::SelectedSessionChanged) {
+                    current.selectedSessionChanged = true;
+                    current.retryAllowed = false;
+                    current.retryBlockReason = NetworkRetryBlockReason::InvalidSetup;
+                }
                 if (local && outcome == Network::AdmissionResultCode::GameplayContentManifestInvalid) {
                     current.retryAllowed = false;
                     current.retryBlockReason = NetworkRetryBlockReason::RestartRequired;
@@ -173,7 +191,10 @@ namespace Duel6::Client {
                 } else if (journey == Network::Lifecycle::GuestJourney::ConnectionFailure) {
                     current.journey = NetworkJourney::Failure; current.failure = std::string(failure);
                     current.retryAllowed = false;
-                    current.retryBlockReason = NetworkRetryBlockReason::TerminalReconnect;
+                    current.retryBlockReason = failure == Network::PublicSession::ControllerExpired
+                                               || failure == Network::PublicSession::Maintenance
+                                               ? NetworkRetryBlockReason::EndedSession
+                                               : NetworkRetryBlockReason::TerminalReconnect;
                 } else if (journey == Network::Lifecycle::GuestJourney::Reconnecting)
                     current.journey = NetworkJourney::Reconnecting;
             };
@@ -187,7 +208,12 @@ namespace Duel6::Client {
                 current.journey = NetworkJourney::Failure;
                 if (current.failure.empty()) current.failure = finalLine(output.str());
                 if (current.failure.empty()) current.failure = result == 0 ? "Connection ended." : "Connection timed out.";
-                if (current.retryBlockReason == NetworkRetryBlockReason::TerminalReconnect) {
+                current.securityFailure = current.failure == Network::PublicSession::SecurityFailure;
+                if (current.securityFailure) {
+                    current.retryAllowed = false;
+                    current.retryBlockReason = NetworkRetryBlockReason::InvalidSetup;
+                } else if (current.retryBlockReason == NetworkRetryBlockReason::TerminalReconnect
+                           || current.retryBlockReason == NetworkRetryBlockReason::EndedSession) {
                     current.retryAllowed = false;
                 } else if (current.retryBlockReason != NetworkRetryBlockReason::RestartRequired) {
                     current.retryAllowed = true;
@@ -220,7 +246,10 @@ namespace Duel6::Client {
             current.presentationEvents.erase(current.presentationEvents.begin(),
                     current.presentationEvents.end() - Network::Replication::MaxReplicatedEvents);
         }
-        if (current.host) current.localParticipantId = state.hostParticipantId;
+        if (current.publicSession)
+            current.host = current.localParticipantId != 0 && current.localParticipantId == state.hostParticipantId;
+        else if (current.host) current.localParticipantId = state.hostParticipantId;
+        if (current.localParticipantId != 0) confirmedAdmissionPending = true;
         if (!cancelling) {
             current.journey = journeyFor(state); current.status = "Connected";
             current.reconnectSeconds.reset();
@@ -341,10 +370,15 @@ namespace Duel6::Client {
                 for (const auto &player: state.players)
                     if (player.lifeState != Network::Replication::LifeState::Departed) ++listing.players;
                 listing.passwordRequired = passwordRequired;
+                listing.protection = passwordRequired ? "password" : "none";
                 listing.mode = state.settings.mode == "Predator" ? "predator" : state.settings.mode == "Team deathmatch" ? "teams" : "deathmatch";
                 listing.phase = state.phase == Network::Replication::Phase::Lobby ? "lobby"
-                    : state.phase == Network::Replication::Phase::ActiveRound && state.currentRoundNumber == 1 ? "first-round" : "closed";
-                if (listing.phase == "first-round") listing.capacity = static_cast<unsigned>(
+                    : state.phase == Network::Replication::Phase::ActiveRound
+                        ? state.currentRoundNumber == state.settings.roundLimit ? "final-round"
+                            : state.currentRoundNumber == 1 ? "first-round" : "started"
+                        : state.phase == Network::Replication::Phase::RoundSummary
+                            && state.currentRoundNumber < state.settings.roundLimit ? "started" : "closed";
+                if (listing.phase != "lobby" && listing.phase != "closed") listing.capacity = static_cast<unsigned>(
                     std::min<std::size_t>(15, listing.players + Network::Replication::MaxReplicatedPlayers - state.players.size()));
                 publisher->update(std::move(listing));
                 current.directoryAvailable = publisher->available();
@@ -371,7 +405,7 @@ namespace Duel6::Client {
                 current.presentation = hostPresentation->presentationState(now);
                 current.presentedPlayers = hostPresentation->presentedPlayers(now);
             }
-            if (!current.host || !current.canonical
+            if (!current.host || current.publicSession || !current.canonical
                 || !Network::Replication::acceptsGameplayInput(*current.canonical)
                 || (submittedHostTick && *submittedHostTick == current.canonical->phaseTime)) return;
             tick = current.canonical->phaseTime; submittedHostTick = tick;
@@ -415,7 +449,14 @@ namespace Duel6::Client {
     }
 
     void NetworkSessionRuntime::sendHostAction(Network::HostComposition::Kind kind) {
-        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeAction(kind)); }
+        try {
+            if (supervisor) enqueueHostCommand(Network::HostComposition::serializeAction(kind));
+            else {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (current.publicSession && current.host)
+                    pendingGuestCommands.push_back(Network::HostComposition::serializeAction(kind));
+            }
+        }
         catch (...) {}
     }
     void NetworkSessionRuntime::enqueueGuestAction(Network::Lifecycle::ParticipantActionKind kind) {
@@ -461,7 +502,12 @@ namespace Duel6::Client {
     void NetworkSessionRuntime::advanceRound() { sendHostAction(Network::HostComposition::Kind::AdvanceRound); }
     bool NetworkSessionRuntime::updateHostSetup(const Network::HostComposition::Setup &setup) {
         try {
-            if (!supervisor) return false;
+            if (!supervisor) {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (!current.publicSession || !current.host) return false;
+                pendingGuestCommands.push_back(Network::HostComposition::serializeSetupUpdate(setup));
+                return true;
+            }
             enqueueHostCommand(Network::HostComposition::serializeSetupUpdate(setup));
             return true;
         } catch (...) { return false; }
@@ -499,6 +545,12 @@ namespace Duel6::Client {
         try {
             if (supervisor) enqueueHostCommand(Network::HostComposition::serializeRosterMove(
                     playerId, static_cast<std::int8_t>(direction)));
+            else {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (current.publicSession && current.host)
+                    pendingGuestCommands.push_back(Network::HostComposition::serializeRosterMove(
+                            playerId, static_cast<std::int8_t>(direction)));
+            }
         } catch (...) {}
     }
     void NetworkSessionRuntime::cancel() {
@@ -516,6 +568,7 @@ namespace Duel6::Client {
         current.journey = NetworkJourney::Cancelling; current.status = "Leaving session…";
     }
     void NetworkSessionRuntime::endSession() {
+        if (!supervisor) { leave(); return; }
         { std::lock_guard<std::mutex> lock(mutex); current.journey = NetworkJourney::Cancelling;
           current.status = "Ending session…"; pendingHostEnd = supervisor != nullptr; }
     }
@@ -526,7 +579,26 @@ namespace Duel6::Client {
         guestCancelled = true;
         if (guestWorker.joinable()) guestWorker.join();
     }
+    bool NetworkSessionRuntime::takeConfirmedAdmission() {
+        std::lock_guard<std::mutex> lock(mutex);
+        const bool confirmed = confirmedAdmissionPending;
+        confirmedAdmissionPending = false;
+        return confirmed;
+    }
+
     void NetworkSessionRuntime::reset() {
+        // Request controller departure on normal application teardown. An unreachable
+        // service still ends it at the unchanged reservation deadline.
+        const auto before = snapshot();
+        if (before.publicSession && before.host && before.canonical && guestWorker.joinable()
+            && before.journey != NetworkJourney::Inactive && before.journey != NetworkJourney::Failure
+            && before.journey != NetworkJourney::HostEnded) {
+            leave();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+            while (std::chrono::steady_clock::now() < deadline
+                   && snapshot().journey == NetworkJourney::Cancelling)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
         publisher.reset();
         stopGuest();
         if (supervisor) { supervisor->applicationExit(); supervisor.reset(); }

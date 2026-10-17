@@ -41,7 +41,7 @@ def owned_processes(root):
         except (FileNotFoundError, PermissionError):
             continue
         if target.parent == root and target.name in (
-                "duel6r", "duel6r-server", "duel6r-host-supervisor", "duel6r-resolver"):
+                "duel6r", "duel6r-host-supervisor", "duel6r-resolver"):
             result.append(executable.parent.name)
     return result
 
@@ -308,10 +308,12 @@ def local_round(root, scratch):
         for executable in Path("/proc").glob("[0-9]*/exe"):
             try:
                 target = executable.resolve(strict=True)
+                command = (executable.parent / "cmdline").read_bytes().split(b"\0")
             except (FileNotFoundError, PermissionError):
                 continue
-            require(target.name not in ("duel6r-server", "duel6r-host-supervisor", "duel6r-resolver"),
-                    "Local Play started a network service component")
+            require(target.name not in ("duel6r-host-supervisor", "duel6r-resolver")
+                    and not (target.name == "duel6r" and b"--server" in command),
+                     "Local Play started a network service component")
         samples += 1
     try:
         no_service()

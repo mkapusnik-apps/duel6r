@@ -59,6 +59,7 @@ namespace Duel6::Network {
         InboundStalled,
         OutboundStalled,
         IdleTimedOut,
+        SecureConnectionFailed,
         SystemError,
         NotAuthorized,
         SecureUnavailable
@@ -173,6 +174,15 @@ namespace Duel6::Network {
         std::shared_ptr<NativeWriteObservations> observations;
     };
 
+    // Deterministic ingress scheduling seams, empty in production. Callbacks
+    // must not re-enter transport or crypto; publication runs under the ordered
+    // ingress/inner/input boundary. They neither supply nor authenticate bytes.
+    struct InboundTransportDependencies {
+        std::function<void()> beforeApplicationRead;
+        std::function<void(TransportTimePoint)> beforeApplicationPublish;
+        std::function<void()> beforeInputSeal;
+    };
+
     // Optional dependency seams for deterministic lifecycle tests. Empty functions select
     // the real platform resolver, monotonic clock, non-blocking TCP connector, and socket writer.
     // Injected operations must observe cancelled and return without retaining workers.
@@ -183,6 +193,7 @@ namespace Duel6::Network {
         std::function<ConnectOutcome(const std::vector<ResolvedIpv4Endpoint> &, TransportTimePoint,
                                      const std::function<bool()> &)> connect;
         OutboundTransportDependencies outbound;
+        InboundTransportDependencies inbound;
         // Opts an explicit session endpoint into trust-boundary and pre-admission transport enforcement.
         bool enforceNetworkSessionPolicy = false;
         // Applies pending/source admission accounting. Transport-only diagnostics leave this disabled.
@@ -208,10 +219,11 @@ namespace Duel6::Network {
                 const std::function<TransportTimePoint()> &now,
                 TransportTimePoint deadline);
         bool receive(TransportFrame &frame);
-        // Atomically pauses later inbound application delivery and drains every frame queued
-        // before the seal together with terminal state at that linearization point. A successful
-        // admission resumes delivery; every other outcome closes the connection.
-        TransportInputSnapshot sealAndDrainInput();
+        // Atomically pauses later inbound delivery and drains at most maximumFrames
+        // accepted before the seal, with terminal state at that linearization point.
+        // Undrained frames stay in the original bounded/accounted input queue. Repeated
+        // bounded drains do not resume input; only successful admission does so.
+        TransportInputSnapshot sealAndDrainInput(std::size_t maximumFrames = MaxQueuedTransportFrames);
         ClientState state() const;
         TransportFailure failure() const;
         std::array<std::uint8_t, 4> sourceIpv4() const;

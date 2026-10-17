@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace Duel6::Network {
     inline constexpr const char *SecureNetworkingUnavailableCopy =
@@ -27,7 +28,8 @@ namespace Duel6::Network {
     // while UI, supervisor and a reconnect attempt use the same session secret.
     class SessionPassword final {
     public:
-        explicit SessionPassword(const std::string &value);
+        static bool valid(std::string_view value) noexcept;
+        explicit SessionPassword(std::string_view value);
         ~SessionPassword();
         SessionPassword(const SessionPassword &) = delete;
         SessionPassword &operator=(const SessionPassword &) = delete;
@@ -37,21 +39,34 @@ namespace Duel6::Network {
         char bytes[129]{};
     };
 
+    // Bytes only: this stream carries TLS records, never gameplay framing.
+    // The shared owner outlives all BIO callbacks. No callback enters SecureSession.
+    class SecureByteStream {
+    public:
+        virtual ~SecureByteStream() = default;
+        // >0 bytes, 0 EOF, -1 fatal, -2 WANT_READ, -3 WANT_WRITE.
+        virtual std::ptrdiff_t read(unsigned char *data, std::size_t size) = 0;
+        virtual std::ptrdiff_t write(const unsigned char *data, std::size_t size) = 0;
+        virtual bool pending() const = 0;
+    };
+
     class SecureSession final {
     public:
         static bool supported(bool hardwarePermitted = true);
         SecureSession(std::intptr_t socket, bool server, std::shared_ptr<const SessionPassword> password,
-                      SecureSessionLimits limits = {});
+                      SecureSessionLimits limits = {}, std::shared_ptr<SecureByteStream> stream = {});
         ~SecureSession();
         SecureSession(const SecureSession &) = delete;
         SecureSession &operator=(const SecureSession &) = delete;
         bool handshake(std::chrono::steady_clock::time_point deadline, const std::function<bool()> &cancelled);
         // Positive byte count, zero EOF, -1 failure, -2 retry. No library diagnostic
         // or peer-controlled data crosses this boundary.
-        std::ptrdiff_t receive(void *buffer, std::size_t size);
+        std::ptrdiff_t receive(void *buffer, std::size_t size,
+                               const std::function<void(std::size_t)> &accepted = {});
         std::ptrdiff_t send(const void *buffer, std::size_t size);
         bool pending() const;
         bool expired() const;
+        bool usable() const;
     private:
         class Impl;
         std::unique_ptr<Impl> impl;

@@ -22,7 +22,7 @@ namespace Duel6::Server::Authoritative {
                                          const std::vector<PlayerDefinition> &roster) {
         if (config.seed == 0) return invalid("seed-zero");
         if (config.roundLimit < 1 || config.roundLimit > 99) return invalid("round-limit");
-        if (roster.size() < 2 || roster.size() > MaxPlayers) return invalid("roster-cardinality");
+        if (roster.empty() || roster.size() > MaxPlayers) return invalid("roster-cardinality");
         if (config.hostParticipantId == 0) return invalid("host-identity");
         if (config.optionalScriptsEnabled) return invalid("optional-scripts");
 
@@ -80,7 +80,7 @@ namespace Duel6::Server::Authoritative {
             if (player.rosterOrder >= roster.size()) return invalid("roster-order-range");
             hostFound = hostFound || player.participantId == config.hostParticipantId;
         }
-        if (!hostFound || participants.size() < 2 || participants.size() > MaxParticipants)
+        if (!hostFound || participants.empty() || participants.size() > MaxParticipants)
             return invalid("participant-cardinality");
         for (Identity participant: participants) {
             if (players.count(participant)) return invalid("identity-domain-overlap");

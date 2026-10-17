@@ -2,7 +2,21 @@
 
 ## Status, purpose, and requirements
 
-Current functional target: admission closes and reopens under [NET-ADM-001 through NET-ADM-005](../network-play-first-release.md), not at host Start. New admission while gameplay runs enters `NET-05` directly. Lobby readiness behavior is unchanged. The host must be able to read publication availability and retry failed publication under NET-DIR-015 without ending the session. Functional acceptance uses NET-AC-007 and NET-DIR-AC-004.
+Hosted Start accepts 1–15 connected participants and roster players under existing validity/readiness checks, without solo confirmation. NET-ADM-001–016 and NET-SOLO-001–006 own ongoing admission, eligible spawn and solo play in both hosting variants after dedicated controller commitment. Gameplay admission enters current NET-05, immediately participating or waiting for the next eligible round. Final outcome closes admission; lobby Return reopens it. Never-spawned waiting players retain admitted ownership into this lobby without match-participation result rows. Dedicated controller End/Leave/expiry retains its session-ending precedence and participants never acquire service-process ownership.
+
+Admission closes and reopens under [NET-ADM-001 through NET-ADM-005](../network-play-first-release.md), not at host Start. New admission while gameplay runs enters `NET-05` directly. Lobby readiness behavior is unchanged. The player-host must be able to read publication availability and retry failed publication under NET-DIR-015 without ending the session. Functional acceptance uses NET-AC-007 and NET-DIR-AC-004.
+
+### Public pilot functional contract
+
+`NET-04-PUBLIC-CONTROLLER` and `NET-04-PUBLIC-GUEST` implement `NET-PUB-001`–`NET-PUB-015`. Dedicated lobby admission enters this screen from `NET-03`, including for the first participant. Dedicated round-one admission enters `NET-05` directly. The service-confirmed controller receives the existing host match controls; the guest receives existing guest controls. Public participants do not supervise a local server process. Current roster, readiness, settings, results, and player ownership contracts remain applicable.
+
+Direct and browser-selected dedicated admission use the same confirmed roles and current authoritative destination. The first committed participant becomes controller in the prepared advertised nonzero session; offers/listings/client selection confer no role. Session identity remains the same through lobby, gameplay, results, reservations and same-session Return. An empty prepared session has no participants/controller/round and cannot start a match. End/expiry/restart invalidates old identity immediately; fresh distinct empty-session publication follows cleanup. The service owns publication and its memory-only owner credential independently of the controller. Directory failure must not stop the session or direct/Local Play; its failure/retry is operator-observable. Neither controller nor guest receives directory register/renew/remove or Retry publication operator actions. Player-hosted publication controls remain unchanged.
+
+The controller uses the existing `End session for everyone?` confirmation. Confirm ends the session and returns the controller to `NET-01`; Cancel leaves the current state unchanged. The controller has no leave action that preserves the session for guests. Guest Leave retains existing behavior. Controller and guest contact loss both enter `NET-07`. Confirmed service terminal outcomes use `NET-08` or `NET-09` as specified by HSL-PUB-005 through HSL-PUB-010.
+
+Functional acceptance: `NET-PUB-AC-001`–`NET-PUB-AC-004` and `HSL-PUB-AC-002` cover role assignment, permission denial, readiness, end confirmation, recovery, and terminal destinations. UX owns role labels and presentation without implying process ownership.
+
+Presentation authority: [NET-04 UX contract](../design/screens/NET-04.md). `Host` is an approved user-facing name for the controller role. Admission, not a client-side choice, assigns that role.
 
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It exposes participant ownership, local-player configuration, host-owned match settings, authoritative roster order, readiness, and retained session results. Issue #32 defines its authoritative setup and result states in [`docs/network-authoritative-headless-match.md`](../network-authoritative-headless-match.md).
 Local-player configuration preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
@@ -57,7 +71,7 @@ The retained-result variant [NET-04-R](../design/wireframes/NET-04/NET-04-R.svg)
 - A host roster-order change must preserve every player identity and owner.
 - A person edit, control edit, or host roster-order change must clear every participant's readiness.
 - `NET-04` must not permit an admitted participant to add, remove, or transfer one player slot.
-- A host-alone lobby is valid with `1 <= admitted participants <= players <= 15`, but Start remains disabled until 2–15 participants are connected, 2–15 players exist, each participant owns at least one, and all are ready.
+- A host-alone lobby is valid and may Start with `1 <= connected participants <= players <= 15` when each participant owns at least one valid player and all participants are connected and ready. One player alone is not a disabled reason and needs no extra confirmation.
 - Any configuration, roster, admission, expiry, or intentional-leave mutation clears every participant's readiness and displays the reason.
 - A disconnected admitted guest row changes Connection to `Reconnecting`, retains its prior readiness text, and blocks Start with `Waiting for <participant> to reconnect`.
 - Reconnect restores prior readiness unless another clearing mutation occurred. Expiry or intentional Leave removes that participant and players and clears every remaining readiness value.
@@ -67,10 +81,10 @@ The retained-result variant [NET-04-R](../design/wireframes/NET-04/NET-04-R.svg)
 - Lobby removals are one atomic batch: clear every remaining readiness value, perform no winner evaluation, retain the `Session only` result, and label affected retained rows `Departed`.
 - Guest Leave opens `Leave session? Your players will be removed and you will return to Network.` Confirm removes the guest and enters guest `NET-01`; Cancel returns to the lobby.
 - Host End session opens `End session for everyone?` Confirm sends host to `NET-01` and guests to host-ended `NET-09`; Cancel returns to the lobby.
-- Admission closes at match start; there is no join-in-progress control.
+- Admission remains available during active rounds and non-final delays, and closes at final outcome under NET-ADM-001 through NET-ADM-016; no new lobby join-in-progress control is added.
 - Completed and interrupted result rows remain labeled `Session only`; departed rows show `Departed`; starting a new match clears the retained result and session end discards it.
 - A completed result appears first in `NET-06` and remains available in this following lobby.
-- When an active-round or non-final-summary batch leaves fewer than two roster players, this lobby shows the current `Session only • Interrupted • No winner` result directly without an intervening `NET-06` screen.
+- A removal batch leaving one roster player continues in the match under solo rules and must not return here with an interrupted result. Separately approved interruptions retain their existing direct-lobby result mapping.
 - An interrupted result must preserve the last completed-round number and outcome when one exists.
 - A retained result must show result state, match outcome, last completed-round outcome, and cumulative ranking as separate labeled values.
 - A retained completed match outcome must equal the configured final-round outcome.

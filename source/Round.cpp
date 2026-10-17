@@ -170,6 +170,10 @@ namespace Duel6 {
             world.emitGameplayEvent({"sudden-death-started"});
         }
 
+        // Only the authoritative hosted runtime supplies this mode-aware membership
+        // gate. Local Play keeps its original winner rules. Empty living membership
+        // still completes normally with no winner.
+        if (game.isHeadless() && !headlessOpposition && !alivePlayers.empty()) return;
         if (game.getMode().checkRoundOver(world, alivePlayers)) {
             winner = true;
             world.emitGameplayEvent({"round-ended"});

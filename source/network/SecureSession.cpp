@@ -121,8 +121,31 @@ namespace Duel6::Network {
         return hardwareAes && mbedtls_ssl_ciphersuite_from_id(CipherSuites[0]) != nullptr;
     }
 
-    SessionPassword::SessionPassword(const std::string &value) {
-        if (value.size() > 128 || value.find('\0') != std::string::npos)
+    bool SessionPassword::valid(std::string_view value) noexcept {
+        if (value.size() > 128) return false;
+        for (std::size_t i = 0; i < value.size();) {
+            const auto first = static_cast<unsigned char>(value[i++]);
+            std::uint32_t point = first;
+            unsigned continuation = 0;
+            std::uint32_t minimum = 0;
+            if (first >= 0xc2 && first <= 0xdf) { point = first & 0x1f; continuation = 1; minimum = 0x80; }
+            else if (first >= 0xe0 && first <= 0xef) { point = first & 0x0f; continuation = 2; minimum = 0x800; }
+            else if (first >= 0xf0 && first <= 0xf4) { point = first & 7; continuation = 3; minimum = 0x10000; }
+            else if (first >= 0x80) return false;
+            if (continuation > value.size() - i) return false;
+            for (unsigned n = 0; n < continuation; ++n) {
+                const auto next = static_cast<unsigned char>(value[i++]);
+                if ((next & 0xc0) != 0x80) return false;
+                point = (point << 6) | (next & 0x3f);
+            }
+            if (point < minimum || point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)
+                || point <= 0x1f || (point >= 0x7f && point <= 0x9f)) return false;
+        }
+        return true;
+    }
+
+    SessionPassword::SessionPassword(std::string_view value) {
+        if (!valid(value))
             throw std::invalid_argument("Invalid session password.");
         std::memcpy(bytes, value.data(), value.size());
     }
@@ -135,6 +158,7 @@ namespace Duel6::Network {
         mbedtls_entropy_context entropy;
         mbedtls_ctr_drbg_context random;
         const std::intptr_t socket;
+        const std::shared_ptr<SecureByteStream> stream;
         mutable std::mutex mutex;
         RecordBudget incoming, outgoing;
         SecureSessionLimits limits;
@@ -143,14 +167,15 @@ namespace Duel6::Network {
         bool contextsInitialized = false, initialized = false, established = false, failed = false;
 
         Impl(std::intptr_t socket, bool host, const std::shared_ptr<const SessionPassword> &password,
-             SecureSessionLimits requested) : socket(socket) {
+              SecureSessionLimits requested, std::shared_ptr<SecureByteStream> bytes)
+                : socket(socket), stream(std::move(bytes)) {
             // In particular, CTR-DRBG seeding uses AES. Nothing in the library
             // may execute before this gate, including entropy initialization.
             if (!SecureSession::supported(requested.hardwarePermitted)) { failed = true; return; }
             failed = true;
 #ifdef __APPLE__
             const int noSignal = 1;
-            if (setsockopt(static_cast<int>(socket), SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal)) != 0) return;
+            if (!stream && setsockopt(static_cast<int>(socket), SOL_SOCKET, SO_NOSIGPIPE, &noSignal, sizeof(noSignal)) != 0) return;
 #endif
             const SecureSessionLimits maximum;
             limits.entropyPermitted = requested.entropyPermitted;
@@ -216,6 +241,15 @@ namespace Duel6::Network {
             if (self.failed || Clock::now() >= self.deadline) return MBEDTLS_ERR_NET_RECV_FAILED;
             size = self.incoming.allowance(size, self.limits.recordsPerDirection);
             if (size == 0) return MBEDTLS_ERR_NET_RECV_FAILED;
+            if (self.stream) {
+                std::ptrdiff_t count = -1;
+                try { count = self.stream->read(data, size); } catch (...) {}
+                if (count == -2) return MBEDTLS_ERR_SSL_WANT_READ;
+                if (count == -3) return MBEDTLS_ERR_SSL_WANT_WRITE;
+                if (count < 0 || static_cast<std::size_t>(count) > size) return MBEDTLS_ERR_NET_RECV_FAILED;
+                if (count > 0 && !self.incoming.account(data, static_cast<std::size_t>(count))) return MBEDTLS_ERR_NET_RECV_FAILED;
+                return static_cast<int>(count);
+            }
 #ifdef D6R_TRANSPORT_WINDOWS
             const int count = ::recv(static_cast<SOCKET>(self.socket), reinterpret_cast<char *>(data), static_cast<int>(size), 0);
             if (count == SOCKET_ERROR) {
@@ -235,6 +269,15 @@ namespace Duel6::Network {
             if (self.failed || Clock::now() >= self.deadline) return MBEDTLS_ERR_NET_SEND_FAILED;
             size = self.outgoing.allowance(size, self.limits.recordsPerDirection);
             if (size == 0) return MBEDTLS_ERR_NET_SEND_FAILED;
+            if (self.stream) {
+                std::ptrdiff_t count = -1;
+                try { count = self.stream->write(data, size); } catch (...) {}
+                if (count == -2) return MBEDTLS_ERR_SSL_WANT_READ;
+                if (count == -3 || count == 0) return MBEDTLS_ERR_SSL_WANT_WRITE;
+                if (count < 0 || static_cast<std::size_t>(count) > size) return MBEDTLS_ERR_NET_SEND_FAILED;
+                if (!self.outgoing.account(data, static_cast<std::size_t>(count))) return MBEDTLS_ERR_NET_SEND_FAILED;
+                return static_cast<int>(count);
+            }
 #ifdef D6R_TRANSPORT_WINDOWS
             const int count = ::send(static_cast<SOCKET>(self.socket), reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
             if (count == SOCKET_ERROR) {
@@ -263,11 +306,13 @@ namespace Duel6::Network {
     };
 
     SecureSession::SecureSession(std::intptr_t socket, bool server, std::shared_ptr<const SessionPassword> password,
-                                 SecureSessionLimits limits) : impl(std::make_unique<Impl>(socket, server, password, limits)) {}
+                                 SecureSessionLimits limits, std::shared_ptr<SecureByteStream> stream)
+            : impl(std::make_unique<Impl>(socket, server, password, limits, std::move(stream))) {}
     SecureSession::~SecureSession() = default;
     bool SecureSession::handshake(Clock::time_point deadline, const std::function<bool()> &cancelled) {
-        if (!impl->initialized) return false;
-        while (!cancelled() && Clock::now() < deadline && !impl->exhausted()) {
+        while (!cancelled() && Clock::now() < deadline) {
+            std::unique_lock<std::mutex> lock(impl->mutex);
+            if (!impl->initialized || impl->exhausted()) break;
             const int result = mbedtls_ssl_handshake(&impl->session);
             if (result == 0) {
                 const char *suite = mbedtls_ssl_get_ciphersuite(&impl->session);
@@ -280,16 +325,24 @@ namespace Duel6::Network {
             if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) {
                 impl->failed = true; return false;
             }
+            lock.unlock();
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
+        std::lock_guard<std::mutex> lock(impl->mutex);
         impl->failed = true; return false;
     }
-    std::ptrdiff_t SecureSession::receive(void *data, std::size_t size) {
+    std::ptrdiff_t SecureSession::receive(void *data, std::size_t size,
+                                         const std::function<void(std::size_t)> &accepted) {
         std::lock_guard<std::mutex> lock(impl->mutex);
         if (!impl->established || impl->exhausted()) return -1;
         size = std::min<std::size_t>(size, impl->limits.plaintextBytesPerDirection - impl->received);
         const auto count = impl->result(mbedtls_ssl_read(&impl->session, static_cast<unsigned char *>(data), size));
-        if (count > 0) impl->received += static_cast<std::uint64_t>(count);
+        if (count > 0) {
+            impl->received += static_cast<std::uint64_t>(count);
+            // Publish complete authenticated staging before a competing writer
+            // can latch fatal state and publish disconnection. No SDK re-entry.
+            if (accepted) accepted(static_cast<std::size_t>(count));
+        }
         return count;
     }
     std::ptrdiff_t SecureSession::send(const void *data, std::size_t size) {
@@ -302,10 +355,15 @@ namespace Duel6::Network {
     }
     bool SecureSession::pending() const {
         std::lock_guard<std::mutex> lock(impl->mutex);
-        return impl->established && mbedtls_ssl_check_pending(&impl->session) != 0;
+        return impl->established && !impl->exhausted() && (mbedtls_ssl_check_pending(&impl->session) != 0
+                                    || (impl->stream && impl->stream->pending()));
     }
     bool SecureSession::expired() const {
         std::lock_guard<std::mutex> lock(impl->mutex);
         return impl->exhausted();
+    }
+    bool SecureSession::usable() const {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        return impl->established && !impl->exhausted();
     }
 }

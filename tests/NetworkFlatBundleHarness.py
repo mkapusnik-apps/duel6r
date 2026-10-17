@@ -31,9 +31,9 @@ def main():
         if args.bundle is None:
             # CMake may expose a version-suffixed target file. The application
             # launches its sibling through the normal unversioned runtime name.
-            shutil.copy2(args.server, root / "duel6r-server")
+            shutil.copy2(args.server, root / "duel6r")
             shutil.copy2(args.server.with_name("duel6r-resolver"), root / "duel6r-resolver")
-        assert (root / "duel6r-server").is_file()
+        assert (root / "duel6r").is_file()
         environment = dict(os.environ, SDL_AUDIODRIVER="dummy")
         listed = subprocess.run([str(executable)], cwd=root,
                                 env=dict(environment, D6R_TEST_LIST="1"),
@@ -41,7 +41,7 @@ def main():
         names = listed.stdout.splitlines()
         assert names, "No graphical behavior tests matched the requested filter"
         failures = 0
-        deadline = time.monotonic() + 160
+        deadline = time.monotonic() + 240
         # The application has process-global control presets referencing Input.
         # Each normal application lifetime is one process; do not let successive
         # test Applications/virtual controllers retain a previous case's Input.

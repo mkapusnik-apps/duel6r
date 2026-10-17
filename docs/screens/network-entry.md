@@ -2,7 +2,7 @@
 
 ## Purpose and authority
 
-This screen separates player-hosted network play from local-only Play. It is a modal over `MENU-01` with Host, Join, and Back only. This contract owns the entry actions and destinations. It supersedes only the earlier `NET-01` → Join → `NET-03` entry route in [network play](../network-play-first-release.md#join).
+This screen separates network play from local-only Play. It is a modal over `MENU-01` with Host, Join, and Back only. This contract owns the entry actions and destinations. It supersedes the earlier four-action entry and `NET-01` → Join → `NET-03` route in [network play](../network-play-first-release.md#join), without changing dedicated admission or gameplay scope.
 
 `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` remain applicable. [NET-DIR-009](../network-host-directory.md) owns browser requests and selection. [NET-DIR-015](../network-host-directory.md) retains directory independence and direct-connection recovery. No platform, compatibility, admission, or gameplay requirement changes.
 
@@ -39,3 +39,9 @@ Browsing, optional password admission, and round-one admission follow the existi
 - **NET-ENTRY-AC-004 — Unavailable runtime:** Network-runtime unavailability retains the disabled Host and Join actions and the exact reason above. Back remains usable and preserves local setup.
 
 Final product acceptance requires behavioral evidence for these criteria at the frozen candidate and UX assessment with implementation evidence from the coordinated screenshot matrix for the compact modal and removed explanatory text. Earlier network-entry evidence does not establish the changed actions, route, or presentation. Representative screenshot reference: [`SS-015`](../screenshots/README.md#ss-015).
+
+### Preserved dedicated and mixed-session contract
+
+`NET-01-PUBLIC-ENTRY` consumes NET-PUB-017–021/024–025 through Join → mixed NET-10 → selected dedicated setup, or NET-10 → independent Direct connect. NET-03 owns common-channel Direct without a server-type selector and browser-derived locked hosting kind, gameplay endpoint and expected nonzero identity. This entry adds no dedicated administrator or matchmaking action and creates no controller/participant authority.
+
+Prepared ready dedicated idle has zero participants/players, a nonzero identity and no playable match under NET-PUB-024–025. Exactly the first committed admission becomes controller; current player-hosted minimums do not invent an idle participant or controller. NET-DIR-021–033 retain explicit hosting, consistent Password/No password protection, legacy v1 isolation, authoritative admission and the same eligibility rules for every supported client platform. NET-PASS-001–018 own the common encrypted optional-password procedure and common unlocked first-contact limitation. No gameplay certificate enrollment, frontend, pin, or trust prompt is required. NET-PUB-AC-006 covers Linux x86-64, Windows x86-64, Linux AArch64/Pi 5 and experimental Apple Silicon macOS 14+ clients, with unchanged dedicated-service targets and retained Windows graphical obligations. Entry remains Host/Join/Back over the actual menu; no native verification or new screen is claimed.

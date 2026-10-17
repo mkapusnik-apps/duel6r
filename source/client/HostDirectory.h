@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include "../network/Protocol.h"
+#include "../network/PublicSession.h"
 
 namespace Duel6::Client {
     struct DirectoryListing {
@@ -16,12 +17,19 @@ namespace Duel6::Client {
         Network::Endpoint endpoint;
         unsigned players = 0, capacity = 0;
         bool passwordRequired = false;
+        std::string hosting = "player-hosted", protection = "none", admission;
         double expiresAt = 0;
         unsigned revision = 0;
+        bool dedicated() const { return hosting == "dedicated"; }
+        std::string admissionState() const {
+            return admission.empty() ? (phase == "closed" ? "closed" : players >= capacity ? "full" : "open") : admission;
+        }
         bool joinable() const {
             const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-            return expiresAt > now && players < capacity && (phase == "lobby" || phase == "first-round");
+            return expiresAt > now && players < capacity && admissionState() == "open"
+                && (phase == "lobby" || phase == "first-round" || phase == "started" || phase == "final-round"
+                    || (dedicated() && phase == "idle"));
         }
     };
     struct DirectoryPage {
@@ -39,8 +47,10 @@ namespace Duel6::Client {
                                        const std::string &body = {}, const std::string &owner = {}, unsigned revision = 0,
                                        const std::atomic<bool> *cancelled = nullptr);
     DirectoryPage directoryPage(const std::string &cursor);
-    DirectoryPage decodeDirectoryPage(const std::string &body, const std::string &cursor = {});
+    DirectoryPage decodeDirectoryPage(const std::string &body, const std::string &cursor = {}, bool mixed = false);
     std::string directorySessionId(std::uint64_t id);
+    // Compare the URL parser's validated host and effective numeric port, without DNS.
+    bool directoryOriginMatchesFrontend(const std::string &origin, const Network::Endpoint &frontend);
 
     class DirectoryBrowser final {
     public:

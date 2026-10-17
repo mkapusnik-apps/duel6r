@@ -1,13 +1,15 @@
 #include "SessionLifecycle.h"
+#include "PublicSession.h"
 
 #include <algorithm>
 #include <limits>
 #include <utility>
+#include <type_traits>
 
 namespace Duel6::Network::Lifecycle {
     namespace {
         constexpr std::uint32_t Magic = 0x44364c43; // D6LC
-        constexpr std::uint16_t Version = 1;
+        constexpr std::uint16_t Version = 2;
         constexpr std::uint16_t GrantKind = 1;
         constexpr std::uint16_t RequestKind = 2;
         constexpr std::uint16_t HostEndKind = 3;
@@ -55,7 +57,8 @@ namespace Duel6::Network::Lifecycle {
             bool nonzero = false; for (auto byte: credential.bytes) nonzero = nonzero || byte != 0;
             if (session == 0 || participant == 0 || reservation == 0 || !nonzero) return {};
             std::vector<std::uint8_t> out;
-            out.reserve(48); append32(out, Magic); append16(out, Version); append16(out, kind);
+            // Grant appends its hosting byte without reallocating credential bytes.
+            out.reserve(49); append32(out, Magic); append16(out, Version); append16(out, kind);
             append64(out, session); append64(out, participant); append64(out, reservation);
             out.insert(out.end(), credential.bytes.begin(), credential.bytes.end());
             return out;
@@ -65,7 +68,8 @@ namespace Duel6::Network::Lifecycle {
         }
         template<typename T>
         std::optional<T> deserializeCredential(const std::vector<std::uint8_t> &payload, std::uint16_t expected) {
-            if (payload.size() != 48) return std::nullopt;
+            constexpr bool grant = std::is_same_v<T, ReconnectGrant>;
+            if (payload.size() != (grant ? 49 : 48)) return std::nullopt;
             std::size_t at = 0; std::uint32_t magic = 0; std::uint16_t version = 0, kind = 0;
             T value;
             if (!read32(payload, at, magic) || !read16(payload, at, version) || !read16(payload, at, kind)
@@ -73,7 +77,11 @@ namespace Duel6::Network::Lifecycle {
                 || !read64(payload, at, value.reservationId) || magic != Magic || version != Version
                 || kind != expected || value.sessionId == 0 || value.participantId == 0
                 || value.reservationId == 0) return std::nullopt;
-            std::copy(payload.begin() + static_cast<std::ptrdiff_t>(at), payload.end(), value.credential.bytes.begin());
+            std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(at), 16, value.credential.bytes.begin());
+            if constexpr (grant) {
+                value.hostingKind = static_cast<HostingKind>(payload.back());
+                if (!validHostingKind(value.hostingKind)) return std::nullopt;
+            }
             bool nonzero = false; for (auto byte: value.credential.bytes) nonzero = nonzero || byte != 0;
             if (!nonzero) return std::nullopt;
             return value;
@@ -120,8 +128,11 @@ namespace Duel6::Network::Lifecycle {
     }
 
     std::vector<std::uint8_t> serializeReconnectGrant(const ReconnectGrant &grant) {
-        return serializeCredential(GrantKind, grant.sessionId, grant.participantId,
-                                   grant.reservationId, grant.credential);
+        if (!validHostingKind(grant.hostingKind)) return {};
+        auto out = serializeCredential(GrantKind, grant.sessionId, grant.participantId,
+                                      grant.reservationId, grant.credential);
+        if (!out.empty()) out.push_back(static_cast<std::uint8_t>(grant.hostingKind));
+        return out;
     }
     std::vector<std::uint8_t> serializeReconnectRequest(const ReconnectRequest &request) {
         return serializeCredential(RequestKind, request.sessionId, request.participantId,
@@ -156,16 +167,18 @@ namespace Duel6::Network::Lifecycle {
             || response.sessionId == 0 || response.participantId == 0
             || (response.outcome == ReconnectOutcome::Accepted) != response.nextGrant.has_value()
             || (response.nextGrant && (response.nextGrant->sessionId != response.sessionId
-                || response.nextGrant->participantId != response.participantId))) return {};
+                || response.nextGrant->participantId != response.participantId
+                || !validHostingKind(response.nextGrant->hostingKind)))) return {};
         std::vector<std::uint8_t> out;
-        out.reserve(response.nextGrant ? 52 : 28);
+        out.reserve(response.nextGrant ? 53 : 28);
         append32(out, Magic); append16(out, Version); append16(out, ResponseKind);
         append16(out, static_cast<std::uint16_t>(response.outcome)); append16(out, 0);
         append64(out, response.sessionId); append64(out, response.participantId);
         if (response.nextGrant) {
             append64(out, response.nextGrant->reservationId);
             out.insert(out.end(), response.nextGrant->credential.bytes.begin(),
-                       response.nextGrant->credential.bytes.end());
+                        response.nextGrant->credential.bytes.end());
+            out.push_back(static_cast<std::uint8_t>(response.nextGrant->hostingKind));
         }
         return out;
     }
@@ -225,7 +238,7 @@ namespace Duel6::Network::Lifecycle {
     std::optional<ReconnectResponse> deserializeReconnectResponse(
             const std::vector<std::uint8_t> &payload) noexcept {
         try {
-            if (payload.size() != 28 && payload.size() != 52) return std::nullopt;
+            if (payload.size() != 28 && payload.size() != 53) return std::nullopt;
             std::size_t at = 0; std::uint32_t magic = 0; std::uint16_t version = 0, kind = 0, outcome = 0, reserved = 0;
             ReconnectResponse result;
             if (!read32(payload, at, magic) || !read16(payload, at, version) || !read16(payload, at, kind)
@@ -235,11 +248,13 @@ namespace Duel6::Network::Lifecycle {
                 || !validOutcome(outcome) || result.sessionId == 0 || result.participantId == 0)
                 return std::nullopt;
             result.outcome = static_cast<ReconnectOutcome>(outcome);
-            if (payload.size() == 52) {
+            if (payload.size() == 53) {
                 ReconnectGrant grant;
                 grant.sessionId = result.sessionId; grant.participantId = result.participantId;
                 if (!read64(payload, at, grant.reservationId) || grant.reservationId == 0) return std::nullopt;
-                std::copy(payload.begin() + static_cast<std::ptrdiff_t>(at), payload.end(), grant.credential.bytes.begin());
+                std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(at), 16, grant.credential.bytes.begin());
+                grant.hostingKind = static_cast<HostingKind>(payload.back());
+                if (!validHostingKind(grant.hostingKind)) return std::nullopt;
                 bool nonzero = false; for (auto byte: grant.credential.bytes) nonzero = nonzero || byte != 0;
                 if (!nonzero) return std::nullopt;
                 result.nextGrant = std::move(grant);
@@ -269,22 +284,23 @@ namespace Duel6::Network::Lifecycle {
     void eraseLifecycleCredentialPayload(std::vector<std::uint8_t> &payload) noexcept {
         if (payload.size() < 8 || payload[0] != 0x44 || payload[1] != 0x36
             || payload[2] != 0x4c || payload[3] != 0x43) return;
-        if (payload.size() == 48 && payload[6] == 0
+        if (payload.size() >= 48 && payload[6] == 0
             && (payload[7] == GrantKind || payload[7] == RequestKind))
             Trust::secureEraseMemory(payload.data() + 32, 16);
         else if (payload.size() >= 52 && payload[6] == 0 && payload[7] == AttemptKind)
             Trust::secureEraseMemory(payload.data() + 36, 16);
-        else if (payload.size() == 52 && payload[6] == 0 && payload[7] == ResponseKind)
+        else if (payload.size() >= 52 && payload[6] == 0 && payload[7] == ResponseKind)
             Trust::secureEraseMemory(payload.data() + 36, 16);
     }
 
     HostSessionLifecycle::HostSessionLifecycle(std::uint64_t sessionId, ParticipantId hostParticipantId,
             ConnectionId hostConnectionId, std::vector<PlayerId> hostOwnedPlayers, Clock clock,
-            Trust::RandomFill random, HostHooks hooks)
+            Trust::RandomFill random, HostHooks hooks, bool remoteHost)
             : instanceLifetime(std::make_shared<const std::uint8_t>(0)), sessionId(sessionId),
               hostParticipantId(hostParticipantId), hostConnectionId(hostConnectionId),
               hostOwnedPlayers(std::move(hostOwnedPlayers)),
-              clock(clock ? std::move(clock) : Clock(realNow)), random(std::move(random)), hooks(std::move(hooks)) {
+              clock(clock ? std::move(clock) : Clock(realNow)), random(std::move(random)), hooks(std::move(hooks)),
+              remoteHost(remoteHost) {
         const std::set<PlayerId> unique(this->hostOwnedPlayers.begin(), this->hostOwnedPlayers.end());
         if (sessionId == 0 || hostParticipantId == 0 || hostConnectionId == 0
             || this->hostOwnedPlayers.empty() || this->hostOwnedPlayers.size() > Trust::MaxParticipants
@@ -306,20 +322,21 @@ namespace Duel6::Network::Lifecycle {
 
     std::optional<ReconnectGrant> HostSessionLifecycle::admitGuest(ParticipantId participantId,
             ConnectionId connectionId, std::vector<PlayerId> ownedPlayers, bool readyValue, bool lobby) {
-        if (sessionEnded || operationActive || participantId == 0 || participantId == hostParticipantId || connectionId == 0
-            || ownedPlayers.empty() || participants.size() >= MaximumLifecycleParticipants - 1
+        if (sessionEnded || operationActive || participantId == 0 || (!remoteHost && participantId == hostParticipantId) || connectionId == 0
+            || ownedPlayers.empty() || participants.size() >= MaximumLifecycleParticipants - (remoteHost ? 0 : 1)
             || participants.count(participantId) || nextReservationId == 0
             || retainedPlayerCount() + ownedPlayers.size() > Trust::MaxParticipants) return std::nullopt;
         std::set<PlayerId> unique(ownedPlayers.begin(), ownedPlayers.end());
         if (unique.size() != ownedPlayers.size() || unique.count(0)) return std::nullopt;
         for (const auto &[id, participant]: participants)
             for (PlayerId player: participant.players) if (unique.count(player)) return std::nullopt;
-        for (PlayerId player: hostOwnedPlayers) if (unique.count(player)) return std::nullopt;
+        if (!remoteHost) for (PlayerId player: hostOwnedPlayers) if (unique.count(player)) return std::nullopt;
         OperationGuard operation(operationActive);
         const std::uint64_t reservationId = nextReservationId++;
         auto reservation = makeDormantReservation(participantId, reservationId);
         if (!reservation) return std::nullopt;
         ReconnectGrant grant{sessionId, participantId, reservationId, reservation->credential()};
+        grant.hostingKind = remoteHost ? HostingKind::Dedicated : HostingKind::PlayerHosted;
         (void) readyValue;
         if (lobby) {
             hostReady = false;
@@ -340,6 +357,13 @@ namespace Duel6::Network::Lifecycle {
             || found->second.connectionId != connectionId || !found->second.reservation) return false;
         OperationGuard operation(operationActive);
         if (!found->second.reservation->activate()) return false;
+        try { found->second.reservationDeadline = found->second.reservation->deadline(); }
+        catch (...) { found->second.reservationDeadline.reset(); }
+        found->second.removalCause = RemovalCause::Unselected;
+        if (remoteHost && participantId == hostParticipantId && !found->second.reservationDeadline) {
+            found->second.removalCause = RemovalCause::UnknownFailure;
+            pendingRemovals.insert(participantId);
+        }
         found->second.connected = false;
         advanceReadinessGeneration();
         bool disconnected = true;
@@ -367,10 +391,10 @@ namespace Duel6::Network::Lifecycle {
         std::optional<TimePoint> deadline;
         try { deadline = found->second.reservation->deadline(); } catch (...) {}
         if (!deadline) return reject(ReconnectOutcome::AuthorizationFailed);
-        TimePoint now = TimePoint::max();
+        std::optional<TimePoint> now;
         try { now = clock(); } catch (...) {}
-        if (now >= *deadline) {
-            try { found->second.reservation->expireIfDue(); } catch (...) {}
+        if (!now || *now >= *deadline) {
+            if (now) try { found->second.reservation->expireIfDue(); } catch (...) {}
             return reject(ReconnectOutcome::AuthorizationFailed);
         }
         Trust::ReconnectAuthorizationResult proof;
@@ -396,26 +420,31 @@ namespace Duel6::Network::Lifecycle {
         bool restored = false;
         try { restored = hooks.restoreCurrent && hooks.restoreCurrent(request.participantId, connectionId); }
         catch (...) { restored = false; }
-        TimePoint restoredAt = TimePoint::max();
+        std::optional<TimePoint> restoredAt;
         try { restoredAt = clock(); } catch (...) {}
         const auto current = participants.find(request.participantId);
-        if (!restored || restoredAt >= *deadline || sessionEnded || current == participants.end()) {
+        const bool expired = restoredAt && *restoredAt >= *deadline;
+        if (!restored || !restoredAt || expired || sessionEnded || current == participants.end()) {
             try { if (hooks.disconnect) (void) hooks.disconnect(request.participantId); } catch (...) {}
             if (current != participants.end()) {
                 (void) current->second.reservation->consumeSuspended();
                 current->second.reservation.reset();
+                current->second.removalCause = expired ? RemovalCause::Expired
+                        : restoredAt && !restored ? RemovalCause::RestorationFailed : RemovalCause::UnknownFailure;
             }
-            pendingLeaves.insert(request.participantId);
-            return reject(restoredAt >= *deadline ? ReconnectOutcome::Expired : ReconnectOutcome::RestoreFailed);
+            pendingRemovals.insert(request.participantId);
+            return reject(expired ? ReconnectOutcome::Expired : ReconnectOutcome::RestoreFailed);
         }
         current->second.connectionId = connectionId; current->second.connected = true;
+        if (remoteHost && request.participantId == hostParticipantId) hostConnectionId = connectionId;
         advanceReadinessGeneration();
         current->second.rollbackReservationId = current->second.reservationId;
         current->second.rollbackReservation = std::move(current->second.reservation);
         current->second.reservationId = replacementId; current->second.reservation = std::move(replacement);
         result.outcome = ReconnectOutcome::Accepted; result.closeOffendingConnection = false;
         result.nextGrant = ReconnectGrant{sessionId, request.participantId, replacementId,
-                                          current->second.reservation->credential()};
+                                           current->second.reservation->credential()};
+        result.nextGrant->hostingKind = remoteHost ? HostingKind::Dedicated : HostingKind::PlayerHosted;
         return result;
     }
 
@@ -425,7 +454,8 @@ namespace Duel6::Network::Lifecycle {
         if (sessionEnded || operationActive || found == participants.end() || !found->second.connected
             || found->second.connectionId != connectionId) return false;
         OperationGuard operation(operationActive);
-        return pendingLeaves.insert(participantId).second;
+        intentionalLeaves.insert(participantId);
+        return pendingRemovals.insert(participantId).second;
     }
 
     bool HostSessionLifecycle::queueReservedLeave(
@@ -444,7 +474,8 @@ namespace Duel6::Network::Lifecycle {
                                                 request.participantId, request.reservationId)) {
             close(attemptConnectionId); return false;
         }
-        const bool queued = pendingLeaves.insert(request.participantId).second;
+        intentionalLeaves.insert(request.participantId);
+        const bool queued = pendingRemovals.insert(request.participantId).second;
         close(attemptConnectionId);
         return queued;
     }
@@ -463,7 +494,7 @@ namespace Duel6::Network::Lifecycle {
     bool HostSessionLifecycle::recognizesParticipantAction(
             const ParticipantAction &action, ConnectionId connectionId) const noexcept {
         if (action.sessionId != sessionId || action.participantId == 0 || connectionId == 0) return false;
-        if (action.participantId == hostParticipantId) return connectionId == hostConnectionId;
+        if (!remoteHost && action.participantId == hostParticipantId) return connectionId == hostConnectionId;
         const auto found = participants.find(action.participantId);
         return found != participants.end() && found->second.connected
                && found->second.connectionId == connectionId;
@@ -492,7 +523,7 @@ namespace Duel6::Network::Lifecycle {
             mutation.connectionId = connectionId;
             mutation.ready = action.kind == ParticipantActionKind::Ready;
             if (mutation.kind == PreparedReadinessMutation::Kind::SetParticipant)
-                mutation.baselineParticipantReady = action.participantId == hostParticipantId
+                mutation.baselineParticipantReady = !remoteHost && action.participantId == hostParticipantId
                                                     ? hostReady : participants.find(action.participantId)->second.ready;
             mutation.valid = true;
             return {ReadinessMutationOutcome::Committed, std::move(mutation)};
@@ -508,7 +539,7 @@ namespace Duel6::Network::Lifecycle {
                 return {ReadinessMutationOutcome::Rejected, std::nullopt};
             if (sessionEnded || operationActive)
                 return {ReadinessMutationOutcome::InternalFailure, std::nullopt};
-            if (participantId == hostParticipantId) {
+            if (!remoteHost && participantId == hostParticipantId) {
                 if (connectionId != hostConnectionId)
                     return {ReadinessMutationOutcome::Rejected, std::nullopt};
             } else {
@@ -527,7 +558,7 @@ namespace Duel6::Network::Lifecycle {
             mutation.participantId = participantId;
             mutation.connectionId = connectionId;
             mutation.ready = readyValue;
-            mutation.baselineParticipantReady = participantId == hostParticipantId
+            mutation.baselineParticipantReady = !remoteHost && participantId == hostParticipantId
                                                 ? hostReady : participants.find(participantId)->second.ready;
             mutation.valid = true;
             return {ReadinessMutationOutcome::Committed, std::move(mutation)};
@@ -555,7 +586,7 @@ namespace Duel6::Network::Lifecycle {
             || mutation.generation != readinessGeneration || mutation.baselineHostReady != hostReady)
             return false;
         if (mutation.kind == PreparedReadinessMutation::Kind::SetParticipant) {
-            if (mutation.participantId == hostParticipantId) {
+            if (!remoteHost && mutation.participantId == hostParticipantId) {
                 if (mutation.connectionId != hostConnectionId
                     || mutation.baselineParticipantReady != hostReady) return false;
             } else {
@@ -581,7 +612,7 @@ namespace Duel6::Network::Lifecycle {
         if (mutation.kind == PreparedReadinessMutation::Kind::ClearAll) {
             hostReady = false;
             for (auto &[id, participant]: participants) participant.ready = false;
-        } else if (mutation.participantId == hostParticipantId) {
+        } else if (!remoteHost && mutation.participantId == hostParticipantId) {
             hostReady = mutation.ready;
         } else {
             participants.find(mutation.participantId)->second.ready = mutation.ready;
@@ -628,7 +659,7 @@ namespace Duel6::Network::Lifecycle {
     }
 
     bool HostSessionLifecycle::allConnectedAndReady() const noexcept {
-        if (sessionEnded || !hostReady || retainedPlayerCount() < 2
+        if (sessionEnded || (!remoteHost && !hostReady) || retainedPlayerCount() < 1
             || retainedPlayerCount() > Trust::MaxParticipants) return false;
         return std::all_of(participants.begin(), participants.end(), [](const auto &entry) {
             return entry.second.connected && entry.second.ready;
@@ -645,6 +676,7 @@ namespace Duel6::Network::Lifecycle {
         const bool consumed = found->second.rollbackReservation->consumeSuspended();
         found->second.rollbackReservation.reset();
         found->second.rollbackReservationId = 0;
+        found->second.reservationDeadline.reset();
         if (!consumed) failSession();
         return consumed;
     }
@@ -661,8 +693,19 @@ namespace Duel6::Network::Lifecycle {
         found->second.reservation = std::move(found->second.rollbackReservation);
         found->second.reservationId = found->second.rollbackReservationId;
         found->second.rollbackReservationId = 0;
-        const bool reservationRestored = found->second.reservation->restoreSuspended();
-        if (!reservationRestored) pendingLeaves.insert(participantId);
+        bool reservationRestored = false, rollbackUnknown = false;
+        try { reservationRestored = found->second.reservation->restoreSuspended(); }
+        catch (...) { rollbackUnknown = true; }
+        if (!reservationRestored) {
+            std::optional<TimePoint> failedAt;
+            if (!rollbackUnknown) try { failedAt = clock(); } catch (...) {}
+            const bool expired = failedAt && found->second.reservationDeadline
+                    && *failedAt >= *found->second.reservationDeadline;
+            found->second.removalCause = expired ? RemovalCause::Expired
+                    : failedAt ? RemovalCause::RestorationFailed : RemovalCause::UnknownFailure;
+            found->second.reservation.reset();
+            pendingRemovals.insert(participantId);
+        }
         found->second.connected = false;
         advanceReadinessGeneration();
         bool disconnected = true;
@@ -676,26 +719,59 @@ namespace Duel6::Network::Lifecycle {
     RemovalOutcome HostSessionLifecycle::processLifecycleBatch(Phase phase) {
         if (sessionEnded || operationActive || phase == Phase::Ended) return RemovalOutcome::NothingChanged;
         OperationGuard operation(operationActive);
-        std::set<ParticipantId> removals = pendingLeaves;
+        std::set<ParticipantId> removals = pendingRemovals;
         try {
             for (auto &[id, participant]: participants)
-                if (!participant.connected && participant.reservation && participant.reservation->expireIfDue())
+                // Accessors used by reconnect authorization may already have expired
+                // and erased the credential. Cleanup must observe that persistent
+                // invalid state, not depend on winning the expiry transition.
+                if (!participant.connected && participant.reservation && !participant.reservation->valid())
                     removals.insert(id);
         } catch (...) {
-            pendingLeaves.insert(removals.begin(), removals.end());
+            pendingRemovals.insert(removals.begin(), removals.end());
             return RemovalOutcome::Failed;
         }
-        pendingLeaves.clear();
+        if (remoteHost && removals.count(hostParticipantId)) {
+            const auto controller = participants.find(hostParticipantId);
+            bool expired = controller != participants.end()
+                    && controller->second.removalCause == RemovalCause::Expired;
+            if (controller != participants.end()
+                && controller->second.removalCause == RemovalCause::Unselected
+                && controller->second.reservationDeadline) {
+                try { expired = clock() >= *controller->second.reservationDeadline; } catch (...) {}
+            }
+            const bool intentional = intentionalLeaves.count(hostParticipantId) != 0;
+            if (!intentional && !expired) {
+                // A selected restoration/unknown failure stays a failure even
+                // when a delayed cleanup batch runs after the old deadline.
+                // Existing reconnect rejection/ambiguous loss provides recovery;
+                // no intentional, expiry or maintenance notice is justified.
+                failSession();
+                return RemovalOutcome::NothingChanged;
+            }
+            const auto payload = intentional
+                    ? serializeIntentionalHostEnd({sessionId}) : PublicSession::terminalNotice(sessionId, false);
+            sessionEnded = true;
+            for (const auto &[id, participant]: participants) {
+                if (participant.connected && hooks.sendIntentionalHostEnd)
+                    try { (void) hooks.sendIntentionalHostEnd(participant.connectionId, payload); } catch (...) {}
+            }
+            clearAll();
+            try { if (hooks.discardSession) hooks.discardSession(); } catch (...) {}
+            return RemovalOutcome::NothingChanged;
+        }
+        pendingRemovals.clear();
         if (removals.empty()) return RemovalOutcome::NothingChanged;
         std::vector<ParticipantId> batch(removals.begin(), removals.end());
         bool applied = false;
         try { applied = hooks.removeBatch && hooks.removeBatch(batch, phase); } catch (...) { applied = false; }
         if (!applied) {
-            pendingLeaves.insert(removals.begin(), removals.end());
+            pendingRemovals.insert(removals.begin(), removals.end());
             return RemovalOutcome::Failed;
         }
         std::vector<ConnectionId> connectionsToClose;
         for (ParticipantId id: batch) {
+            intentionalLeaves.erase(id);
             const auto found = participants.find(id);
             if (found == participants.end()) continue;
             if (found->second.connected) connectionsToClose.push_back(found->second.connectionId);
@@ -716,7 +792,8 @@ namespace Duel6::Network::Lifecycle {
 
     HostEndResult HostSessionLifecycle::endSession(ParticipantId participantId, ConnectionId connectionId) {
         HostEndResult result;
-        if (sessionEnded || operationActive || participantId != hostParticipantId || connectionId != hostConnectionId)
+        if (sessionEnded || operationActive || participantId != hostParticipantId || connectionId != hostConnectionId
+            || (remoteHost && !recognizesParticipantAction({sessionId, participantId, ParticipantActionKind::Leave}, connectionId)))
             return result;
         OperationGuard operation(operationActive);
         result.accepted = true; result.notice.sessionId = sessionId;
@@ -762,12 +839,12 @@ namespace Duel6::Network::Lifecycle {
                && found->second.reservation->active();
     }
     bool HostSessionLifecycle::ready(ParticipantId participantId) const noexcept {
-        if (participantId == hostParticipantId) return hostReady;
+        if (!remoteHost && participantId == hostParticipantId) return hostReady;
         const auto found = participants.find(participantId);
         return found != participants.end() && found->second.ready;
     }
     std::size_t HostSessionLifecycle::retainedPlayerCount() const noexcept {
-        std::size_t count = hostOwnedPlayers.size();
+        std::size_t count = remoteHost ? 0 : hostOwnedPlayers.size();
         for (const auto &[id, participant]: participants) count += participant.players.size();
         return count;
     }
@@ -777,7 +854,8 @@ namespace Duel6::Network::Lifecycle {
         try { if (hooks.closeConnection) hooks.closeConnection(connectionId); } catch (...) {}
     }
     void HostSessionLifecycle::clearAll() noexcept {
-        pendingLeaves.clear();
+        pendingRemovals.clear();
+        intentionalLeaves.clear();
         auto removed = std::move(participants);
         participants.clear();
         for (auto &[id, participant]: removed) {
@@ -805,7 +883,8 @@ namespace Duel6::Network::Lifecycle {
     }
     bool GuestSessionRecovery::acceptGrant(ReconnectGrant value) {
         if (currentJourney != GuestJourney::Established || value.sessionId != sessionId
-            || value.participantId != participantId || value.reservationId == 0) return false;
+            || value.participantId != participantId || value.reservationId == 0
+            || !validHostingKind(value.hostingKind)) return false;
         bool nonzero = false; for (auto byte: value.credential.bytes) nonzero = nonzero || byte != 0;
         if (!nonzero) return false;
         grant = std::move(value); return true;
@@ -835,7 +914,8 @@ namespace Duel6::Network::Lifecycle {
             if (!currentFullStateAccepted || newEstablishedConnectionId == 0 || !nextGrant
                 || nextGrant->sessionId != sessionId
                 || nextGrant->participantId != participantId || nextGrant->reservationId == 0
-                || !nonzeroCredential || hostClockNow >= *deadline) return false;
+                || !nonzeroCredential || !validHostingKind(nextGrant->hostingKind) || hostClockNow >= *deadline) return false;
+            if (grant && nextGrant->hostingKind != grant->hostingKind) return false;
             grant = std::move(nextGrant); disconnectedAt.reset(); deadline.reset();
             establishedConnectionId = newEstablishedConnectionId;
             retainedCompleteState = true; currentJourney = GuestJourney::Established; return true;

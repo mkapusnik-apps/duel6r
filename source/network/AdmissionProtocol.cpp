@@ -95,6 +95,7 @@ namespace Duel6::Network {
             void expectFinished() const {
                 if (offset != bytes.size()) throw std::invalid_argument("Admission payload has trailing data");
             }
+            bool finished() const { return offset == bytes.size(); }
         private:
             void require(std::size_t size) const {
                 if (size > bytes.size() - offset) throw std::invalid_argument("Admission payload is truncated");
@@ -113,8 +114,9 @@ namespace Duel6::Network {
         }
 
         bool validResultCode(std::uint16_t code) {
-            return code >= static_cast<std::uint16_t>(AdmissionResultCode::MalformedRequest)
-                   && code <= static_cast<std::uint16_t>(AdmissionResultCode::HostPolicyRejected);
+            return (code >= static_cast<std::uint16_t>(AdmissionResultCode::MalformedRequest)
+                   && code <= static_cast<std::uint16_t>(AdmissionResultCode::HostPolicyRejected))
+                   || code == static_cast<std::uint16_t>(AdmissionResultCode::SelectedSessionChanged);
         }
 
         std::vector<std::uint8_t> serializeIdentitySet(const AdmissionIdentitySet &identities,
@@ -126,6 +128,8 @@ namespace Duel6::Network {
             writer.uint64(identities.participantId);
             writer.byte(static_cast<std::uint8_t>(identities.playerIds.size()));
             for (std::uint64_t playerId: identities.playerIds) writer.uint64(playerId);
+            writer.uint64(identities.sessionId);
+            writer.byte(static_cast<std::uint8_t>(identities.hostingKind));
             return writer.finish();
         }
 
@@ -141,6 +145,8 @@ namespace Duel6::Network {
             identities.playerIds.reserve(playerCount);
             for (std::size_t index = 0; index < playerCount; ++index)
                 identities.playerIds.push_back(reader.uint64());
+            identities.sessionId = reader.uint64();
+            identities.hostingKind = static_cast<HostingKind>(reader.byte());
             reader.expectFinished();
             if (!validAdmissionIdentitySet(identities))
                 throw std::invalid_argument("Admission identity set is invalid");
@@ -150,7 +156,7 @@ namespace Duel6::Network {
 
     bool validAdmissionIdentitySet(const AdmissionIdentitySet &identities,
                                    std::optional<std::size_t> expectedPlayerCount) {
-        if (identities.participantId == 0 || identities.playerIds.empty()
+        if (!validHostingKind(identities.hostingKind) || identities.participantId == 0 || identities.playerIds.empty()
             || identities.playerIds.size() > Trust::MaxParticipants
             || (expectedPlayerCount && identities.playerIds.size() != *expectedPlayerCount)
             || std::find(identities.playerIds.begin(), identities.playerIds.end(), identities.participantId)
@@ -162,11 +168,13 @@ namespace Duel6::Network {
     }
 
     bool sameAdmissionIdentitySet(const AdmissionIdentitySet &left, const AdmissionIdentitySet &right) {
-        return left.participantId == right.participantId && left.playerIds == right.playerIds;
+        return left.participantId == right.participantId && left.playerIds == right.playerIds
+               && left.sessionId == right.sessionId && left.hostingKind == right.hostingKind;
     }
 
     std::vector<std::uint8_t> serializeAdmissionRequest(const AdmissionRequest &request) {
-        if (request.networkReleaseId.empty() || !Trust::validGeneralString(request.networkReleaseId)
+        if ((request.expectedHostingKind != HostingKind::Unbound && !validHostingKind(request.expectedHostingKind))
+            || request.networkReleaseId.empty() || !Trust::validGeneralString(request.networkReleaseId)
             || request.localPlayerCount == 0 || request.localPlayerCount > Trust::MaxParticipants
             || (!request.localPlayerNames.empty()
                 && request.localPlayerNames.size() != request.localPlayerCount)
@@ -198,6 +206,7 @@ namespace Duel6::Network {
             writer.raw(entry.contentIdentity);
         }
         writer.uint64(request.expectedSessionId);
+        writer.byte(static_cast<std::uint8_t>(request.expectedHostingKind));
         return writer.finish();
     }
 
@@ -241,6 +250,9 @@ namespace Duel6::Network {
             request.gameplayManifest.push_back(std::move(entry));
         }
         request.expectedSessionId = reader.uint64();
+        request.expectedHostingKind = static_cast<HostingKind>(reader.byte());
+        if (request.expectedHostingKind != HostingKind::Unbound && !validHostingKind(request.expectedHostingKind))
+            throw std::invalid_argument("Invalid expected hosting kind");
         reader.expectFinished();
         return request;
     }
@@ -305,6 +317,7 @@ namespace Duel6::Network {
         switch (code) {
             case AdmissionResultCode::MalformedRequest: return "malformed-request";
             case AdmissionResultCode::NotAuthorized: return "not-authorized";
+            case AdmissionResultCode::SelectedSessionChanged: return "selected-session-changed";
             case AdmissionResultCode::ProtocolIncompatible: return "protocol-incompatible";
             case AdmissionResultCode::NetworkReleaseMismatch: return "network-release-mismatch";
             case AdmissionResultCode::RequiredCapabilityUnsupported: return "required-capability-unsupported";
@@ -322,6 +335,8 @@ namespace Duel6::Network {
         switch (code) {
             case AdmissionResultCode::MalformedRequest: return "Connection request rejected.";
             case AdmissionResultCode::NotAuthorized: return "Connection not authorized.";
+            case AdmissionResultCode::SelectedSessionChanged:
+                return "Selected session changed. Return to the browser and refresh.";
             case AdmissionResultCode::ProtocolIncompatible:
             case AdmissionResultCode::NetworkReleaseMismatch:
             case AdmissionResultCode::RequiredCapabilityUnsupported:
@@ -331,7 +346,7 @@ namespace Duel6::Network {
             case AdmissionResultCode::GameplayContentMismatch:
                 return "Gameplay content mismatch. Use the host's exact supported gameplay content.";
             case AdmissionResultCode::MatchAlreadyStarted:
-                return "Round-one admission has closed. Join when the host returns to the lobby.";
+                return "Match completed. Join when the host returns to the lobby.";
             case AdmissionResultCode::SessionFull: return "Session is full.";
             case AdmissionResultCode::HostPolicyRejected: return "Host rejected the connection.";
             case AdmissionResultCode::Admitted: return {};

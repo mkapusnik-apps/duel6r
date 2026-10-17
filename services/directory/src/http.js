@@ -41,23 +41,24 @@ export function createServer(directory) {
       if (req.method === 'GET' && url.pathname === '/healthz' && !url.search) {
         reply(res, 200, { status: 'ok' }); return;
       }
-      if (req.method === 'GET' && url.pathname === '/v1/listings') {
+      const mixed = url.pathname.startsWith('/v2/');
+      if (req.method === 'GET' && ['/v1/listings', '/v2/listings'].includes(url.pathname)) {
         if ([...url.searchParams.keys()].some(key => key !== 'cursor') || url.searchParams.getAll('cursor').length > 1) {
           throw new DirectoryError(400);
         }
-        reply(res, 200, await directory.list(url.searchParams.get('cursor') ?? undefined)); return;
+        reply(res, 200, await directory.list(url.searchParams.get('cursor') ?? undefined, mixed)); return;
       }
-      if (req.method === 'POST' && url.pathname === '/v1/listings' && !url.search) {
-        reply(res, 201, await directory.register(await readBody(req))); return;
+      if (req.method === 'POST' && ['/v1/listings', '/v2/listings'].includes(url.pathname) && !url.search) {
+        reply(res, 201, await directory.register(await readBody(req), mixed)); return;
       }
-      const match = /^\/v1\/listings\/([a-f0-9]{32})$/.exec(url.pathname);
+      const match = /^\/v[12]\/listings\/([a-f0-9]{32})$/.exec(url.pathname);
       if (match && !url.search && ['PUT', 'DELETE'].includes(req.method)) {
         const authorization = req.headers.authorization ?? '';
         if (!/^Bearer [a-f0-9]{64}$/.test(authorization)) throw new DirectoryError(401);
         const revision = req.headers['if-match'];
         if (!/^[1-9][0-9]{0,14}$/.test(revision ?? '')) throw new DirectoryError(400);
         const value = await directory.mutate(match[1], authorization.slice(7), Number(revision),
-          req.method === 'DELETE' ? null : await readBody(req));
+          req.method === 'DELETE' ? null : await readBody(req), mixed);
         reply(res, value === null ? 204 : 200, value === null ? undefined : value); return;
       }
       throw new DirectoryError(404);

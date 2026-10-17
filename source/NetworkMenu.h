@@ -17,7 +17,8 @@ namespace Duel6 {
     public:
         NetworkMenu(AppService &service, GameResources &resources,
                     Texture menuBannerTexture, std::function<void()> renderMenuBackground,
-                    std::function<void()> renderMainMenu = {});
+                     std::function<void()> renderMainMenu = {});
+        ~NetworkMenu() override;
         void open(std::vector<Client::NetworkLocalPlayer> players,
                   Network::HostComposition::Setup setup,
                   std::vector<std::string> persons,
@@ -55,9 +56,13 @@ namespace Duel6 {
         bool preferredFriendlyFire = false;
         SetupScreen setupScreen = SetupScreen::Entry;
         std::string address = "127.0.0.1";
+        std::string playerHostedAddress = "127.0.0.1";
+        std::string playerHostedPort = std::to_string(Network::DefaultServerPort);
         std::string password;
+        std::string passwordFeedback;
         Client::DirectoryBrowser browser;
         std::string selectedListing;
+        std::string selectedSessionIdentity;
         std::optional<Client::DirectoryListing> browserSelection;
         bool joinFromBrowser = false;
         int browserScroll = 0;
@@ -110,6 +115,17 @@ namespace Duel6 {
         bool localReadyEligible(std::string &reason) const;
         bool endpoint(Network::Endpoint &result) const;
         bool editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const;
+        int setupFields() const { return 3; }
+        bool boundSelection() const { return setupScreen == SetupScreen::Join && joinFromBrowser && browserSelection.has_value(); }
+        bool boundDedicated() const { return boundSelection() && browserSelection->dedicated(); }
+        std::vector<std::string> boundContextLines() const;
+        int setupFirstRow() const;
+        int setupVisibleRows() const;
+        void clearPassword();
+        void clearConfirmedPassword();
+        void enterDirectSetup();
+        void joinEndpoint(const Network::Endpoint &endpoint);
+        void enterText(std::string_view text);
         bool refreshHostAddresses(bool initialSelection);
         void moveListeningFocus(int direction);
         void activateListeningChoice();
@@ -130,7 +146,7 @@ namespace Duel6 {
         void drawAction(Int32 y, const std::string &text, bool selected, bool enabled = true) const;
         void drawFocusKeyline(Int32 x, Int32 y, Int32 width, Int32 height, bool selected) const;
         void drawMenuCanvas(Int32 width, Int32 height) const;
-        void drawPlayers(const Network::Replication::CanonicalState &state, bool host = false) const;
+        void drawPlayers(const Network::Replication::CanonicalState &state, bool host, bool dedicated) const;
         void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height,
                        bool interactive = true, const std::string &connectionState = "Connected",
                        bool showLiveNetworkState = true) const;

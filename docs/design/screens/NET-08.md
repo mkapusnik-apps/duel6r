@@ -1,41 +1,70 @@
 # NET-08 — Failure and recovery
 
-Functional contract: [network-failure](../../screens/network-failure.md). States `NET-08-password-rejected` and `NET-08-admission-closed` consume [NET-PASS-003–004 and NET-DIR-014](../../network-host-directory.md) and [NET-ADM-002–005](../../network-play-first-release.md). Existing initial-admission failure requirements remain applicable except the superseded no-join-in-progress outcome. Structural source: [NET-08](../../screens/wireframes/network-failure.md).
+Functional authority: [NET-08](../../screens/network-failure.md), NET-PASS-003/004/011–018, NET-DIR-014, NET-ADM-002–005, current trust and lifecycle contracts. Structural source: existing NET-08. No geometry, screen/state ID or failure wireframe changes.
+
+Visual impact: preserve the unified failure panel and browser recovery. Common Password rejection replaces the certificate-specific capture prerequisite. No controls, geometry, styles, or disclosure are added. Product owns exact failure causes, fixed copy, recovery eligibility, and retirement of unreachable certificate-specific outcomes.
 
 ## Presentation and allocation
 
-The [shared visual baseline](../../design.md#unified-network-presentation) applies to all existing initial, host-service, and terminal reconnect failures.
+- **UX-NET-08-001** The CONNECTION FAILED or SESSION ENDED title strip must remain above the reason region.
+- **UX-NET-08-002** Confirmed reason must remain separate from endpoint and recovery instructions.
+- **UX-NET-08-003** Recovery controls must retain equal-height frames in existing reading order when captions fit.
+- **UX-NET-08-004** Controls must wrap in reading order before text or focus crosses panel bounds.
+- **UX-NET-08-005** Disabled Retry must retain a flat frame, readable caption, and persistent nearby reason.
+- **UX-NET-08-006** Severity must remain explicit in text without replacing fixed outcome copy.
+- **UX-NET-08-007** Title and recovery actions must remain visible during body overflow.
 
-- **UX-NET-08-001** The existing CONNECTION FAILED or SESSION ENDED heading must occupy the panel title strip above the reason region.
-- **UX-NET-08-002** The complete confirmed reason must remain visually separate from endpoint context and recovery instructions.
-- **UX-NET-08-003** Recovery controls must use one equal-height framed row in existing reading order when their full captions fit.
-- **UX-NET-08-004** Recovery controls must wrap in reading order before text or focus outlines cross the panel bounds.
-- **UX-NET-08-005** A disabled Retry must remain flat and readable with its reason outside the button rather than a low-contrast or hidden action.
-- **UX-NET-08-006** Failure severity must remain explicit in text without adding a color-only alert or changing the fixed reason copy.
-- **UX-NET-08-007** The heading and recovery controls must remain visible if a long reason uses the existing body overflow treatment.
+## Common Password and browser recovery
 
-## Directory-selected recovery
+- Authoritative rejection must take precedence over an older open-admission listing.
+- `NET-08-password-rejected` must show `Connection not authorized.` for both hosting types.
+- Edit setup after password rejection must retain endpoint and local players and focus Password.
+- Submitted or expected passwords must remain absent.
+- Capacity failure must not appear as a password error.
+- `NET-08-admission-closed` must show the product-confirmed `Match completed. Join when the host returns to the lobby.` without an obsolete first-round-only or unsupported-joining claim.
+- Unreachable transport must retain `Host unreachable.` without a listing-based success claim.
+- Browser-origin failure must retain Return to browser after Edit setup in reading and focus order.
+- Return to Network must retain its NET-01 destination.
+- Retry must follow the confirmed outcome and input eligibility.
 
-- The screen must retain its heading, bounded reason region, endpoint context, and existing recovery controls.
-- A host rejection must take precedence over an older directory claim that admission is open.
-- NET-08-password-rejected must show `Connection not authorized.`
-- Password rejection should offer Edit setup as the first useful recovery action.
-- Edit setup must retain the selected endpoint and local-player configuration.
-- Edit setup after a password rejection must focus Password.
-- The UI must not echo the submitted password or an expected password.
-- A capacity rejection must not be presented as a password error.
-- A closed-admission rejection must not use `Join-in-progress is not supported.`
-- NET-08-admission-closed must show `Round-one admission has closed. Join when the host returns to the lobby.`
-- An unreachable host must retain the existing `Host unreachable.` outcome.
-- Directory presence must not convert an unreachable outcome into a success claim.
-- Return to Network must retain its NET-01 destination, where Browse sessions remains available.
-- Browser-origin failure must also show `Return to browser` with destination NET-10 for refresh.
-- Return to browser must follow Edit setup in reading and focus order.
-- Recovery actions must wrap inside the existing action region before their captions clip.
-- Retry must remain disabled when the confirmed outcome or invalid input makes it ineligible.
+## Common security and dedicated lifecycle outcomes
 
-No new modal or wireframe is needed for this localized recovery-action addition. The representative must show NET-08-password-rejected from a browser-origin attempt with Edit setup focused and Return to browser available. Loading and directory-service errors belong to NET-10, not this screen.
+| Functional state | Heading | Recovery presentation |
+|---|---|---|
+| `NET-08-PUBLIC-SECURITY` | CONNECTION FAILED | Product-confirmed common-channel encryption or secure-channel incompatibility failure: Edit setup first and focused; Return to browser for selected origin, Return to Network for direct origin; no Retry or bypass; no certificate prerequisite |
+| `NET-08-PUBLIC-MAINTENANCE` | SESSION ENDED | Ended-session Retry treatment; Edit setup focused; Return to Network |
+| `NET-08-PUBLIC-CONTROLLER-EXPIRED` | SESSION ENDED | Ended-session Retry treatment; Edit setup focused; Return to Network |
 
-## Acceptance
+- Security and authorization must use product's exact non-disclosing copy.
+- Pilot admission failure must not show generic player-hosted startup advice.
+- Attempted endpoint may appear only in the bounded initial-connection context row.
+- Password and reconnect credentials must remain absent.
+- Confirmed ended-session recovery must not imply restoration.
+- Maintenance wording must require the authenticated product-owned outcome.
+- Resolution failure must not be relabeled as maintenance or authorization failure.
+- Fixed outcome copy must retain `controller` where product uses that term.
+- Any baseline-focused disabled Retry must keep its focus outline without activation.
+- Maintenance and controller-expiry outcomes must use SESSION ENDED for either participant role.
+- Confirmed secure-channel establishment failure must have no Retry frame, focus stop, pointer target or bypass. Common Password correction follows NET-PASS in the same permitted context without unlocked fallback.
+- Endpoint context must remain absent from confirmed session-end and terminal reconnect outcomes.
 
-The representative must show separate reason, context, instructions, and framed recovery actions without password disclosure. Focused QA must check retry-enabled transport failure, disabled Retry during cleanup, restart-required failure, expired reconnect, port conflict, closed admission, longest canonical reason, and browser/direct return destinations. This visual change does not add a missing recovery action or resolve a functional copy/destination discrepancy without product review. Capture details are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+Do not offer an insecure fallback for any connection type. Hosting lifecycle does not prove a failure cause. TRU-PUB-016 owns fixed security copy where applicable; the UI must not add certificate-installation or fingerprint instructions. The [current matrix](../screenshots/README.md#unified-connection-current-capture-matrix) keeps one representative reached through actual common Password rejection, not a wrong-certificate fixture. It uses `Connection not authorized.` with correction under NET-PASS-013. Do not relabel a password mismatch as certificate or identity failure. Do not invent a new failure mapping to make a retired capture route reachable. No screenshot may substitute silence/SIGTERM for an authenticated terminal cause or imply deployment evidence.
+
+## Selected recovery in both hosting modes
+
+- **UX-NET-08-008** Browser-selected failure in either hosting mode must identify the selected origin without displaying credentials or unvalidated diagnostics.
+- **UX-NET-08-009** Eligible correction must offer Edit setup first and focused and return to bound NET-03-E or NET-03-B with endpoint/session/type/protection still read-only.
+- **UX-NET-08-011** Selected recovery in either hosting mode must show `Return to browser` after Edit setup in reading/focus order and return to NET-10 for refresh.
+- **UX-NET-08-012** Escape or controller Back from a selected failure in either hosting mode must use that browser recovery rather than bypass selection binding through direct setup.
+- **UX-NET-08-013** A confirmed changed endpoint/session must focus Return to browser and must not offer Retry or Edit setup as a way to adopt the replacement.
+- **UX-NET-08-014** The fixed failure reason must follow the product contract and keep capacity, closed admission, secure-channel establishment failure and common password rejection distinct.
+- **UX-NET-08-015** A new independent Direct connect from the browser must clear binding/secrets in either hosting mode without transferring a stale selection or silently downgrading security.
+- **UX-NET-08-016** Edit setup after password rejection in either hosting mode must focus masked Password with permitted local choices and selected binding retained under NET-PASS correction and clearing rules.
+
+UX-NET-08-010 is a retired invitation-only identifier and must never be reused. Current correction authority is common NET-PASS-003/004/011–018; historical invitation assessments do not establish new Password conformance.
+
+Retain the current complete, wrapped failure layout and action order. Ineligible correction must use the existing flat disabled treatment without a focus stop or activation target; product owns outcome eligibility. No new failure wireframe is added. Direct dedicated and player-hosted recovery destinations remain unchanged.
+
+- **UX-NET-08-017** Started phase alone or successful Connected-waiting admission must not show failure; actual final-closure rejection must retain the existing failure layout and recovery with product-confirmed fixed copy.
+
+Imported develop ongoing reference UX-NET-08-008 maps to UX-NET-08-017. Existing UX-NET-08-008 retains its selected-origin meaning. The existing [NET-08 structural source](../../screens/wireframes/network-failure.md) remains read-only and unchanged; the common Password rejection representative retains the established no-Retry treatment, focused Edit setup, and contextual browser return. Replace the current certificate-derived representative only after functional closure confirms the actual common Password outcome and capture route.

@@ -162,18 +162,30 @@ namespace {
             if (onReceive) onReceive(frame);
             return true;
         }
+        Network::TransportInputSnapshot sealAndDrainInput(
+                std::size_t maximumFrames = Network::MaxQueuedTransportFrames) override {
+            inputSealed = true;
+            ++seals;
+            Network::TransportInputSnapshot snapshot;
+            Network::TransportFrame frame;
+            while (snapshot.frames.size() < maximumFrames && receive(frame))
+                snapshot.frames.push_back(std::move(frame));
+            snapshot.state = state(); snapshot.terminalAt = terminalAt();
+            return snapshot;
+        }
         Network::ClientState state() const override { return currentState; }
         Network::TransportTimePoint acceptedAt() const override { return accepted; }
         Network::TransportTimePoint terminalAt() const override { return terminal; }
         bool permitAdmissionAcceptance() override { permission = true; return permitResult; }
         void revokeAdmissionAcceptance() override { permission = false; revoked = true; }
-        void markAdmissionSucceeded() override { succeeded = true; }
+        void markAdmissionSucceeded() override { succeeded = true; inputSealed = false; }
         void requestClose() override {
             closeRequested = true;
             if (closeOnRequest) currentState = Network::ClientState::Closed;
         }
 
         void queue(std::vector<std::uint8_t> payload, Network::TransportTimePoint received) {
+            if (inputSealed) return;
             incoming.push_back({std::move(payload), received});
         }
         std::deque<Network::TransportFrame> incoming;
@@ -185,6 +197,8 @@ namespace {
         bool permitResult = true;
         bool revoked = false;
         bool succeeded = false;
+        bool inputSealed = false;
+        unsigned seals = 0;
         bool closeRequested = false;
         bool closeOnRequest = false;
         std::function<void(const Network::TransportFrame &)> onReceive;
@@ -608,8 +622,8 @@ namespace {
 }
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
-    D6R_REQUIRE_EQ(2u, Network::AdmissionProtocolVersion);
-    D6R_REQUIRE_EQ("duel6r-network-r1", std::string(Network::NetworkReleaseId));
+    D6R_REQUIRE_EQ(3u, Network::AdmissionProtocolVersion);
+    D6R_REQUIRE_EQ("duel6r-network-r2", std::string(Network::NetworkReleaseId));
     const std::vector<std::string> exact{
         "d6r.compatibility-admission.v1", "d6r.gameplay-manifest.v1", "d6r.session-identity.v1"};
     D6R_REQUIRE(std::equal(exact.begin(), exact.end(), Network::RequiredAdmissionCapabilities.begin()));
@@ -669,7 +683,7 @@ D6R_TEST_CASE("AC-017 admission outcomes retain approved precedence identifiers 
         {Code::RequiredCapabilityUnsupported, "required-capability-unsupported", "Network release mismatch. Use the same supported game release as the host."},
         {Code::GameplayContentManifestInvalid, "gameplay-content-manifest-invalid", "Gameplay content manifest is invalid. Use the host's exact supported gameplay content."},
         {Code::GameplayContentMismatch, "gameplay-content-mismatch", "Gameplay content mismatch. Use the host's exact supported gameplay content."},
-        {Code::MatchAlreadyStarted, "match-already-started", "Round-one admission has closed. Join when the host returns to the lobby."},
+        {Code::MatchAlreadyStarted, "match-already-started", "Match completed. Join when the host returns to the lobby."},
         {Code::SessionFull, "session-full", "Session is full."},
         {Code::HostPolicyRejected, "host-policy-rejected", "Host rejected the connection."},
         {Code::Admitted, "admitted", ""}};
@@ -699,6 +713,108 @@ D6R_TEST_CASE("AC-017 admission outcomes retain approved precedence identifiers 
     D6R_REQUIRE(policy.evaluate(request, {true, false}).code == Code::MatchAlreadyStarted);
     policy.setMatchStarted(false);
     D6R_REQUIRE(policy.evaluate(request, {true, false}).code == Code::SessionFull);
+}
+
+D6R_TEST_CASE("NET-DIR prepared dedicated identity rejects wrong selection before allocation and first commit alone controls") {
+    const auto content = manifest({{"levels/a.json", 1}});
+    Server::AdmissionPolicy policy(content, 0, {}, {}, {}, true);
+    Server::AdmissionContext context; context.sessionId = 42;
+    auto request = requestFor(content); request.expectedSessionId = 43;
+    D6R_REQUIRE(policy.offer(request, context).result.code == Network::AdmissionResultCode::SelectedSessionChanged);
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().participantCount());
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().pendingParticipantCount());
+    request.expectedSessionId = 42;
+    const auto cancelled = policy.offer(request, context);
+    D6R_REQUIRE(cancelled.pending());
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().participantCount());
+    D6R_REQUIRE(policy.rollback(cancelled.transactionId));
+    const auto first = policy.offer(request, context), second = policy.offer(request, context);
+    D6R_REQUIRE(first.pending() && second.pending());
+    bool committedFirst = false, committedSecond = false;
+    std::thread a([&] { committedFirst = policy.commit(first.transactionId, 1); });
+    std::thread b([&] { committedSecond = policy.commit(second.transactionId, 2); });
+    a.join(); b.join();
+    D6R_REQUIRE(committedFirst && committedSecond);
+    const auto participants = policy.allocation().admittedParticipants();
+    D6R_REQUIRE_EQ(1, std::count_if(participants.begin(), participants.end(), [](const auto &p) { return p.localHost; }));
+    D6R_REQUIRE_EQ(std::size_t(2), policy.allocation().playerCount());
+    D6R_REQUIRE(policy.authorize(1, Network::Trust::AuthorityAction::HostOnly)
+        != policy.authorize(2, Network::Trust::AuthorityAction::HostOnly));
+}
+
+D6R_TEST_CASE("NET-DIR common identity transaction always encodes session and hosting kind") {
+    Network::AdmissionIdentitySet privateSet{1, {2}};
+    const auto old = Network::serializeAdmissionOffer(privateSet);
+    D6R_REQUIRE_EQ(std::size_t(30), old.size());
+    auto bound = privateSet; bound.sessionId = 42;
+    const auto bytes = Network::serializeAdmissionOffer(bound);
+    D6R_REQUIRE_EQ(old.size(), bytes.size());
+    D6R_REQUIRE(std::equal(old.begin(), old.begin() + 21, bytes.begin()));
+    const auto offer = Network::deserializeAdmissionOffer(bytes);
+    D6R_REQUIRE_EQ(UINT64_C(42), offer.sessionId);
+    const auto acceptance = Network::deserializeAdmissionAcceptance(Network::serializeAdmissionAcceptance(offer));
+    const auto confirmation = Network::deserializeAdmissionConfirmation(Network::serializeAdmissionConfirmation(offer));
+    D6R_REQUIRE(Network::sameAdmissionIdentitySet(offer, acceptance));
+    D6R_REQUIRE(Network::sameAdmissionIdentitySet(offer, confirmation));
+    D6R_REQUIRE(!Network::sameAdmissionIdentitySet(privateSet, offer));
+    auto wrong = confirmation; wrong.sessionId = 43;
+    D6R_REQUIRE(!Network::sameAdmissionIdentitySet(offer, wrong));
+}
+
+D6R_TEST_CASE("NET-DIR advertised frontend validation is separate from direct endpoint and backend listening") {
+    for (const auto *valid: {"arena.example.test", "198.51.100.4", "10.0.0.5"})
+        D6R_REQUIRE(Network::PublicSession::validDirectoryFrontend(valid));
+    for (const auto *invalid: {"", "localhost", "LOCALHOST", "127.0.0.1", "0.0.0.0", "169.254.1.2", "224.1.2.3",
+            "https://arena.example.test", "arena.example.test:26660", "bad_name", "bad..name", "bad-.test", "0127.0.0.1"})
+        D6R_REQUIRE(!Network::PublicSession::validDirectoryFrontend(invalid));
+    D6R_REQUIRE(Network::PublicSession::validEndpoint("127.0.0.1")); // Existing direct setup stays independent.
+}
+
+D6R_TEST_CASE("R1 pending dedicated offer cannot commit while original controller is disconnected") {
+    const auto content = manifest({{"levels/a.json", 1}});
+    Server::AdmissionPolicy policy(content, 0, {}, {}, {}, true);
+    const auto request = requestFor(content);
+    const auto controller = policy.offer(request);
+    D6R_REQUIRE(controller.pending() && policy.commit(controller.transactionId, 1));
+    const auto guest = policy.offer(request);
+    D6R_REQUIRE(guest.pending());
+    policy.disconnect(1);
+    D6R_REQUIRE(!policy.commit(guest.transactionId, 2));
+    D6R_REQUIRE_EQ(std::size_t(1), policy.allocation().participantCount());
+    D6R_REQUIRE_EQ(std::size_t(1), policy.allocation().playerCount());
+    for (const auto action: {Network::Trust::AuthorityAction::HostOnly, Network::Trust::AuthorityAction::OwnReadiness,
+            Network::Trust::AuthorityAction::PlayerInput})
+        D6R_REQUIRE(!policy.authorize(2, action, guest.result.playerIds.front()));
+    D6R_REQUIRE(policy.rollback(guest.transactionId));
+    D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().pendingParticipantCount());
+    D6R_REQUIRE(policy.reconnect(3, controller.result.participantId));
+    const auto freshOffer = policy.offer(request);
+    D6R_REQUIRE(freshOffer.pending() && policy.commit(freshOffer.transactionId, 4));
+    D6R_REQUIRE(policy.authorize(3, Network::Trust::AuthorityAction::HostOnly));
+    D6R_REQUIRE(!policy.authorize(4, Network::Trust::AuthorityAction::HostOnly));
+}
+
+D6R_TEST_CASE("R1 commit rechecks current effective capacity authorization and match policy before authority") {
+    const auto content = manifest({{"levels/a.json", 1}});
+    for (unsigned condition = 0; condition < 4; ++condition) {
+        Server::AdmissionPolicy policy(content, 0, {}, {}, {}, true);
+        const auto controller = policy.offer(requestFor(content));
+        D6R_REQUIRE(controller.pending() && policy.commit(controller.transactionId, 1));
+        const auto guest = policy.offer(requestFor(content, 2));
+        D6R_REQUIRE(guest.pending());
+        Server::AdmissionContext current;
+        if (condition == 0) current.maximumPlayers = 2; // One retained plus two offered cannot now fit.
+        if (condition == 1) current.hostPolicyAllows = false;
+        if (condition == 2) current.authorized = false;
+        if (condition == 3) policy.setMatchStarted(true);
+        D6R_REQUIRE(!policy.commit(guest.transactionId, 2, current));
+        D6R_REQUIRE_EQ(std::size_t(1), policy.allocation().participantCount());
+        D6R_REQUIRE_EQ(std::size_t(1), policy.allocation().playerCount());
+        D6R_REQUIRE(!policy.authorize(2, Network::Trust::AuthorityAction::OwnReadiness));
+        D6R_REQUIRE(policy.authorize(1, Network::Trust::AuthorityAction::HostOnly));
+        D6R_REQUIRE(policy.rollback(guest.transactionId));
+        D6R_REQUIRE_EQ(std::size_t(0), policy.allocation().pendingPlayerCount());
+    }
 }
 
 D6R_TEST_CASE("AC-008 AC-011 canonical builder hashes exact gameplay bytes independent of creation order") {
@@ -1048,7 +1164,11 @@ D6R_TEST_CASE("NET-ADM reviewed production admission loop rejects offers crossin
         std::optional<Network::AdmissionOfferPayload> pending;
         bool started = false, outcome = false, rejected = false, confirmed = false, queued = false;
         Network::TransportTimePoint due{};
-        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        // This boundary fixture needs its original guest in the initial world;
+        // do not accidentally exercise the now-valid host-only auto-start first.
+        dependencies.hostReadinessChange = [&] {
+            return initial->succeeded ? std::optional<bool>(true) : std::optional<bool>{};
+        };
         dependencies.authoritativeRuntimeFactory = [&](const auto &, const auto &players, const auto &) {
             started = true;
             due = fixture->now + std::chrono::duration_cast<Network::TransportTimePoint::duration>(
@@ -1150,7 +1270,10 @@ D6R_TEST_CASE("NET-AC-013 AHM-024 AHM-028 production reserved Leave shares the p
         unsigned waits = 0;
         std::uint64_t ticksWhenQueued = 0;
         Network::TransportTimePoint jumpAt{};
-        dependencies.hostReadinessChange = [] { return std::optional<bool>(true); };
+        dependencies.hostReadinessChange = [&] {
+            return std::all_of(peers.begin(), peers.end(), [](const auto &peer) { return peer->succeeded; })
+                ? std::optional<bool>(true) : std::optional<bool>{};
+        };
         dependencies.authoritativeRuntimeFactory = [&](const auto &config, const auto &players, const auto &) {
             D6R_REQUIRE_EQ(1u, config.roundLimit);
             D6R_REQUIRE_EQ(grants.size() + 1, players.size());
@@ -1271,14 +1394,18 @@ D6R_TEST_CASE("NET-AC-013 AHM-024 AHM-028 production reserved Leave shares the p
             require(result->result.state == "Completed" && observations->hostTicks == 360
                     && removalBatches.empty(), "control really reaches final completion on next tick");
         } else {
-            require(result->phase == Network::Replication::Phase::Lobby && result->result.state == "Interrupted"
-                    && result->score.winner.noWinner && result->score.winner.winnerPlayerIds.empty(),
-                    "pre-completion Leave interrupts without a final winner");
-            require(observations->hostTicks == ticksWhenQueued, "removal batch precedes completion tick");
+            require(result->phase == Network::Replication::Phase::FinalSummary && result->result.state == "Completed"
+                    && !result->score.winner.noWinner
+                    && result->score.winner.winnerPlayerIds == std::vector<std::uint64_t>{snapshot->players.front().playerId},
+                    "Leave during final delay preserves the established final winner");
+            require(ticksWhenQueued == 359 && observations->hostTicks == 360,
+                    "removal batch precedes normal completion tick without replacing outcome");
             require(removalBatches.size() == 1 && removalBatches.front().size() == grants.size(),
                     "admitted and authenticated reserved leaves form one atomic removal batch");
-            require(result->participants.size() == 1 && result->players.size() == 1,
-                    "both departed participants removed from following lobby");
+            require(std::count_if(result->players.begin(), result->players.end(), [](const auto &player) {
+                        return player.lifeState == Network::Replication::LifeState::Departed;
+                    }) == static_cast<std::ptrdiff_t>(grants.size()),
+                    "completed result retains exactly the departed history labels");
         }
         require(fixture->shutdown, "listener cleanup completed");
     }
@@ -2671,7 +2798,7 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production Headless following lobby di
             "no-autostart=true;host-status=0"), evidence);
 }
 
-D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reopens fresh admission and resets the next match") {
+D6R_TEST_CASE("NET-SOLO production expiry continues the same match and accepts a fresh immediate first-round arrival") {
     const auto hostedManifest = manifest({
             {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
     auto content = std::make_shared<Network::FrozenGameplayContent>();
@@ -2696,8 +2823,8 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
     std::atomic<Network::Replication::Identity> firstMatchId{0};
     std::atomic<Network::Replication::Identity> firstGuestParticipantId{0};
     std::atomic<bool> reconnectingObserved{false};
-    std::atomic<bool> interruptedResultObserved{false};
-    std::atomic<bool> interruptedReadinessResetObserved{false};
+    std::atomic<bool> soloContinuationObserved{false};
+    std::atomic<bool> noResultObserved{false};
     std::atomic<bool> expiredGuestRemovedObserved{false};
     std::atomic<bool> nextMatchResetObserved{false};
     hostDependencies.cancelled = [&] { return cancelled.load(); };
@@ -2742,6 +2869,16 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
             ++snapshot->stateDigest;
             return true;
         };
+        runtime.worldAppendPlayers = [snapshot](const auto &arrivals, auto &) {
+            for (const auto &definition: arrivals) {
+                Server::Authoritative::CanonicalPlayerSnapshot player;
+                player.playerId = definition.playerId; player.rosterSlot = definition.rosterOrder;
+                player.alive = true; player.life = Server::Authoritative::MaximumLife;
+                snapshot->players.push_back(player);
+            }
+            ++snapshot->stateDigest;
+            return true;
+        };
         runtime.worldRemoveBatch = [snapshot](const std::vector<Server::Authoritative::Identity> &removals) {
             if (!std::all_of(removals.begin(), removals.end(), [&](const auto playerId) {
                     return std::any_of(snapshot->players.begin(), snapshot->players.end(),
@@ -2769,21 +2906,30 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
                 && std::any_of(state.participants.begin(), state.participants.end(), [](const auto &participant) {
                     return participant.connection == Network::Replication::ConnectionState::Reconnecting;
                 })) reconnectingObserved = true;
-            if (firstMatchId.load() != 0 && state.matchId != firstMatchId.load()
+            if (firstMatchId.load() != 0 && state.matchId == firstMatchId.load()
+                && std::count_if(state.players.begin(), state.players.end(), [](const auto &player) {
+                    return player.lifeState != Network::Replication::LifeState::Departed;
+                }) == 2
+                && std::none_of(state.players.begin(), state.players.end(), [&](const auto &player) {
+                    return player.ownerParticipantId == firstGuestParticipantId.load()
+                        && player.lifeState != Network::Replication::LifeState::Departed;
+                })
                 && !state.result.available && state.completedRounds == 0 && state.currentRoundNumber == 1
                 && std::all_of(state.score.players.begin(), state.score.players.end(), [](const auto &row) {
                     return row.roundPoints == 0 && row.cumulativePoints == 0;
                 })) nextMatchResetObserved = true;
         }
-        if (state.phase == Network::Replication::Phase::Lobby
-            && state.result.available && state.result.state == "Interrupted") {
-            interruptedResultObserved = true;
-            if (std::all_of(state.participants.begin(), state.participants.end(), [](const auto &participant) {
-                    return !participant.ready;
-                })) interruptedReadinessResetObserved = true;
+        if (state.phase == Network::Replication::Phase::ActiveRound
+            && std::count_if(state.players.begin(), state.players.end(), [](const auto &player) {
+                return player.lifeState != Network::Replication::LifeState::Departed;
+            }) == 1
+            && state.matchId == firstMatchId.load() && reconnectingObserved.load()) {
+            soloContinuationObserved = true;
+            noResultObserved = !state.result.available;
             const auto expired = firstGuestParticipantId.load();
-            if (expired != 0 && std::none_of(state.participants.begin(), state.participants.end(),
-                    [expired](const auto &participant) { return participant.participantId == expired; }))
+            if (expired != 0 && std::none_of(state.players.begin(), state.players.end(),
+                    [expired](const auto &player) { return player.ownerParticipantId == expired
+                        && player.lifeState != Network::Replication::LifeState::Departed; }))
                 expiredGuestRemovedObserved = true;
         }
         return true;
@@ -2811,10 +2957,9 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
     for (unsigned attempt = 0; attempt < 600 && !reconnectingObserved; ++attempt)
         std::this_thread::sleep_for(5ms);
     accelerateReconnectExpiry = true;
-    for (unsigned attempt = 0; attempt < 1000 && !interruptedResultObserved; ++attempt)
+    for (unsigned attempt = 0; attempt < 1000 && !expiredGuestRemovedObserved; ++attempt)
         std::this_thread::sleep_for(5ms);
     accelerateReconnectExpiry = false;
-    hostClockOffsetMilliseconds = 0;
 
     std::unique_ptr<ProductionAdmissionPeer> newcomer;
     bool newcomerAdmitted = false;
@@ -2822,28 +2967,25 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
     bool retainedReadinessReset = false;
     bool priorGuestAbsent = false;
     bool nextMatchActive = false;
-    if (interruptedResultObserved) {
+    if (expiredGuestRemovedObserved) {
         newcomer = connectProductionPeer(hostConfig.listenEndpoint, hostedManifest);
         newcomerAdmitted = pumpUntil(*newcomer, [&] { return newcomer->admitted; }, 2s);
         const auto retained = std::find_if(newcomer->states.rbegin(), newcomer->states.rend(), [](const auto &state) {
-            return state.phase == Network::Replication::Phase::Lobby
-                    && state.result.available && state.result.state == "Interrupted";
+            return state.phase == Network::Replication::Phase::ActiveRound && !state.result.available;
         });
         if (retained != newcomer->states.rend()) {
-            retainedInterruptedResult = !retained->result.serialized.empty();
-            retainedReadinessReset = std::all_of(
-                    retained->participants.begin(), retained->participants.end(),
-                    [](const auto &participant) { return !participant.ready; });
-            priorGuestAbsent = std::none_of(retained->participants.begin(), retained->participants.end(),
-                    [&](const auto &participant) {
-                        return participant.participantId == firstGuestParticipantId.load();
+            retainedInterruptedResult = retained->matchId == firstMatchId.load() && retained->result.serialized.empty();
+            retainedReadinessReset = retained->completedRounds == 0 && retained->currentRoundNumber == 1;
+            priorGuestAbsent = std::none_of(retained->players.begin(), retained->players.end(),
+                    [&](const auto &player) {
+                        return player.ownerParticipantId == firstGuestParticipantId.load()
+                            && player.lifeState != Network::Replication::LifeState::Departed;
                     });
         }
-        hostReadySent = false;
         nextMatchActive = pumpUntil(*newcomer, [&] {
             return std::any_of(newcomer->states.begin(), newcomer->states.end(), [&](const auto &state) {
                 return state.phase == Network::Replication::Phase::ActiveRound
-                        && state.matchId != firstMatchId.load() && !state.result.available
+                        && state.matchId == firstMatchId.load() && !state.result.available
                         && state.completedRounds == 0 && state.currentRoundNumber == 1;
             });
         }, 4s);
@@ -2855,22 +2997,22 @@ D6R_TEST_CASE("AHM-AC-029 REP-013 REP-017 production lifecycle interruption reop
     const std::string evidence = "first-admitted=" + std::string(firstAdmitted ? "true" : "false")
             + ";first-active=" + (firstMatchActive ? "true" : "false")
             + ";reconnecting=" + (reconnectingObserved ? "true" : "false")
-            + ";interrupted-result=" + (interruptedResultObserved ? "true" : "false")
-            + ";interrupted-readiness-reset=" + (interruptedReadinessResetObserved ? "true" : "false")
+            + ";solo-continuation=" + (soloContinuationObserved ? "true" : "false")
+            + ";no-result=" + (noResultObserved ? "true" : "false")
             + ";expired-guest-removed=" + (expiredGuestRemovedObserved ? "true" : "false")
             + ";fresh-admitted=" + (newcomerAdmitted ? "true" : "false")
-            + ";retained-result=" + (retainedInterruptedResult ? "true" : "false")
-            + ";retained-readiness-reset=" + (retainedReadinessReset ? "true" : "false")
+            + ";same-match=" + (retainedInterruptedResult ? "true" : "false")
+            + ";same-round=" + (retainedReadinessReset ? "true" : "false")
             + ";prior-guest-absent=" + (priorGuestAbsent ? "true" : "false")
-            + ";next-active=" + (nextMatchActive ? "true" : "false")
-            + ";next-reset=" + (nextMatchResetObserved ? "true" : "false")
+            + ";ongoing-active=" + (nextMatchActive ? "true" : "false")
+            + ";fresh-roster=" + (nextMatchResetObserved ? "true" : "false")
             + ";match-starts=" + std::to_string(matchStarts.load())
             + ";host-status=" + std::to_string(hostStatus);
     D6R_REQUIRE_EQ(std::string(
-            "first-admitted=true;first-active=true;reconnecting=true;interrupted-result=true;"
-            "interrupted-readiness-reset=true;expired-guest-removed=true;fresh-admitted=true;"
-            "retained-result=true;retained-readiness-reset=true;prior-guest-absent=true;"
-            "next-active=true;next-reset=true;match-starts=2;host-status=0"), evidence);
+            "first-admitted=true;first-active=true;reconnecting=true;solo-continuation=true;"
+            "no-result=true;expired-guest-removed=true;fresh-admitted=true;"
+            "same-match=true;same-round=true;prior-guest-absent=true;"
+            "ongoing-active=true;fresh-roster=true;match-starts=1;host-status=0"), evidence);
 }
 
 D6R_TEST_CASE("NET-AC-011 NET-AC-014 established guest honors queued host end at the close boundary despite failed quality output") {
@@ -3045,6 +3187,367 @@ D6R_TEST_CASE("NET-09 production Headless sends one intentional End notice and n
         D6R_REQUIRE_EQ(termination == Termination::End ? 1u : 0u, notices);
     }
 }
+
+#if defined(__linux__) && defined(D6R_DEDICATED_SERVICE)
+D6R_TEST_CASE("F02 fresh idle or occupied dedicated service dispatches stale wellformed reconnect as scoped terminal denial") {
+    for (bool occupied: {false, true}) for (bool malformed: {false, true}) {
+        TemporaryResources files;
+        const std::string invite = "disposable-reconnect-dispatch-fixture";
+        D6R_REQUIRE(files.write("invite", invite));
+        D6R_REQUIRE(chmod((files.root / "invite").c_str(), 0600) == 0);
+        const auto resources = fs::path(__FILE__).parent_path().parent_path() / "resources";
+        const auto built = Network::CompatibilityManifestBuilder(resources.string()).build();
+        D6R_REQUIRE(built.valid());
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto stale = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        auto controller = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        stale->closeOnRequest = true;
+        Network::Lifecycle::ReconnectAttempt old;
+        old.request.sessionId = 42; old.request.participantId = 99; old.request.reservationId = 7;
+        old.request.credential.bytes.fill(17);
+        old.compatibility = requestFor(built.manifest);
+        auto payload = Network::Lifecycle::serializeReconnectAttempt(old);
+        if (malformed) payload.push_back(0xff);
+        stale->queue(payload, fixture->now);
+        controller->queue(Network::serializeAdmissionRequest(requestFor(built.manifest)), fixture->now);
+        fixture->connection = occupied ? controller : stale;
+        std::optional<Network::Lifecycle::ReconnectResponse> response;
+        bool initialCategory = false, queued = !occupied;
+        unsigned commits = 0, grants = 0;
+        controller->onSend = [&](const auto &bytes) {
+            if (bytes.size() >= 4 && bytes[3] == 'O')
+                controller->queue(Network::serializeAdmissionAcceptance(Network::deserializeAdmissionOffer(bytes)), fixture->now);
+        };
+        stale->onSend = [&](const auto &bytes) {
+            if (auto value = Network::Lifecycle::deserializeReconnectResponse(bytes)) response = *value;
+            if (Network::Lifecycle::deserializeReconnectGrant(bytes)) ++grants;
+            initialCategory = initialCategory || (bytes.size() >= 4 && bytes[0] == 'D' && bytes[1] == '6' && bytes[2] == 'R' && bytes[3] == 'S');
+        };
+        auto dependencies = runtimeDependencies(fixture, built.manifest);
+        dependencies.hostedServiceStatus = [](auto) { return true; };
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+        dependencies.lifecycleObserver = [&](const auto &event) {
+            if (event.stage == Server::AdmissionLifecycleStage::TransactionCommitted) ++commits;
+            return true;
+        };
+        dependencies.wait = [&](auto amount) {
+            fixture->now += amount;
+            if (occupied && controller->succeeded && !queued) {
+                stale->accepted = fixture->now;
+                fixture->pendingConnections.push_back(stale); queued = true;
+            }
+            if (stale->closeRequested || fixture->now > Network::Trust::TimePoint{} + 1s) fixture->cancelled = true;
+        };
+        auto config = runtimeServerConfig();
+        config.dedicated = true; config.localPlayers = 0;
+        config.passwordFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
+        std::ostringstream output;
+        Server::HeadlessServer server(config, dependencies); server.runtimeDependencies.productionReplicationProtocol = true;
+        D6R_REQUIRE_EQ(0, server.run(output));
+        controller->onSend = {}; stale->onSend = {};
+        D6R_REQUIRE(grants == 0 && !stale->succeeded && commits == (occupied ? 1u : 0u));
+        if (malformed) D6R_REQUIRE(!response);
+        else {
+            D6R_REQUIRE(response.has_value() && !initialCategory);
+            D6R_REQUIRE(response->sessionId == old.request.sessionId && response->participantId == old.request.participantId);
+            D6R_REQUIRE(response->outcome == Network::Lifecycle::ReconnectOutcome::AuthorizationFailed && !response->nextGrant);
+        }
+    }
+}
+
+D6R_TEST_CASE("R2 dedicated startup compares directory numeric effective port without network requests") {
+    TemporaryResources files;
+    D6R_REQUIRE(files.write("invite", "disposable-origin-fixture"));
+    D6R_REQUIRE(chmod((files.root / "invite").c_str(), 0600) == 0);
+    const auto resources = fs::path(__FILE__).parent_path().parent_path() / "resources";
+    const auto built = Network::CompatibilityManifestBuilder(resources.string()).build();
+    D6R_REQUIRE(built.valid());
+    const char *old = std::getenv("D6R_DIRECTORY_URL");
+    const std::optional<std::string> previous = old ? std::optional<std::string>(old) : std::nullopt;
+    struct RestoreOrigin {
+        std::optional<std::string> previous;
+        ~RestoreOrigin() { if (previous) setenv("D6R_DIRECTORY_URL", previous->c_str(), 1); else unsetenv("D6R_DIRECTORY_URL"); }
+    } restore{previous};
+    for (const auto &entry: {std::pair{"https://arena.example.test:0443", 2},
+            std::pair{"https://arena.example.test", 2}, std::pair{"https://arena.example.test:443", 2},
+            std::pair{"https://ArEnA.ExAmPlE.TeSt:00443/", 2},
+            std::pair{"https://arena.example.test:444", 0}, std::pair{"https://other.example.test:443", 0}}) {
+        D6R_REQUIRE(setenv("D6R_DIRECTORY_URL", entry.first, 1) == 0);
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto dependencies = runtimeDependencies(fixture, built.manifest);
+        dependencies.productionReplicationProtocol = true;
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+        // Cancellation after listener readiness prevents any publisher worker/request.
+        // The origin/frontend startup validation must still precede the ready loop.
+        dependencies.hostedServiceStatus = [fixture](auto status) {
+            if (status == Network::HostServiceStatusCode::Ready) fixture->cancelled = true;
+            return true;
+        };
+        auto config = runtimeServerConfig();
+        config.dedicated = true; config.localPlayers = 0;
+        config.passwordFile = (files.root / "invite").string();
+        config.readinessSocket = (files.root / "ready.sock").string();
+        config.advertisedFrontend = {"arena.example.test", 443};
+        std::ostringstream output;
+        Server::HeadlessServer server(config, dependencies);
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        D6R_REQUIRE_EQ(entry.second, server.run(output));
+        D6R_REQUIRE(fixture->shutdown);
+    }
+}
+
+D6R_TEST_CASE("R1 offered guest acceptance after controller reservation rolls back and preserves original reconnect boundary") {
+    for (bool expire: {false, true}) {
+        TemporaryResources files;
+        const std::string invite = "disposable-reservation-fixture";
+        D6R_REQUIRE(files.write("invite", invite));
+        D6R_REQUIRE(chmod((files.root / "invite").c_str(), 0600) == 0);
+        const auto resources = fs::path(__FILE__).parent_path().parent_path() / "resources";
+        const auto built = Network::CompatibilityManifestBuilder(resources.string()).build();
+        D6R_REQUIRE(built.valid());
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto controller = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        auto guest = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        auto restore = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        guest->closeOnRequest = true; restore->closeOnRequest = true;
+        fixture->connection = controller;
+        controller->queue(Network::serializeAdmissionRequest(requestFor(built.manifest)), fixture->now);
+        auto dependencies = runtimeDependencies(fixture, built.manifest);
+        dependencies.productionReplicationProtocol = true;
+        dependencies.hostedServiceStatus = [](auto) { return true; };
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+        std::optional<Network::AdmissionOfferPayload> controllerOffer, guestOffer;
+        std::optional<Network::Lifecycle::ReconnectGrant> grant;
+        std::optional<Network::Lifecycle::ReconnectResponse> restored;
+        std::optional<Network::Replication::CanonicalState> restoredState;
+        std::optional<Network::Trust::TimePoint> disconnectedAt;
+        bool guestQueued = false, disconnectQueued = false, acceptanceQueued = false, restoreQueued = false;
+        unsigned committedGuests = 0, rollbacks = 0;
+        bool policyRejected = false;
+        controller->onSend = [&](const auto &payload) {
+            if (payload.size() >= 4 && payload[3] == 'O') {
+                controllerOffer = Network::deserializeAdmissionOffer(payload);
+                controller->queue(Network::serializeAdmissionAcceptance(*controllerOffer), fixture->now);
+            }
+            if (auto value = Network::Lifecycle::deserializeReconnectGrant(payload)) grant = *value;
+        };
+        guest->onSend = [&](const auto &payload) {
+            if (payload.size() >= 4 && payload[3] == 'O') guestOffer = Network::deserializeAdmissionOffer(payload);
+            if (payload.size() >= 4 && payload[3] == 'S')
+                policyRejected = Network::deserializeAdmissionResult(payload).code == Network::AdmissionResultCode::HostPolicyRejected;
+        };
+        restore->onSend = [&](const auto &payload) {
+            if (auto value = Network::Lifecycle::deserializeReconnectResponse(payload)) restored = *value;
+            if (auto value = Network::Replication::deserializeReplicationFrame(payload))
+                if (value->snapshot) restoredState = value->snapshot->state;
+        };
+        dependencies.lifecycleObserver = [&](const auto &event) {
+            fixture->events.push_back(event);
+            if (event.connectionId == 1 && event.stage == Server::AdmissionLifecycleStage::ConnectionClosed) disconnectedAt = fixture->now;
+            if (event.connectionId == 2 && event.stage == Server::AdmissionLifecycleStage::TransactionCommitted) ++committedGuests;
+            if (event.connectionId == 2 && event.stage == Server::AdmissionLifecycleStage::TransactionRolledBack) ++rollbacks;
+            return true;
+        };
+        dependencies.wait = [&](auto amount) {
+            fixture->now += amount;
+            if (controller->succeeded && grant && !guestQueued) {
+                guest->accepted = fixture->now;
+                auto request = requestFor(built.manifest); request.expectedSessionId = grant->sessionId;
+                guest->queue(Network::serializeAdmissionRequest(request), fixture->now);
+                fixture->pendingConnections.push_back(guest); guestQueued = true;
+            } else if (guestOffer && !disconnectQueued) {
+                controller->terminal = fixture->now; controller->currentState = Network::ClientState::Failed;
+                disconnectQueued = true;
+            } else if (disconnectedAt && !acceptanceQueued) {
+                guest->queue(Network::serializeAdmissionAcceptance(*guestOffer), fixture->now); acceptanceQueued = true;
+            } else if (acceptanceQueued && guest->closeRequested && !restoreQueued) {
+                fixture->now = *disconnectedAt + Network::Lifecycle::ReconnectWindow - (expire ? 0ms : 1ms);
+                restore->accepted = fixture->now;
+                Network::Lifecycle::ReconnectAttempt attempt;
+                attempt.request = {grant->sessionId, grant->participantId, grant->reservationId, grant->credential};
+                attempt.compatibility = requestFor(built.manifest);
+                restore->queue(Network::Lifecycle::serializeReconnectAttempt(attempt), fixture->now);
+                fixture->pendingConnections.push_back(restore); restoreQueued = true;
+            }
+            if (restored || guest->succeeded || fixture->now > Network::Trust::TimePoint{} + 32s) fixture->cancelled = true;
+        };
+        auto config = runtimeServerConfig();
+        config.dedicated = true; config.localPlayers = 0;
+        config.passwordFile = (files.root / "invite").string(); config.readinessSocket = (files.root / "ready.sock").string();
+        std::ostringstream output;
+        Server::HeadlessServer server(config, dependencies);
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        D6R_REQUIRE_EQ(0, server.run(output));
+        controller->onSend = {}; guest->onSend = {}; restore->onSend = {};
+        D6R_REQUIRE(guestOffer && disconnectedAt && acceptanceQueued);
+        D6R_REQUIRE(!guest->succeeded && committedGuests == 0 && rollbacks == 1 && guest->revoked && policyRejected);
+        D6R_REQUIRE(restored.has_value());
+        if (expire) D6R_REQUIRE(restored->outcome != Network::Lifecycle::ReconnectOutcome::Accepted);
+        else {
+            D6R_REQUIRE(restored->outcome == Network::Lifecycle::ReconnectOutcome::Accepted);
+            D6R_REQUIRE(restoredState && restoredState->participants.size() == 1 && restoredState->players.size() == 1);
+            D6R_REQUIRE(restoredState->hostParticipantId == grant->participantId && restoredState->sessionId == grant->sessionId);
+            D6R_REQUIRE(restoredState->participants.front().ownedPlayerIds == controllerOffer->playerIds);
+        }
+    }
+}
+
+namespace {
+    enum class TerminalTail { Leave, ReadOnly, Eof, Invalid, WrongIdentity, WrongSession,
+                              LateLeave, OverBudget, InvalidAfterReadOnly, WrongIdentityAfterReadOnly };
+    struct TerminalTailResult {
+        unsigned notices = 0;
+        std::size_t ordinaryFrames = 0, maximumPerTurn = 0, seals = 0;
+        bool retired = false;
+    };
+
+    TerminalTailResult runTerminalAdmittedTail(TerminalTail tail, std::size_t preceding) {
+        TemporaryResources files;
+        const std::string invitation = "terminal-tail-test-only-0123456789abcdef";
+        D6R_REQUIRE(files.write("invite", invitation));
+        D6R_REQUIRE(chmod((files.root / "invite").c_str(), 0600) == 0);
+        const auto resources = fs::path(__FILE__).parent_path().parent_path() / "resources";
+        const auto built = Network::CompatibilityManifestBuilder(resources.string()).build();
+        D6R_REQUIRE(built.valid());
+        auto fixture = std::make_shared<RuntimeFixture>();
+        auto controller = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        auto guest = std::make_shared<FakeAdmissionConnection>(fixture->now);
+        fixture->connection = controller;
+        for (const auto &connection: {controller, guest})
+            connection->queue(Network::serializeAdmissionRequest(requestFor(built.manifest)), fixture->now);
+        auto dependencies = runtimeDependencies(fixture, built.manifest);
+        // Dedicated readiness precedes the first controller/session; the local
+        // player-host fixture's HostInitialized-before-Ready guard does not apply.
+        dependencies.hostedServiceStatus = [](auto) { return true; };
+        dependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
+        dependencies.productionReplicationProtocol = true;
+        std::optional<Network::Lifecycle::ReconnectGrant> controllerGrant, guestGrant;
+        TerminalTailResult result;
+        bool guestAccepted = false, injected = false;
+        Network::Trust::TimePoint lastTurn{};
+        std::size_t thisTurn = 0;
+        const bool readOnly = tail == TerminalTail::ReadOnly || tail == TerminalTail::InvalidAfterReadOnly
+                              || tail == TerminalTail::WrongIdentityAfterReadOnly;
+        auto target = tail == TerminalTail::WrongIdentity || tail == TerminalTail::WrongIdentityAfterReadOnly
+                      ? guest : controller;
+        target->onReceive = [&](const Network::TransportFrame &frame) {
+            if (!injected) return;
+            if (lastTurn != fixture->now) { lastTurn = fixture->now; thisTurn = 0; }
+            result.maximumPerTurn = std::max(result.maximumPerTurn, ++thisTurn);
+            const auto action = Network::Lifecycle::deserializeParticipantAction(frame.payload);
+            const auto replication = Network::Replication::deserializeReplicationFrame(frame.payload);
+            if ((action && action->kind != Network::Lifecycle::ParticipantActionKind::Leave)
+                || (replication && replication->kind == Network::Replication::ReplicationFrameKind::QualityProbe))
+                ++result.ordinaryFrames;
+            // Select EOF publication on the last frame of a full ordinary turn,
+            // not only the already-terminal-at-entry case.
+            if (tail == TerminalTail::Leave && preceding == 17 && result.ordinaryFrames == Network::MaxNetworkPlayers) {
+                target->terminal = fixture->now;
+                target->currentState = Network::ClientState::Failed;
+            }
+        };
+        for (const auto &connection: {controller, guest}) connection->onSend = [&, connection](const auto &payload) {
+            if (auto grant = Network::Lifecycle::deserializeReconnectGrant(payload))
+                (connection == controller ? controllerGrant : guestGrant) = *grant;
+            if (auto notice = Network::Lifecycle::deserializeIntentionalHostEnd(payload))
+                if (connection == guest && notice->sessionId == controllerGrant->sessionId) ++result.notices;
+            if (payload.size() >= 4 && payload[3] == 'O') {
+                const auto offer = Network::deserializeAdmissionOffer(payload);
+                connection->queue(Network::serializeAdmissionAcceptance(
+                        offer), fixture->now);
+            }
+        };
+        dependencies.wait = [&](auto amount) {
+            fixture->now += amount;
+            if (controller->succeeded && !guestAccepted) {
+                fixture->connection = guest; fixture->accepted = false; guestAccepted = true;
+            } else if (guest->succeeded && !injected) {
+                D6R_REQUIRE(controllerGrant && guestGrant);
+                const auto &grant = target == controller ? *controllerGrant : *guestGrant;
+                for (std::size_t index = 0; index < preceding; ++index) {
+                    // Lobby readiness is ordinary authorized ingress. Gameplay
+                    // input before match ownership is initialized is not valid.
+                    if (readOnly)
+                        target->queue(Network::Replication::serializeQualityProbe(index + 1), fixture->now);
+                    else target->queue(Network::Lifecycle::serializeParticipantAction({grant.sessionId,
+                            grant.participantId, index % 2 ? Network::Lifecycle::ParticipantActionKind::NotReady
+                                                          : Network::Lifecycle::ParticipantActionKind::Ready}), fixture->now);
+                }
+                if (tail == TerminalTail::Invalid || tail == TerminalTail::InvalidAfterReadOnly)
+                    target->queue({0xff}, fixture->now);
+                if (tail != TerminalTail::Eof) {
+                    const auto action = Network::Lifecycle::serializeParticipantAction({
+                            controllerGrant->sessionId + (tail == TerminalTail::WrongSession),
+                            controllerGrant->participantId, Network::Lifecycle::ParticipantActionKind::Leave});
+                    target->queue(action, fixture->now + (tail == TerminalTail::LateLeave ? 1ms : 0ms));
+                }
+                target->terminal = fixture->now;
+                target->currentState = tail == TerminalTail::Leave && preceding == 17
+                                       ? Network::ClientState::Connected : Network::ClientState::Failed;
+                if (readOnly) target->sendResult = Network::SendResult::NotConnected;
+                injected = true;
+            }
+            if (fixture->now > Network::Trust::TimePoint{} + 2s) fixture->cancelled = true;
+        };
+        dependencies.lifecycleObserver = [&](const auto &event) {
+            if (injected && event.stage == Server::AdmissionLifecycleStage::ConnectionClosed
+                && event.connectionId == (target == controller ? 1u : 2u)) {
+                result.retired = true; fixture->cancelled = true;
+            }
+            return true;
+        };
+        auto config = runtimeServerConfig();
+        config.dedicated = true; config.localPlayers = 0;
+        config.passwordFile = (files.root / "invite").string();
+        config.readinessSocket = (files.root / "ready.sock").string();
+        std::ostringstream output;
+        Server::HeadlessServer server(config, std::move(dependencies));
+        server.runtimeDependencies.productionReplicationProtocol = true;
+        const auto status = server.run(output);
+        controller->onSend = {}; guest->onSend = {};
+        D6R_REQUIRE_EQ(0, status);
+        D6R_REQUIRE(injected);
+        result.seals = target->seals;
+        return result;
+    }
+}
+
+D6R_TEST_CASE("terminal admitted ingress preserves ordinary frames before real controller Leave and EOF") {
+    for (const std::size_t preceding: {std::size_t{1}, std::size_t{17}, Network::Trust::NonInputActionBurst - 1}) {
+        const auto result = runTerminalAdmittedTail(TerminalTail::Leave, preceding);
+        D6R_REQUIRE_EQ(1u, result.notices);
+        D6R_REQUIRE_EQ(preceding, result.ordinaryFrames);
+        D6R_REQUIRE(result.seals != 0);
+        D6R_REQUIRE(result.maximumPerTurn <= Network::MaxNetworkPlayers);
+    }
+}
+
+D6R_TEST_CASE("terminal admitted ingress EOF without Leave never manufactures End") {
+    const auto result = runTerminalAdmittedTail(TerminalTail::Eof, 17);
+    D6R_REQUIRE_EQ(0u, result.notices);
+    D6R_REQUIRE_EQ(17u, result.ordinaryFrames);
+    D6R_REQUIRE(result.seals != 0);
+    D6R_REQUIRE(result.retired && result.maximumPerTurn <= Network::MaxNetworkPlayers);
+}
+
+D6R_TEST_CASE("terminal admitted ingress read-only reply failure does not discard queued Leave") {
+    const auto result = runTerminalAdmittedTail(TerminalTail::ReadOnly, 17);
+    D6R_REQUIRE_EQ(1u, result.notices);
+    D6R_REQUIRE_EQ(17u, result.ordinaryFrames);
+    D6R_REQUIRE(result.seals != 0 && result.maximumPerTurn <= Network::MaxNetworkPlayers);
+}
+
+D6R_TEST_CASE("terminal admitted ingress invalid unauthorized late and over-budget tails cannot End") {
+    for (const auto tail: {TerminalTail::Invalid, TerminalTail::WrongIdentity,
+                          TerminalTail::WrongSession, TerminalTail::LateLeave, TerminalTail::OverBudget,
+                          TerminalTail::InvalidAfterReadOnly, TerminalTail::WrongIdentityAfterReadOnly}) {
+        const auto result = runTerminalAdmittedTail(tail,
+                tail == TerminalTail::OverBudget ? Network::Trust::NonInputActionBurst + 1 : 1);
+        D6R_REQUIRE_EQ(0u, result.notices);
+        D6R_REQUIRE(result.retired && result.maximumPerTurn <= Network::MaxNetworkPlayers);
+    }
+}
+#endif
 #endif
 
 D6R_TEST_CASE("lost confirmation after atomic commit never rolls back host and never reports host success") {
@@ -4423,7 +4926,7 @@ D6R_TEST_CASE("four-message identity wire sets are exact ordered endian-stable a
     const auto expected = [&](char kind) {
         return std::vector<std::uint8_t>{'D','6','R', static_cast<std::uint8_t>(kind),
                 1,2,3,4,5,6,7,8, 2,
-                17,18,19,20,21,22,23,24, 33,34,35,36,37,38,39,40};
+                 17,18,19,20,21,22,23,24, 33,34,35,36,37,38,39,40, 0,0,0,0,0,0,0,0,1};
     };
     D6R_REQUIRE(expected('O') == Network::serializeAdmissionOffer(identities));
     D6R_REQUIRE(expected('K') == Network::serializeAdmissionAcceptance(identities));

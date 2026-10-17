@@ -1,10 +1,34 @@
 include_guard(GLOBAL)
 
+if (D6R_DEDICATED_SERVICE)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME duel6r-dedicated-service-process-tests
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                    $<TARGET_FILE:${D6R_SERVER_APP_NAME}> $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+                    ${CMAKE_SOURCE_DIR}/resources --service-only)
+    set_tests_properties(duel6r-dedicated-service-process-tests PROPERTIES
+            LABELS "application;headless;network;security;process" TIMEOUT 60)
+endif ()
+
+# Portable real common-channel handshakes, wrong-password, tamper, key-budget and
+# cancellation checks run in duel6r-session-transport-tests on Windows too.
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME staging-allocation-exception
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/StagingAllocationTests.py
+            ${CMAKE_SOURCE_DIR} ${CMAKE_CXX_COMPILER})
+    set_tests_properties(staging-allocation-exception PROPERTIES TIMEOUT 30 LABELS "application;network;security")
+endif ()
 if (UNIX)
     add_executable(duel6r-native-secure-session-tests
             ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp ${CMAKE_SOURCE_DIR}/tests/NativeSecureSessionTests.cpp)
     target_include_directories(duel6r-native-secure-session-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-native-secure-session-tests PRIVATE duel6r-network-scaffold)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_compile_definitions(duel6r-native-secure-session-tests PRIVATE D6R_TEST_WRAP_SECURE_SDK)
+        target_link_libraries(duel6r-native-secure-session-tests PRIVATE
+                "-Wl,--wrap=mbedtls_ssl_read,--wrap=mbedtls_ssl_write,--wrap=mbedtls_ssl_check_pending")
+    endif ()
     add_test(NAME native-secure-session COMMAND duel6r-native-secure-session-tests)
     set_tests_properties(native-secure-session PROPERTIES TIMEOUT 30 LABELS "application;network;security")
 endif ()
@@ -25,7 +49,12 @@ set_tests_properties(duel6r-hardware-crypto-tests PROPERTIES LABELS "application
 add_executable(duel6r-session-transport-tests
         ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp)
 target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(duel6r-session-transport-tests duel6r-network-scaffold)
+target_link_libraries(duel6r-session-transport-tests PRIVATE duel6r-network-scaffold)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(duel6r-session-transport-tests PRIVATE D6R_TEST_OBSERVE_STAGING)
+    target_link_libraries(duel6r-session-transport-tests PRIVATE
+            "-Wl,--wrap=mbedtls_ssl_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
+endif ()
 if (MINGW)
     set_property(TARGET duel6r-session-transport-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif ()
@@ -38,7 +67,6 @@ add_executable(duel6r-authoritative-match-behavior-tests
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AuthoritativeMatchBehaviorTests.cpp)
 target_include_directories(duel6r-authoritative-match-behavior-tests PRIVATE ${CMAKE_SOURCE_DIR})
-target_compile_definitions(duel6r-authoritative-match-behavior-tests PRIVATE D6R_HEADLESS_CORE)
 target_link_libraries(duel6r-authoritative-match-behavior-tests
         duel6r-network-scaffold duel6r-canonical-gameplay-core)
 if (MINGW)
@@ -54,7 +82,6 @@ add_executable(duel6r-quick-liquid-sparse-team-tests
         ${CMAKE_SOURCE_DIR}/tests/QuickLiquidSparseTeamTests.cpp)
 target_include_directories(duel6r-quick-liquid-sparse-team-tests PRIVATE ${CMAKE_SOURCE_DIR})
 target_compile_definitions(duel6r-quick-liquid-sparse-team-tests PRIVATE
-        D6R_HEADLESS_CORE
         D6R_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(duel6r-quick-liquid-sparse-team-tests
         duel6r-canonical-gameplay-core duel6r-network-scaffold)
@@ -209,6 +236,12 @@ if (NOT D6R_TRANSPORT_ONLY)
     target_include_directories(duel6r-network-session-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-network-session-runtime-tests
             duel6r-game-engine duel6r-network-scaffold)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_sources(duel6r-network-session-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR}/tests/ObservedPlayerInput.cpp)
+        target_compile_definitions(duel6r-network-session-runtime-tests PRIVATE D6R_TEST_OBSERVE_PLAYER_INPUT)
+        target_link_options(duel6r-network-session-runtime-tests PRIVATE
+                "-Wl,--wrap=_ZN5Duel67Network5Input20ClientCommandSession6submitEmmj,--wrap=_ZN5Duel67Network5Input20ClientCommandSession7receiveERKSt6vectorIhSaIhEE")
+    endif ()
     if (UNIX AND NOT APPLE)
         find_library(D6R_RUNTIME_TEST_LIB_OPENGL GL REQUIRED)
         find_library(D6R_RUNTIME_TEST_LIB_GLEW GLEW REQUIRED)
@@ -244,7 +277,63 @@ if (NOT D6R_TRANSPORT_ONLY)
     set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
             LABELS "application;integration;network;runtime;presentation;reconnect;regression"
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
-            TIMEOUT 180)
+            TIMEOUT 300)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(duel6r-public-dedicated-runtime-tests
+                ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRuntimeTests.cpp)
+        target_include_directories(duel6r-public-dedicated-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
+        get_target_property(D6R_PUBLIC_TEST_LIBRARIES duel6r-network-session-runtime-tests LINK_LIBRARIES)
+        target_link_libraries(duel6r-public-dedicated-runtime-tests ${D6R_PUBLIC_TEST_LIBRARIES})
+        add_executable(duel6r-public-crypto-coverage-tests ${CMAKE_SOURCE_DIR}/tests/PublicCryptoCoverage.cpp)
+        target_include_directories(duel6r-public-crypto-coverage-tests PRIVATE ${CMAKE_SOURCE_DIR})
+        target_link_libraries(duel6r-public-crypto-coverage-tests ${D6R_PUBLIC_TEST_LIBRARIES}
+                "-Wl,--wrap=mbedtls_ssl_read,--wrap=mbedtls_ssl_handshake,--wrap=_ZdlPv,--wrap=_ZdlPvm")
+        add_test(NAME public-crypto-composed-coverage
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicCryptoCoverageTests.py
+                        $<TARGET_FILE:duel6r-public-crypto-coverage-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources)
+        set_tests_properties(public-crypto-composed-coverage PROPERTIES
+                LABELS "application;network;public;tls;security;reconnect" TIMEOUT 180)
+        # A legitimate inner-authenticated application peer for observation and
+        # protocol-peer notice tests. The ordinary process/PKI path stays opaque.
+        add_executable(duel6r-public-authenticated-peer ${CMAKE_SOURCE_DIR}/tests/PublicAuthenticatedPeer.cpp)
+        target_include_directories(duel6r-public-authenticated-peer PRIVATE ${CMAKE_SOURCE_DIR})
+        target_link_libraries(duel6r-public-authenticated-peer PRIVATE duel6r-network-scaffold)
+        add_test(NAME duel6r-public-dedicated-process-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources)
+        set_tests_properties(duel6r-public-dedicated-process-tests PROPERTIES
+                LABELS "application;integration;network;public;tls;security"
+                TIMEOUT 180)
+        add_test(NAME duel6r-public-dedicated-reuse-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources flow-reuse)
+        set_tests_properties(duel6r-public-dedicated-reuse-tests PROPERTIES
+                LABELS "application;integration;network;public;tls;security;reuse" TIMEOUT 180)
+        add_test(NAME duel6r-public-dedicated-end-eof-regressions
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources --end-eof-regressions)
+        set_tests_properties(duel6r-public-dedicated-end-eof-regressions PROPERTIES
+                LABELS "application;integration;network;public;tls;recovery;regression"
+                TIMEOUT 180)
+        add_test(NAME duel6r-public-dedicated-review-regressions
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources --review-regressions)
+        set_tests_properties(duel6r-public-dedicated-review-regressions PROPERTIES
+                LABELS "application;integration;network;public;tls;recovery;regression"
+                TIMEOUT 600)
+        add_test(NAME duel6r-public-dedicated-authorization-tests
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
+                        $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
+                        $<TARGET_FILE:${D6R_SERVER_APP_NAME}> ${CMAKE_SOURCE_DIR}/resources --authorization-regressions)
+        set_tests_properties(duel6r-public-dedicated-authorization-tests PROPERTIES
+                LABELS "application;integration;network;public;tls;authorization;security"
+                TIMEOUT 300)
+    endif ()
     if (UNIX AND NOT APPLE)
         add_executable(duel6r-host-end-boundary-harness
                 ${CMAKE_SOURCE_DIR}/tests/HostEndBoundaryHarness.cpp
@@ -287,6 +376,7 @@ if (NOT D6R_TRANSPORT_ONLY)
 endif ()
 
 add_executable(duel6r-admission-compatibility-tests
+        ${CMAKE_SOURCE_DIR}/tests/CommonChannelTests.cpp
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
         ${CMAKE_SOURCE_DIR}/tests/AdmissionCompatibilityTests.cpp)
 target_include_directories(duel6r-admission-compatibility-tests PRIVATE ${CMAKE_SOURCE_DIR})

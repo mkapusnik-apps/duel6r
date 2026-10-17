@@ -4,9 +4,48 @@
 #include <array>
 #include <fcntl.h>
 #include <future>
+#include <atomic>
+#include <cerrno>
+#include "source/network/SessionLifecycle.h"
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
+
+#ifdef D6R_TEST_WRAP_SECURE_SDK
+#include <mbedtls/ssl.h>
+// Observe actual SDK entries, not only BIO callbacks (pending may not use BIO).
+static std::atomic<unsigned> sdkReads{0}, sdkWrites{0}, sdkPending{0};
+static std::atomic<unsigned> readWantWrite{0}, writeWantRead{0};
+static thread_local bool observeRetry = false, retryPending = false, stableRetry = true;
+static thread_local const void *retryPointer = nullptr;
+static thread_local std::size_t retrySize = 0;
+static int observeResult(const void *data, std::size_t size, int result) {
+    if (observeRetry) {
+        if (retryPending) stableRetry = stableRetry && data == retryPointer && size == retrySize;
+        retryPending = result == MBEDTLS_ERR_SSL_WANT_READ || result == MBEDTLS_ERR_SSL_WANT_WRITE;
+        retryPointer = data; retrySize = size;
+    }
+    return result;
+}
+extern "C" int __real_mbedtls_ssl_read(mbedtls_ssl_context *, unsigned char *, std::size_t);
+extern "C" int __real_mbedtls_ssl_write(mbedtls_ssl_context *, const unsigned char *, std::size_t);
+extern "C" int __real_mbedtls_ssl_check_pending(const mbedtls_ssl_context *);
+extern "C" int __wrap_mbedtls_ssl_read(mbedtls_ssl_context *ctx, unsigned char *data, std::size_t size) {
+    ++sdkReads;
+    const auto result = __real_mbedtls_ssl_read(ctx, data, size);
+    if (result == MBEDTLS_ERR_SSL_WANT_WRITE) ++readWantWrite;
+    return observeResult(data, size, result);
+}
+extern "C" int __wrap_mbedtls_ssl_write(mbedtls_ssl_context *ctx, const unsigned char *data, std::size_t size) {
+    ++sdkWrites;
+    const auto result = __real_mbedtls_ssl_write(ctx, data, size);
+    if (result == MBEDTLS_ERR_SSL_WANT_READ) ++writeWantRead;
+    return observeResult(data, size, result);
+}
+extern "C" int __wrap_mbedtls_ssl_check_pending(const mbedtls_ssl_context *ctx) {
+    ++sdkPending; return __real_mbedtls_ssl_check_pending(ctx);
+}
+#endif
 
 namespace {
     using namespace Duel6::Network;
@@ -47,6 +86,160 @@ namespace {
         }
         D6R_REQUIRE(size == 0);
     }
+}
+
+D6R_TEST_CASE("Common Password validates exact UTF8 bytes spaces C0 C1 and scalar boundaries") {
+    for (const std::string &value : {std::string(), std::string(" leading trailing "), std::string(u8"é雪😀"),
+                                     std::string(128, 'x'), std::string(126, 'x') + u8"é"}) {
+        D6R_REQUIRE(SessionPassword::valid(value));
+        SessionPassword stored(value); D6R_REQUIRE(std::string(stored.value()) == value);
+    }
+    for (const std::string &value : {std::string(129, 'x'), std::string("a\0b", 3), std::string("\n"),
+        std::string("\x7f"), std::string("\xc2\x80"), std::string("\xc2\x9f"), std::string("\xc0\xaf"),
+        std::string("\xed\xa0\x80"), std::string("\xf4\x90\x80\x80"), std::string("\xc3"), std::string("\x80")}) {
+        D6R_REQUIRE(!SessionPassword::valid(value));
+        D6R_REQUIRE_THROW((void) SessionPassword{value}, std::invalid_argument);
+    }
+}
+
+namespace {
+    class ByteSocket final : public SecureByteStream {
+    public:
+        int socket;
+        std::atomic<bool> failWrites{false};
+        std::atomic<unsigned> reads{0}, writes{0}, pendingQueries{0};
+        std::atomic<int> forcedReadWant{0}, forcedWriteWant{0};
+        std::function<void()> beforeWriteFailure;
+        explicit ByteSocket(int socket) : socket(socket) {}
+        std::ptrdiff_t read(unsigned char *data, std::size_t size) override {
+            ++reads;
+            if (const auto want = forcedReadWant.exchange(0)) return want;
+            const auto count = ::recv(socket, data, std::min<std::size_t>(size, 3), 0);
+            return count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -2 : count;
+        }
+        std::ptrdiff_t write(const unsigned char *data, std::size_t size) override {
+            ++writes;
+            if (const auto want = forcedWriteWant.exchange(0)) return want;
+            if (failWrites) {
+                if (beforeWriteFailure) beforeWriteFailure();
+                return -1;
+            }
+            const auto count = ::send(socket, data, std::min<std::size_t>(size, 7), MSG_NOSIGNAL);
+            return count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -3 : count;
+        }
+        bool pending() const override { ++const_cast<ByteSocket *>(this)->pendingQueries; return false; }
+    };
+}
+
+#ifdef D6R_TEST_WRAP_SECURE_SDK
+D6R_TEST_CASE("Common PAKE actual SDK cross-direction WANT retries preserve buffers and bytes") {
+    Sockets sockets;
+    auto stream = std::make_shared<ByteSocket>(sockets.fd[1]);
+    SecureSession host(sockets.fd[0], true, secret("want-test"));
+    SecureSession guest(sockets.fd[1], false, secret("want-test"), {}, stream);
+    D6R_REQUIRE(handshake(host, guest));
+    const std::array<unsigned char, 3> payload{11, 22, 33};
+    const auto writesBefore = writeWantRead.load(), readsBefore = readWantWrite.load();
+    observeRetry = true; retryPending = false; stableRetry = true;
+    stream->forcedWriteWant = -2; // BIO backpressure, never a substituted SDK result.
+    D6R_REQUIRE_EQ(-2, guest.send(payload.data(), payload.size()));
+    D6R_REQUIRE(guest.usable());
+    D6R_REQUIRE_EQ(3, guest.send(payload.data(), payload.size()));
+    D6R_REQUIRE(stableRetry && !retryPending && writeWantRead == writesBefore + 1);
+    std::array<unsigned char, 32> buffer{};
+    observeRetry = false;
+    D6R_REQUIRE_EQ(3, receive(host, buffer));
+    D6R_REQUIRE(std::equal(payload.begin(), payload.end(), buffer.begin()));
+    D6R_REQUIRE_EQ(3, host.send(payload.data(), payload.size()));
+    observeRetry = true; retryPending = false; stableRetry = true;
+    stream->forcedReadWant = -3;
+    D6R_REQUIRE_EQ(-2, guest.receive(buffer.data(), buffer.size()));
+    D6R_REQUIRE(guest.usable());
+    D6R_REQUIRE_EQ(3, receive(guest, buffer));
+    D6R_REQUIRE(stableRetry && !retryPending && readWantWrite == readsBefore + 1);
+    observeRetry = false;
+    D6R_REQUIRE(std::equal(payload.begin(), payload.end(), buffer.begin()));
+}
+#endif
+
+D6R_TEST_CASE("Common PAKE byte BIO shorts authenticate and fatal write preserves accepted End with zero later context operations") {
+    Sockets sockets;
+    auto stream = std::make_shared<ByteSocket>(sockets.fd[1]);
+    SecureSession host(sockets.fd[0], true, secret(" Unicode-é "));
+    SecureSession guest(sockets.fd[1], false, secret(" Unicode-é "), {}, stream);
+    D6R_REQUIRE(handshake(host, guest));
+    const auto notice = Lifecycle::serializeIntentionalHostEnd({91});
+    D6R_REQUIRE_EQ(static_cast<std::ptrdiff_t>(notice.size()), host.send(notice.data(), notice.size()));
+    std::array<unsigned char, 32> buffer{};
+    std::vector<unsigned char> accepted;
+    std::promise<void> staged, release;
+    auto released = release.get_future().share();
+    auto reading = std::async(std::launch::async, [&] {
+        std::ptrdiff_t count = -2;
+        const auto deadline = std::chrono::steady_clock::now() + 2s;
+        while (count == -2 && std::chrono::steady_clock::now() < deadline) count = guest.receive(buffer.data(), buffer.size(), [&](std::size_t bytes) {
+            accepted.assign(buffer.begin(), buffer.begin() + bytes);
+            staged.set_value(); released.wait();
+        });
+        return count;
+    });
+    const bool received = staged.get_future().wait_for(2s) == std::future_status::ready;
+    if (!received) release.set_value();
+    D6R_REQUIRE(received);
+    stream->failWrites = true;
+    auto writing = std::async(std::launch::async, [&] { const unsigned char value = 1; return guest.send(&value, 1); });
+    const bool blocked = writing.wait_for(20ms) == std::future_status::timeout;
+    release.set_value();
+    D6R_REQUIRE(blocked); // Fatal cannot outrun authenticated staging.
+    D6R_REQUIRE_EQ(static_cast<std::ptrdiff_t>(notice.size()), reading.get());
+    D6R_REQUIRE_EQ(-1, writing.get());
+    D6R_REQUIRE(Lifecycle::deserializeIntentionalHostEnd(accepted).has_value());
+    const auto reads = stream->reads.load(), writes = stream->writes.load(), pending = stream->pendingQueries.load();
+    D6R_REQUIRE_EQ(-1, guest.receive(buffer.data(), buffer.size()));
+    D6R_REQUIRE_EQ(-1, guest.send(buffer.data(), 1));
+    D6R_REQUIRE(!guest.pending() && !guest.usable() && guest.expired());
+    D6R_REQUIRE_EQ(reads, stream->reads.load()); D6R_REQUIRE_EQ(writes, stream->writes.load());
+    D6R_REQUIRE_EQ(pending, stream->pendingQueries.load());
+}
+
+D6R_TEST_CASE("Common PAKE reader waiting behind fatal writer makes zero subsequent SDK operations") {
+    Sockets sockets;
+    auto stream = std::make_shared<ByteSocket>(sockets.fd[1]);
+    SecureSession host(sockets.fd[0], true, secret("fatal-test"));
+    SecureSession guest(sockets.fd[1], false, secret("fatal-test"), {}, stream);
+    D6R_REQUIRE(handshake(host, guest));
+    std::promise<void> inWrite, release;
+    auto released = release.get_future().share();
+    stream->beforeWriteFailure = [&] { inWrite.set_value(); released.wait_for(3s); };
+    stream->failWrites = true;
+    auto writing = std::async(std::launch::async, [&] { const unsigned char value = 1; return guest.send(&value, 1); });
+    const bool entered = inWrite.get_future().wait_for(2s) == std::future_status::ready;
+    if (!entered) release.set_value();
+    D6R_REQUIRE(entered);
+    const auto reads = stream->reads.load(), writes = stream->writes.load(), pending = stream->pendingQueries.load();
+#ifdef D6R_TEST_WRAP_SECURE_SDK
+    const auto directReads = sdkReads.load(), directWrites = sdkWrites.load(), directPending = sdkPending.load();
+#endif
+    std::promise<void> readerStarted;
+    auto reading = std::async(std::launch::async, [&] {
+        std::array<unsigned char, 32> buffer{};
+        readerStarted.set_value();
+        return guest.receive(buffer.data(), buffer.size());
+    });
+    readerStarted.get_future().wait();
+    const bool blocked = reading.wait_for(20ms) == std::future_status::timeout;
+    release.set_value();
+    D6R_REQUIRE(blocked);
+    D6R_REQUIRE_EQ(-1, writing.get()); D6R_REQUIRE_EQ(-1, reading.get());
+    const unsigned char byte = 0;
+    D6R_REQUIRE_EQ(-1, guest.send(&byte, 1));
+    D6R_REQUIRE(!guest.pending() && !guest.usable() && guest.expired());
+    D6R_REQUIRE_EQ(reads, stream->reads.load()); D6R_REQUIRE_EQ(writes, stream->writes.load());
+    D6R_REQUIRE_EQ(pending, stream->pendingQueries.load());
+#ifdef D6R_TEST_WRAP_SECURE_SDK
+    D6R_REQUIRE_EQ(directReads, sdkReads.load()); D6R_REQUIRE_EQ(directWrites, sdkWrites.load());
+    D6R_REQUIRE_EQ(directPending, sdkPending.load());
+#endif
 }
 
 D6R_TEST_CASE("Native private TLS exchanges protected application data for password and unlocked sessions") {

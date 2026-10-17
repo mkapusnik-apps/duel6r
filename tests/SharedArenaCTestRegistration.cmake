@@ -19,14 +19,14 @@ set_tests_properties(
 )
 
 # LocalServerLauncher's Windows command-line formatter has no Windows API
-# dependency. Compile the same application sources with the Windows branch
-# selected so the Linux application suite also enforces the CreateProcess/CRT
-# argv contract.
+# dependency. Select the Windows branch only for the formatter and its tests;
+# transport and TLS must retain the real platform headers and linkage. This is
+# a CRT quoting contract check, not a substitute for native Windows execution.
 add_executable(
     duel6r-networking-windows-contract-tests
     ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
     ${CMAKE_SOURCE_DIR}/tests/NetworkingPrototypeTests.cpp
-    ${D6R_NETWORK_SCAFFOLD_SOURCES}
+    ${CMAKE_SOURCE_DIR}/source/client/LocalServerLauncher.cpp
 )
 target_include_directories(duel6r-networking-windows-contract-tests PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(duel6r-networking-windows-contract-tests PRIVATE duel6r-network-scaffold)
@@ -100,11 +100,28 @@ set_tests_properties(
     menu-redesign-behavior
     PROPERTIES
     ENVIRONMENT
-        "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/menu-redesign-behavior;DISPLAY=:96"
+        "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/menu-redesign-behavior;DISPLAY=:96;MENU_REDESIGN_GROUP=basic"
     LABELS "application;regression;e2e;menu"
     RUN_SERIAL TRUE
     TIMEOUT 300
 )
+
+add_test(NAME menu-local-session-behavior
+    COMMAND ${D6R_BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/MenuRedesignBehaviorTests.sh)
+set_tests_properties(menu-local-session-behavior PROPERTIES
+    ENVIRONMENT "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/menu-local-session-behavior;DISPLAY=:96;MENU_REDESIGN_GROUP=local"
+    LABELS "application;regression;e2e;menu"
+    RUN_SERIAL TRUE TIMEOUT 300)
+
+# This existing fixture uses profile Lua callbacks to complete real rounds.
+if (D6R_WITH_LUA)
+    add_test(NAME final-team-summary-behavior
+        COMMAND ${D6R_BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/FinalTeamSummaryBehaviorTests.sh)
+    set_tests_properties(final-team-summary-behavior PROPERTIES
+        ENVIRONMENT "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/final-team-summary;DISPLAY=:93"
+        LABELS "application;regression;e2e;round-summary"
+        RUN_SERIAL TRUE TIMEOUT 300)
+endif ()
 
 add_test(
     NAME round-summary-progress-behavior

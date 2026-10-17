@@ -57,7 +57,8 @@ namespace Duel6 {
 
     void ShitThrowerShot::onHitPlayer(Player &player, bool directHit, const Vector &point, World &world) {
 #ifndef D6R_HEADLESS_CORE
-        if (brownSkin) player.useTemporarySkin(*brownSkin);
+        if (player.isHeadless()) player.applyTemporarySkinEffect();
+        else if (brownSkin) player.useTemporarySkin(*brownSkin);
 #else
         player.applyTemporarySkinEffect();
         (void) directHit;

@@ -266,7 +266,7 @@ namespace Duel6::Server::Authoritative {
 
     std::optional<R::IncrementalUpdate> AuthoritativeReplication::appendParticipants(
             const AuthoritativeMatch &match, const std::vector<R::ParticipantState> &participants) {
-        if (!match.admissionOpen() || state.phase != R::Phase::ActiveRound || !state.round) return std::nullopt;
+        if (!match.admissionOpen() || !state.round) return std::nullopt;
         const auto before = *this;
         for (const auto &participant: participants) {
             const auto existing = std::find_if(state.participants.begin(), state.participants.end(),
@@ -342,7 +342,7 @@ namespace Duel6::Server::Authoritative {
                 player.playerId = source.playerId; player.ownerParticipantId = owner->participantId;
                 player.rosterPosition = owner->rosterOrder; player.displayName = owner->displayName;
                 player.team = static_cast<std::uint8_t>(source.team);
-                player.lifeState = source.departed ? R::LifeState::Departed
+                player.lifeState = source.departed ? R::LifeState::Departed : source.waiting ? R::LifeState::Waiting
                                                    : (source.alive ? R::LifeState::Alive : R::LifeState::Dead);
                 player.positionX = source.positionX; player.positionY = source.positionY;
                 player.velocityX = source.velocityX; player.velocityY = source.velocityY;
@@ -422,6 +422,7 @@ namespace Duel6::Server::Authoritative {
             // Persist each authoritative arrival's age in snapshots as well as updates.
             // A late observer or reconnect must not restart existing players' effects.
             for (const auto &player: state.players) {
+                if (player.lifeState == R::LifeState::Waiting) continue;
                 const auto arrival = playerArrivalTicks.emplace(player.playerId, state.phaseTime).first->second;
                 const auto age = state.phaseTime - arrival;
                 if (player.lifeState != R::LifeState::Alive || age >= 120) continue;
@@ -614,13 +615,36 @@ namespace Duel6::Server::Authoritative {
             participant.ready = false;
             readinessChanged = true;
         }
-        if (!resultChanged && !readinessChanged) return std::nullopt;
+        bool membershipChanged = false;
+        for (auto &player: state.players)
+            if (removals.count(player.ownerParticipantId) && player.lifeState != R::LifeState::Departed) {
+                player.lifeState = R::LifeState::Departed;
+                membershipChanged = true;
+            }
+        // Unspawned or post-result newcomers have no historical row to label.
+        // Remove their membership independently, without fabricating participation
+        // or changing the immutable completed result.
+        const auto previousPlayerCount = state.players.size();
+        state.players.erase(std::remove_if(state.players.begin(), state.players.end(), [&](const auto &player) {
+            return removals.count(player.ownerParticipantId)
+                && std::none_of(retainedResult->players.begin(), retainedResult->players.end(), [&](const auto &row) {
+                    return row.playerId == player.playerId;
+                });
+        }), state.players.end());
+        membershipChanged = membershipChanged || state.players.size() != previousPlayerCount;
+        for (auto &participant: state.participants) if (removals.count(participant.participantId)) {
+            auto &owned = participant.ownedPlayerIds;
+            owned.erase(std::remove_if(owned.begin(), owned.end(), [&](Identity id) {
+                return std::none_of(state.players.begin(), state.players.end(), [&](const auto &player) { return player.playerId == id; });
+            }), owned.end());
+        }
+        state.participants.erase(std::remove_if(state.participants.begin(), state.participants.end(),
+            [](const auto &participant) { return participant.ownedPlayerIds.empty(); }), state.participants.end());
+        if (!resultChanged && !readinessChanged && !membershipChanged) return std::nullopt;
         if (resultChanged) {
             const auto serialized = serializeSessionResult(*retainedResult);
             if (!serialized) { *this = before; return std::nullopt; }
             state.result.serialized = *serialized;
-            for (auto &player: state.players)
-                if (removals.count(player.ownerParticipantId)) player.lifeState = R::LifeState::Departed;
         }
         auto update = publisher.publish(state);
         if (!update) *this = before;
@@ -711,6 +735,13 @@ namespace Duel6::Server::Authoritative {
         if (std::any_of(state.participants.begin(), state.participants.end(),
                         [](const auto &participant) { return participant.ready; })) return true;
         const std::set<Identity> removals(participantIds.begin(), participantIds.end());
+        if (std::any_of(state.players.begin(), state.players.end(), [&](const auto &player) {
+            return removals.count(player.ownerParticipantId)
+                && (player.lifeState != R::LifeState::Departed
+                    || std::none_of(retainedResult->players.begin(), retainedResult->players.end(), [&](const auto &row) {
+                        return row.playerId == player.playerId;
+                    }));
+        })) return true;
         return std::any_of(retainedResult->players.begin(), retainedResult->players.end(), [&](const auto &row) {
             return removals.count(row.participantId) && !row.departed;
         });

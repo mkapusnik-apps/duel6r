@@ -27,6 +27,9 @@
 
 #include <stdio.h>
 #include <string>
+#include "ApplicationMode.h"
+#include "server/ServerMain.h"
+#ifndef D6R_TRANSPORT_ONLY
 #include <SDL2/SDL.h>
 #include "Exception.h"
 #include "Application.h"
@@ -40,8 +43,29 @@ static void reportError(const std::string &err) {
     fprintf(stderr, "Error occured: %s\n", err.c_str());
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", err.c_str(), nullptr);
 }
+#endif
 
 int main(int argc, char **argv) {
+    const auto selected = Duel6::selectApplicationMode(argc, argv);
+    if (selected.mode == Duel6::ApplicationMode::Invalid) {
+        fprintf(stderr, "Invalid application options. Use duel6r --help.\n");
+        return 1;
+    }
+    if (selected.mode == Duel6::ApplicationMode::Help) {
+        printf("Usage: duel6r [ordered startup console commands]\n"
+               "       duel6r --server [server options]\n"
+               "Use duel6r --server --help for headless operations.\n");
+        return 0;
+    }
+    if (selected.mode == Duel6::ApplicationMode::Server || selected.mode == Duel6::ApplicationMode::ServerHelp) {
+        auto arguments = selected.arguments;
+        return Duel6::Server::runServer(static_cast<int>(arguments.size()), arguments.data(),
+                                       selected.mode == Duel6::ApplicationMode::ServerHelp);
+    }
+#ifdef D6R_TRANSPORT_ONLY
+    fprintf(stderr, "Graphical client is unavailable in this transport-only verification build.\n");
+    return 1;
+#else
     try {
 #ifdef D6_MACOS_PLATFORM
         // SDL's bundle base path is Contents/Resources (also fixed in Info.plist).
@@ -68,4 +92,5 @@ int main(int argc, char **argv) {
     }
 
     return 1;
+#endif
 }

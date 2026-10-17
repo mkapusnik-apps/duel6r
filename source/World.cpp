@@ -32,14 +32,10 @@
 namespace Duel6 {
     World::World(Game &game, const std::string &levelPath, bool mirror, RandomSource &randomSource)
             : gameSettings(game.getSettings()), players(game.getPlayers()), randomSource(randomSource),
-#ifdef D6R_HEADLESS_CORE
               level(game.getResources().hasFrozenGameplayContent()
                     ? Level(game.getResources().getFrozenGameplayContent(levelPath), mirror,
                             game.getResources().getBlockMeta(), randomSource)
                     : Level(levelPath, mirror, game.getResources().getBlockMeta(), randomSource)),
-#else
-              level(levelPath, mirror, game.getResources().getBlockMeta(), randomSource),
-#endif
               messageQueue(D6_INFO_DURATION),
 #ifndef D6R_HEADLESS_CORE
               explosionList(game.isHeadless() ? Texture() : game.getResources().getExplosionTextures(),
@@ -69,11 +65,9 @@ namespace Duel6 {
 
         game.log("...Level initialization");
         game.log("...Loading elevators");
-#ifdef D6R_HEADLESS_CORE
         if (game.getResources().hasFrozenGameplayContent())
             elevatorList.load(game.getResources().getFrozenGameplayContent(levelPath), mirror);
         else
-#endif
             elevatorList.load(levelPath, mirror);
         fireList.find(level);
         fireList.setBurnedSink([this](Size localIdentity) {
