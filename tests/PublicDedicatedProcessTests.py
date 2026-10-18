@@ -766,6 +766,12 @@ def main():
                 failure_context(root, handles or {}, peer, result=result)
             assert all(value not in result.stdout + result.stderr for value in (INVITE, ROTATED, OTHER)), "client logged invitation"
             assert result.returncode == 0, result.stdout + result.stderr + peer.evidence()
+            if scenario.startswith("attack-"):
+                assert all((root / name).exists() for name in (
+                    "attack-end-armed", "attack-service-End-before-fatal", "attack-write-failed",
+                    "peer-End-received-3", "end-forwarded-3",
+                )), "authorization observer relay lost actual End across a failed reverse write"
+                print("PASS unaffected observer received authenticated End after failed reverse write", flush=True)
             if scenario == "summary-return-ordered":
                 assert (root / "summary-controller-held").exists() and (root / "summary-guest-seen").exists(), "authenticated peer did not hold real summary records"
                 assert all((root / name).exists() for name in (
@@ -792,6 +798,7 @@ def main():
                 # Independent service instances preserve all negative scenarios
                 # after a production failure without carrying stranded sessions.
                 for name in ("action", "acted", "action.tmp", "attack.bin", "attack-rejected", "summary-release",
+                              "attack-end-arm", "attack-end-armed", "attack-service-End-before-fatal", "attack-write-failed",
                              "summary-end-arm", "summary-end-armed", "summary-service-End-before-fatal", "summary-write-failed",
                              "client-failure-context", "failure-context.json"):
                     (root / name).unlink(missing_ok=True)

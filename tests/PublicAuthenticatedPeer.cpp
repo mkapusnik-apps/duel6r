@@ -23,6 +23,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 #include <deque>
@@ -45,7 +46,8 @@ struct PeerReceipt {
     std::ptrdiff_t mapped = -99;
     std::size_t requested = 0, progress = 0;
     unsigned clientFrames = 0, serviceFrames = 0, emitted = 0;
-    bool budgetExpired = false, attackSeen = false;
+    unsigned frontendReadsAfterAttack = 0;
+    bool budgetExpired = false, attackSeen = false, attackForwarded = false;
     void emit(const char *event, unsigned line) noexcept {
         // Fixed aliases/stages and numeric state only. No bytes, paths, session
         // identities or credential data; at most three receipts per connection.
@@ -60,7 +62,8 @@ struct PeerReceipt {
                 << " io-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - ioBegan).count()
                 << " budget-expired=" << budgetExpired << " stopped=" << stopped.load()
                 << " client-frames=" << clientFrames << " service-frames=" << serviceFrames
-                << " attack-seen=" << attackSeen << '\n';
+                << " attack-seen=" << attackSeen << " attack-forwarded=" << attackForwarded
+                << " frontend-reads-after-attack=" << frontendReadsAfterAttack << '\n';
         } catch (...) {} // Logging failure must never replace the original failure.
     }
 };
@@ -82,6 +85,8 @@ struct Frame {
     // calls go through fatal-gated SecureSession. Partial bytes prove nothing.
     int read(SecureSession &session, const char *operation = "read") {
         if (activeReceipt) {
+            if (activeReceipt->attackForwarded && std::string_view(operation) == "frontend-read")
+                ++activeReceipt->frontendReadsAfterAttack;
             activeReceipt->operation = operation; activeReceipt->ioBegan = Clock::now();
             activeReceipt->requested = total - used; activeReceipt->progress = used;
             activeReceipt->budgetExpired = false;
@@ -174,10 +179,11 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         SecureSession service(back.fd, false, password);
         require(service.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
         Frame incoming, outgoing;
-        bool attackReceived = false, raceCompleted = false;
+        bool attackReceived = false, attackForwarded = false, deferAttackRead = false, raceCompleted = false;
         const bool positiveRace = scenario == "flow-race";
         const bool negativeRace = scenario == "flow-fatal-before-end";
         const bool summaryTerminal = scenario == "summary-return-ordered" && id == 2;
+        const bool attackTerminal = scenario.compare(0, 7, "attack-") == 0 && id == 3;
         bool gated = false;
         Clock::time_point coordinationDeadline{};
         std::deque<std::vector<std::uint8_t>> reverseTraffic;
@@ -191,10 +197,12 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
             stage = "application-relay";
             if (!gated && ((id == 3 && (positiveRace || negativeRace)
                 && std::filesystem::exists(root / "flow-arm"))
-                || (summaryTerminal && std::filesystem::exists(root / "summary-end-arm")))) {
+                || (summaryTerminal && std::filesystem::exists(root / "summary-end-arm"))
+                || (attackTerminal && std::filesystem::exists(root / "attack-end-arm")))) {
                 gated = true;
                 coordinationDeadline = Clock::now() + 2s; // One original close/drain budget, never restarted.
-                marker(root, summaryTerminal ? "summary-end-armed" : "flow-armed");
+                marker(root, attackTerminal ? "attack-end-armed"
+                        : summaryTerminal ? "summary-end-armed" : "flow-armed");
             }
             if (gated) require(Clock::now() < coordinationDeadline);
             if (id == 2) {
@@ -206,17 +214,21 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     marker(root, "acted");
                 }
             }
-            const int received = incoming.read(client, "frontend-read");
+            // Once the exact malicious request is fully forwarded, ordinary
+            // reverse traffic must not make a failed write hide service EOF.
+            const int received = attackForwarded ? 0 : incoming.read(client, "frontend-read");
             if (received < 0) return;
             if (received > 0) {
                 { std::ofstream out(root / ("peer-client-frame-" + std::to_string(id)));
                   out << ++clientFrames << ':' << incoming.bytes.size() << ':' << unsigned(incoming.bytes[7]); }
                 receipt.clientFrames = clientFrames;
+                bool thisIsAttack = false;
                 if (std::filesystem::exists(root / "attack.bin")) {
                     std::ifstream attack(root / "attack.bin", std::ios::binary);
                     std::vector<std::uint8_t> expected{std::istreambuf_iterator<char>(attack), {}};
-                    attackReceived |= incoming.bytes.size() == TransportEnvelopeBytes + expected.size()
+                    thisIsAttack = incoming.bytes.size() == TransportEnvelopeBytes + expected.size()
                         && std::equal(expected.begin(), expected.end(), incoming.bytes.begin() + TransportEnvelopeBytes);
+                    attackReceived |= thisIsAttack;
                 }
                 receipt.attackSeen = attackReceived;
                 // All competing reverse traffic is bounded and owned, not only
@@ -230,6 +242,10 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 }
                 else {
                     require(write(service, incoming.bytes, "backend-write"));
+                    if (thisIsAttack) {
+                        attackForwarded = receipt.attackForwarded = true;
+                        deferAttackRead = true;
+                    }
                     if (incoming.bytes.size() == TransportEnvelopeBytes + 26
                         && std::equal(incoming.bytes.begin() + TransportEnvelopeBytes,
                                        incoming.bytes.begin() + TransportEnvelopeBytes + 10, "D6LC\0\2\0\6\0\3")) {
@@ -239,6 +255,11 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     }
                 }
                 incoming.reset();
+                // Deterministically exercise one post-forwarding loop before
+                // reading rejection, even when EOF is already queued. The read
+                // receipt below must prove that this loop did not touch the
+                // frontend SDK. No sleep or observation deadline is added.
+                if (deferAttackRead) { deferAttackRead = false; continue; }
             }
             if (gated && negativeRace && !reverseTraffic.empty()
                 && std::filesystem::exists(root / "flow-trigger-fatal")) {
@@ -256,7 +277,13 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 return;
             }
             const int sent = outgoing.read(service, "backend-read");
-            if (sent < 0) { if (attackReceived) marker(root, "attack-rejected"); return; }
+            if (sent < 0) {
+                if (attackForwarded) {
+                    require(receipt.frontendReadsAfterAttack == 0);
+                    marker(root, "attack-rejected"); // Only an actual terminal backend read qualifies.
+                }
+                return;
+            }
             if (sent > 0) {
                 { std::ofstream out(root / ("peer-service-frame-" + std::to_string(id)));
                   out << ++serviceFrames << ':' << outgoing.bytes.size() << ':' << unsigned(outgoing.bytes[7]); }
@@ -277,9 +304,10 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 const auto endDeadline = Clock::now() + 2s;
                 if (end) marker(root, ("peer-End-received-" + std::to_string(id)).c_str());
                 if (end && id == 2) marker(root, "flow-service-End");
-                if (((positiveRace && id == 3) || summaryTerminal) && end && !raceCompleted) {
+                if (((positiveRace && id == 3) || summaryTerminal || attackTerminal) && end && !raceCompleted) {
                     require(gated && Clock::now() < coordinationDeadline);
-                    marker(root, summaryTerminal ? "summary-service-End-before-fatal" : "flow-service-End-before-fatal");
+                    marker(root, attackTerminal ? "attack-service-End-before-fatal"
+                            : summaryTerminal ? "summary-service-End-before-fatal" : "flow-service-End-before-fatal");
                     // The service actually sent End. Preserve that authenticated
                     // staging while genuine opposite participant traffic attempts
                     // a write against a closed OS half, then stop the fatal SDK.
@@ -294,7 +322,8 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     stage = "race-opposite-write";
                     require(traffic == 1 && !write(service, reverseTraffic.empty() ? incoming.bytes : reverseTraffic.front())
                         && !service.usable());
-                    marker(root, summaryTerminal ? "summary-write-failed" : "race-write-failed"); raceCompleted = true;
+                    marker(root, attackTerminal ? "attack-write-failed"
+                            : summaryTerminal ? "summary-write-failed" : "race-write-failed"); raceCompleted = true;
                 }
                 stage = "authenticated-forward";
                 require(write(client, outgoing.bytes, "frontend-write"));
