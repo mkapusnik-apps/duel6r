@@ -14,7 +14,7 @@ display="${DISPLAY:-:93}"
 assertions="${workspace_dir}/tests/SharedArenaImageAssertions.py"
 
 fail() { echo "final-team-summary: FAIL: $*" >&2; exit 1; }
-for command in Xvfb xdotool import python3 timeout; do
+for command in Xvfb xdotool import identify convert cmp python3 timeout; do
     command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
 done
 [[ -x "${build_dir}/duel6r" ]] || fail "application binary is missing"
@@ -142,14 +142,50 @@ run_scenario() {
     done
     [[ -n "$window_id" ]] || fail "$label application window not found"
     xdotool windowfocus "$window_id" windowactivate "$window_id" >/dev/null 2>&1 || true
-    sleep 1
+    # A visible SDL window can precede menu initialization and its coordinate
+    # transform. Clicks queued before the first menu frame can select Predator
+    # instead of Teams, making a correct non-Team summary fail the Team oracle.
+    local menu_ready=false
+    for _ in {1..60}; do
+        kill -0 "$app_pid" 2>/dev/null || fail "$label exited before its first menu frame"
+        import -window root "${scenario_dir}/menu.png"
+        local colors
+        colors="$(identify -format '%k' "${scenario_dir}/menu.png")"
+        if [[ "$colors" =~ ^[0-9]+$ ]] && (( colors >= 16 )); then
+            menu_ready=true
+            break
+        fi
+        sleep 0.25
+    done
+    [[ "$menu_ready" == true ]] || fail "$label did not render its first menu frame"
+
+    # As in SharedArenaBehaviorTests, observe each released spinner activation
+    # before starting gameplay; never infer the chosen mode from sent clicks.
+    advance_setting() {
+        local y="$1" advanced=false
+        import -window root "${scenario_dir}/setting-before.png"
+        convert "${scenario_dir}/setting-before.png" -crop "190x20+960+$((y - 8))" +repage \
+            -depth 8 "rgb:${scenario_dir}/setting-before.rgb"
+        for _ in {1..3}; do
+            xdotool mousemove 1157 "$y" mousedown 1 sleep 0.08 mouseup 1
+            sleep 0.2
+            import -window root "${scenario_dir}/setting-after.png"
+            convert "${scenario_dir}/setting-after.png" -crop "190x20+960+$((y - 8))" +repage \
+                -depth 8 "rgb:${scenario_dir}/setting-after.rgb"
+            if ! cmp -s "${scenario_dir}/setting-before.rgb" "${scenario_dir}/setting-after.rgb"; then
+                advanced=true
+                break
+            fi
+        done
+        [[ "$advanced" == true ]] || fail "$label setting at $y did not advance"
+    }
 
     if [[ "$mode" == team* ]]; then
         # Teams is the third primary mode. Advance the team count from its default 2.
-        xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-        xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+        advance_setting 217
+        advance_setting 217
         for ((count = 2; count < team_count; count++)); do
-            xdotool mousemove 1157 244 mousedown 1 sleep 0.08 mouseup 1
+            advance_setting 244
         done
     fi
     xdotool key --window "$window_id" F1

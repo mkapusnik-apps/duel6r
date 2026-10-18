@@ -183,6 +183,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         const bool positiveRace = scenario == "flow-race";
         const bool negativeRace = scenario == "flow-fatal-before-end";
         const bool summaryTerminal = scenario == "summary-return-ordered" && id == 2;
+        const bool attackTerminal = scenario.compare(0, 7, "attack-") == 0 && id == 3;
         bool gated = false;
         Clock::time_point coordinationDeadline{};
         std::deque<std::vector<std::uint8_t>> reverseTraffic;
@@ -196,10 +197,12 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
             stage = "application-relay";
             if (!gated && ((id == 3 && (positiveRace || negativeRace)
                 && std::filesystem::exists(root / "flow-arm"))
-                || (summaryTerminal && std::filesystem::exists(root / "summary-end-arm")))) {
+                || (summaryTerminal && std::filesystem::exists(root / "summary-end-arm"))
+                || (attackTerminal && std::filesystem::exists(root / "attack-end-arm")))) {
                 gated = true;
                 coordinationDeadline = Clock::now() + 2s; // One original close/drain budget, never restarted.
-                marker(root, summaryTerminal ? "summary-end-armed" : "flow-armed");
+                marker(root, attackTerminal ? "attack-end-armed"
+                        : summaryTerminal ? "summary-end-armed" : "flow-armed");
             }
             if (gated) require(Clock::now() < coordinationDeadline);
             if (id == 2) {
@@ -301,9 +304,10 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 const auto endDeadline = Clock::now() + 2s;
                 if (end) marker(root, ("peer-End-received-" + std::to_string(id)).c_str());
                 if (end && id == 2) marker(root, "flow-service-End");
-                if (((positiveRace && id == 3) || summaryTerminal) && end && !raceCompleted) {
+                if (((positiveRace && id == 3) || summaryTerminal || attackTerminal) && end && !raceCompleted) {
                     require(gated && Clock::now() < coordinationDeadline);
-                    marker(root, summaryTerminal ? "summary-service-End-before-fatal" : "flow-service-End-before-fatal");
+                    marker(root, attackTerminal ? "attack-service-End-before-fatal"
+                            : summaryTerminal ? "summary-service-End-before-fatal" : "flow-service-End-before-fatal");
                     // The service actually sent End. Preserve that authenticated
                     // staging while genuine opposite participant traffic attempts
                     // a write against a closed OS half, then stop the fatal SDK.
@@ -318,7 +322,8 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     stage = "race-opposite-write";
                     require(traffic == 1 && !write(service, reverseTraffic.empty() ? incoming.bytes : reverseTraffic.front())
                         && !service.usable());
-                    marker(root, summaryTerminal ? "summary-write-failed" : "race-write-failed"); raceCompleted = true;
+                    marker(root, attackTerminal ? "attack-write-failed"
+                            : summaryTerminal ? "summary-write-failed" : "race-write-failed"); raceCompleted = true;
                 }
                 stage = "authenticated-forward";
                 require(write(client, outgoing.bytes, "frontend-write"));

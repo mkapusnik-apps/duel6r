@@ -345,8 +345,15 @@ int main(int argc, char **argv) {
             if (summary) require(after.canonical->result.serialized == before.result.serialized, "attack replaced completed result");
             // Real controller authority and the uninvolved participant's stream
             // remain usable after rejection of the authenticated attacker.
+            // Arm the observer relay before End: a competing ordinary reverse
+            // write must not hide the service's actual authenticated notice.
+            // Coordination consumes the original total five-second End budget.
+            const auto endDeadline = std::chrono::steady_clock::now() + 5s;
+            { std::ofstream arm(root / "attack-end-arm"); }
+            require(pumpUntil([&] { return std::filesystem::exists(root / "attack-end-armed"); }, endDeadline),
+                    "authorization observer terminal relay armed");
             first.endSession();
-            const bool ended = pump([&] { return observer.snapshot().journey == J::HostEnded; }, 5s);
+            const bool ended = pumpUntil([&] { return observer.snapshot().journey == J::HostEnded; }, endDeadline);
             if (!ended) failureContext(root, "attack-end-outcome", first, second, observer);
             require(ended, "unaffected participant did not receive legitimate end");
             std::cout << "PASS exact malicious frame observed over TLS; server rejected; authority/state retained\n";
