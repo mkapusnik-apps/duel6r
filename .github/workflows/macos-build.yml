@@ -38,7 +38,17 @@ jobs:
           ref: ${{ inputs.source_sha }}
 
       - name: Install native build tools
-        run: brew install cmake ninja pkg-config python@3.13
+        run: brew install cmake ninja pkg-config
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Verify Python
+        run: |
+          python3 --version
+          python3 -c "import platform, sys; print(sys.executable); print(platform.machine()); assert sys.version_info[:2] == (3, 13)"
 
       - name: Prepare runtime dependencies for the target minimum macOS
         run: D6R_MACOS_ARCH=${{ matrix.arch }} bash macos/prepare-runtime-dependencies.sh
