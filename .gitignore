@@ -6,3 +6,4 @@ build-debug/*
 build-typecheck/*
 dist/*
 .cache/*
+__pycache__/
