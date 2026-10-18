@@ -142,6 +142,54 @@ printf '%s %s' "$D6R_MACOS_ARCH" "$D6R_MACOS_MINIMUM"
         with self.assertRaisesRegex(RuntimeError, "library identity mismatch"):
             package.collect_runtime(prefix, manifest, archives, self.output, "x86_64", [library])
 
+    def test_private_runtime_accepts_directory_aliases_without_relaxing_verification(self):
+        prefix, manifest, archives, library = self.runtime_fixture("arm64")
+        # Reproduce Darwin's /var -> /private/var spelling difference on Linux.
+        alias = self.output / "var"
+        alias.symlink_to(self.build, target_is_directory=True)
+        alias_prefix = alias / "runtime"
+        alias_library = alias_prefix / "lib/libfixture.dylib"
+        self.assertNotEqual(alias_library, library.resolve())
+        self.assertTrue(alias_library.samefile(library))
+        for selected_prefix in (prefix, alias_prefix):
+            for origins in ([library], [alias_library], [library, alias_library]):
+                with self.subTest(prefix=selected_prefix, origins=origins):
+                    metadata = package.collect_runtime(
+                        selected_prefix, manifest, archives, self.output, "arm64", origins)
+                    self.assertEqual("14.0", metadata["minimum_macos"])
+        foreign = self.build / "foreign.dylib"
+        foreign.write_bytes(library.read_bytes())  # Equal bytes do not establish an approved origin.
+        unlisted = prefix / "lib/unlisted.dylib"
+        unlisted.write_bytes(library.read_bytes())
+        escape = prefix / "lib/escape.dylib"
+        escape.symlink_to(foreign)
+        for origin in (alias / "foreign.dylib", alias_prefix / "lib/unlisted.dylib",
+                       alias_prefix / "lib/escape.dylib"):
+            with self.subTest(origin=origin), self.assertRaisesRegex(RuntimeError, "dependency origin"):
+                package.collect_runtime(alias_prefix, manifest, archives, self.output,
+                                        "arm64", [alias_library, origin])
+        for name, target in (("missing", foreign.with_name("missing")), ("loop", prefix / "lib/loop.dylib")):
+            link = prefix / "lib" / (name + ".dylib")
+            link.symlink_to(target)
+            with self.subTest(origin=link), self.assertRaisesRegex(RuntimeError, "dependency origin"):
+                package.collect_runtime(alias_prefix, manifest, archives, self.output,
+                                        "arm64", [alias_library, alias_prefix / "lib" / link.name])
+        # Even an inventoried symlink must not escape the private prefix.
+        original_library = library.read_bytes()
+        library.unlink()
+        library.symlink_to(foreign)
+        with self.assertRaisesRegex(RuntimeError, "library identity mismatch"):
+            package.collect_runtime(alias_prefix, manifest, archives, self.output, "arm64", [alias_library])
+        library.unlink()
+        library.write_bytes(b"altered library")
+        with self.assertRaisesRegex(RuntimeError, "library identity mismatch"):
+            package.collect_runtime(alias_prefix, manifest, archives, self.output, "arm64", [alias_library])
+        library.write_bytes(original_library)
+        packet = json.loads(manifest.read_text())["projects"][0]
+        (archives / packet["sha256"]).write_bytes(b"corrupt source")
+        with self.assertRaisesRegex(RuntimeError, "Source checksum mismatch"):
+            package.collect_runtime(alias_prefix, manifest, archives, self.output, "arm64", [alias_library])
+
     def test_private_runtime_rejects_stale_floor_recipe_source_and_missing_notice(self):
         prefix, manifest, archives, library = self.runtime_fixture("arm64")
         with self.assertRaisesRegex(RuntimeError, "provenance mismatch"):
