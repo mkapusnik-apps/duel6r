@@ -1,3 +1,5 @@
 source/client/** text eol=lf
 source/network/** text eol=lf
 source/server/** text eol=lf
+docker/tool-image-version.sh text eol=lf
+docker/resolve-tool-image.sh text eol=lf
