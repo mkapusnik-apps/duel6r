@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# Toolchain refresh revision: 1 (bump to refresh upstream packages)
 
 FROM ubuntu:24.04
 
@@ -35,9 +36,4 @@ ENV CMAKE_PREFIX_PATH=/opt/mbedtls
 
 WORKDIR /workspace
 
-COPY docker/build.sh /usr/local/bin/duel6r-build
-COPY docker/main-menu-smoke.sh /usr/local/bin/duel6r-main-menu-smoke
-
-RUN chmod +x /usr/local/bin/duel6r-build /usr/local/bin/duel6r-main-menu-smoke
-
-ENTRYPOINT ["/usr/local/bin/duel6r-build"]
+ENTRYPOINT ["bash", "/workspace/docker/build.sh"]

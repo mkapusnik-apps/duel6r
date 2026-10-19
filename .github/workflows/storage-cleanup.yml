@@ -33,14 +33,15 @@ jobs:
       packages: write
     steps:
       - name: Inventory and clean package versions
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const packageNames = [`${repo}/build`, `${repo}/build-w64`];
+            const packageNames = ['build', 'build-arm64', 'build-w64', 'build-windows-transport']
+              .map(name => `${repo}/${name}`);
             const refs = ['develop', 'sanity', 'nightly'];
             const dryRun = process.env.DRY_RUN === 'true';
 
@@ -56,6 +57,7 @@ jobs:
             }
 
             const protectedTags = new Set([
+              'latest',
               'develop',
               `sha-${commits.develop}`,
               `sha-${commits.sanity}`,
@@ -91,7 +93,9 @@ jobs:
               const deletions = versions.filter(version => {
                 const tags = version.metadata?.container?.tags ?? [];
                 return !newestIds.has(version.id)
-                  && !tags.some(tag => protectedTags.has(tag));
+                  // Retain every immutable tool version, including older release sources.
+                  // This also prevents cleanup from allowing a version to be rebuilt differently.
+                  && !tags.some(tag => protectedTags.has(tag) || /^tool-[0-9a-f]{64}$/.test(tag));
               });
               return {packageName, total: versions.length, deletions};
             });

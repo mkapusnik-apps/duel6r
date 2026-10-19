@@ -9,7 +9,7 @@ with_lua="${D6R_WITH_LUA:-ON}"
 directory_default_url="${D6R_DIRECTORY_DEFAULT_URL:-}"
 build_testing="${BUILD_TESTING:-ON}"
 run_tests="${RUN_TESTS:-OFF}"
-toolchain_file="${TOOLCHAIN_FILE:-/opt/toolchains/mingw-w64-x86_64.cmake}"
+toolchain_file="${TOOLCHAIN_FILE:-${workspace_dir}/docker/toolchains/mingw-w64-x86_64.cmake}"
 clean_output_dir="${CLEAN_OUTPUT_DIR:-OFF}"
 
 tmp_build_dir="$(mktemp -d /tmp/duel6r-build-win-XXXXXX)"

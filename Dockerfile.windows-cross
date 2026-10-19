@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# Toolchain refresh revision: 1 (bump to refresh upstream packages)
 
 FROM ubuntu:24.04
 
@@ -23,8 +24,10 @@ RUN apt-get update \
 
 WORKDIR /opt
 
+ARG VCPKG_REVISION=9e593bb18ea69cc5095e012465dcd675a822ed0d
 RUN git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg \
     && cd /opt/vcpkg \
+    && git checkout "${VCPKG_REVISION}" \
     && ./bootstrap-vcpkg.sh -disableMetrics
 
 RUN /opt/vcpkg/vcpkg install --triplet x64-mingw-dynamic \
@@ -47,9 +50,4 @@ RUN cmake -S /opt/duel6r-mbedtls -B /opt/mbedtls-build \
 
 WORKDIR /workspace
 
-COPY docker/build-windows.sh /usr/local/bin/duel6r-build-windows
-COPY docker/toolchains/mingw-w64-x86_64.cmake /opt/toolchains/mingw-w64-x86_64.cmake
-
-RUN chmod +x /usr/local/bin/duel6r-build-windows
-
-ENTRYPOINT ["/usr/local/bin/duel6r-build-windows"]
+ENTRYPOINT ["bash", "/workspace/docker/build-windows.sh"]

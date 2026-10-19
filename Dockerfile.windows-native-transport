@@ -1,4 +1,5 @@
 # escape=`
+# Toolchain refresh revision: 1 (bump to refresh upstream packages)
 
 FROM mcr.microsoft.com/dotnet/framework/runtime:4.8.1-windowsservercore-ltsc2025
 
@@ -34,6 +35,4 @@ COPY docker/mbedtls C:\Tools\duel6r-mbedtls
 
 WORKDIR C:\workspace
 
-COPY docker/build-windows-native-transport.cmd C:\Tools\build-windows-native-transport.cmd
-
-ENTRYPOINT ["cmd", "/S", "/C", "C:\\Tools\\build-windows-native-transport.cmd"]
+ENTRYPOINT ["cmd", "/S", "/C", "C:\\workspace\\docker\\build-windows-native-transport.cmd"]

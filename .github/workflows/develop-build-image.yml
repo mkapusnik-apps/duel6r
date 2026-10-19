@@ -1,24 +1,61 @@
 name: Develop - Build Container Image
 
 on:
-  workflow_call:
+  push:
+    branches: [develop]
+    paths:
+      - Dockerfile
+      - Dockerfile.windows-cross
+      - Dockerfile.windows-native-transport
+      - .dockerignore
+      - docker/mbedtls/**
+      - docker/tool-image-version.sh
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-build-images-${{ github.sha }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  build-image-linux:
-    name: Publish Linux Build Image
-    runs-on: ubuntu-latest
+  publish:
+    name: Publish ${{ matrix.package }}
+    if: github.ref == 'refs/heads/develop' && github.event.repository.default_branch == 'develop'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: build
+            dockerfile: Dockerfile
+            runner: ubuntu-24.04
+          - package: build-arm64
+            dockerfile: Dockerfile
+            runner: ubuntu-24.04-arm
+          - package: build-w64
+            dockerfile: Dockerfile.windows-cross
+            runner: ubuntu-24.04
+          - package: build-windows-transport
+            dockerfile: Dockerfile.windows-native-transport
+            runner: windows-2025
+    # Serialize writers to each package so an existing immutable tag is never replaced.
+    concurrency:
+      group: tool-image-${{ matrix.package }}
+      cancel-in-progress: false
+      queue: max
+    defaults:
+      run:
+        shell: bash
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.package }}
+      DOCKERFILE: ${{ matrix.dockerfile }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+
+      - name: Start native Windows Docker service
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Start-Service docker
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -27,51 +64,40 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Extract Docker metadata
-        id: meta-linux
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository }}/build
-          tags: |
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=raw,value=sha-${{ github.sha }}
+      - name: Select immutable tool version
+        id: version
+        run: |
+          version="$(bash docker/tool-image-version.sh "$DOCKERFILE")"
+          echo "tag=$version" >> "$GITHUB_OUTPUT"
+          if manifest="$(docker manifest inspect "$IMAGE:$version" 2>&1)"; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            case "$manifest" in
+              *'manifest unknown'*|*'no such manifest'*) echo 'exists=false' >> "$GITHUB_OUTPUT" ;;
+              *) printf '%s\n' "$manifest" >&2; exit 1 ;;
+            esac
+          fi
 
-      - name: Build and push Linux build image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta-linux.outputs.tags }}
-          labels: ${{ steps.meta-linux.outputs.labels }}
+      - name: Build and publish new tool version
+        if: steps.version.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+        run: |
+          # Keep one tagged manifest per version for resolution and retention.
+          # Native Windows uses the classic builder, which has no attestations.
+          build_options=()
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            build_options+=(--provenance=false --sbom=false)
+          fi
+          docker build "${build_options[@]}" --pull --no-cache --file "$DOCKERFILE" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --tag "$IMAGE:$VERSION" .
+          docker push "$IMAGE:$VERSION"
 
-  build-image-windows:
-    name: Publish Windows Build Image
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Extract Docker metadata (Windows cross)
-        id: meta-win
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository }}/build-w64
-          tags: |
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=raw,value=sha-${{ github.sha }}
-
-      - name: Build and push Windows cross image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile.windows-cross
-          push: true
-          tags: ${{ steps.meta-win.outputs.tags }}
-          labels: ${{ steps.meta-win.outputs.labels }}
+      - name: Publish convenience alias without rebuilding the version
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+        run: |
+          docker pull "$IMAGE:$VERSION"
+          docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+          docker push "$IMAGE:latest"

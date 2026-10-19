@@ -1,3 +1,5 @@
+param([string]$Image = 'duel6r-windows-transport:ci')
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -115,7 +117,7 @@ $dockerArguments = @(
     'D6R_WINDOWS_SDK_ROOT=C:\HostTools\WindowsKits10'
     '--env'
     "D6R_WINDOWS_SDK_VERSION=$sdkVersion"
-    'duel6r-windows-transport:ci'
+    $Image
 )
 
 & docker @dockerArguments
