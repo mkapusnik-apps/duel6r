@@ -25,11 +25,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull Linux build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:develop
+      - name: Resolve Linux tool version from the release source
+        id: linux-tools
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build Dockerfile >> "$GITHUB_OUTPUT"
 
-      - name: Pull Windows cross build image
-        run: docker pull ghcr.io/${{ github.repository }}/build-w64:develop
+      - name: Resolve Windows cross tool version from the release source
+        id: windows-tools
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build-w64 Dockerfile.windows-cross >> "$GITHUB_OUTPUT"
 
       - name: Build Linux release files inside shared bundle
         run: |
@@ -37,7 +39,7 @@ jobs:
             -e D6R_DIRECTORY_DEFAULT_URL=https://duel.netusite.cz \
             -e CLEAN_OUTPUT_DIR=ON \
             -v "$PWD:/workspace" \
-            ghcr.io/${{ github.repository }}/build:develop
+            ${{ steps.linux-tools.outputs.image }}
 
       - name: Build Windows release files inside shared bundle
         run: |
@@ -47,7 +49,7 @@ jobs:
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=OFF \
             -v "$PWD:/workspace" \
-            ghcr.io/${{ github.repository }}/build-w64:develop
+            ${{ steps.windows-tools.outputs.image }}
 
       - name: Verify shared release bundle
         run: |

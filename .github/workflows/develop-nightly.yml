@@ -43,23 +43,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Pull exact Linux build image
-        env:
-          BUILD_IMAGE: ghcr.io/${{ github.repository }}/build:sha-${{ needs.source.outputs.sanity_sha }}
-        run: |
-          docker pull "${BUILD_IMAGE}" || {
-            echo "::error::The Linux build image for sanity SHA ${{ needs.source.outputs.sanity_sha }} is unavailable."
-            exit 1
-          }
+      - name: Resolve Linux tool version from the captured sanity source
+        id: linux-tools
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build Dockerfile >> "$GITHUB_OUTPUT"
 
-      - name: Pull exact Windows cross build image
-        env:
-          BUILD_IMAGE: ghcr.io/${{ github.repository }}/build-w64:sha-${{ needs.source.outputs.sanity_sha }}
-        run: |
-          docker pull "${BUILD_IMAGE}" || {
-            echo "::error::The Windows build image for sanity SHA ${{ needs.source.outputs.sanity_sha }} is unavailable."
-            exit 1
-          }
+      - name: Resolve Windows cross tool version from the captured sanity source
+        id: windows-tools
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build-w64 Dockerfile.windows-cross >> "$GITHUB_OUTPUT"
 
       - name: Build Linux nightly files inside shared bundle
         run: |
@@ -68,7 +58,7 @@ jobs:
             -e BUILD_TESTING=OFF \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=ON \
-            ghcr.io/${{ github.repository }}/build:sha-${{ needs.source.outputs.sanity_sha }}
+            ${{ steps.linux-tools.outputs.image }}
 
       - name: Build Windows nightly files inside shared bundle
         run: |
@@ -77,7 +67,7 @@ jobs:
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=OFF \
             -e CLEAN_OUTPUT_DIR=OFF \
-            ghcr.io/${{ github.repository }}/build-w64:sha-${{ needs.source.outputs.sanity_sha }}
+            ${{ steps.windows-tools.outputs.image }}
 
       - name: Package nightly bundle
         working-directory: build

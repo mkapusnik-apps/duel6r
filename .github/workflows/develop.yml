@@ -9,16 +9,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-images:
-    name: Publish exact-SHA build images
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/develop-build-image.yml
-
   sanity:
     name: ${{ matrix.name }}
-    needs: [build-images]
     runs-on: self-hosted
     strategy:
       fail-fast: false
@@ -43,8 +35,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Pull exact Linux build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
+      - name: Resolve source tool version (wait for independent publication)
+        id: tools
+        timeout-minutes: 125
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build Dockerfile 7200 >> "$GITHUB_OUTPUT"
 
       - name: Build and run selected CTests inside container
         run: |
@@ -52,7 +46,7 @@ jobs:
             -e BUILD_TESTING=ON \
             -e RUN_TESTS=ON \
             -e CTEST_LABEL_REGEX='^sanity-${{ matrix.group }}$' \
-            ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
+            ${{ steps.tools.outputs.image }}
 
       - name: Upload CTest diagnostics
         if: failure()
@@ -71,8 +65,8 @@ jobs:
         if: matrix.group == 'unit'
         run: |
           bash docker/run-with-daemon-workspace.sh \
-            --entrypoint /usr/local/bin/duel6r-main-menu-smoke \
-            ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
+            --entrypoint bash \
+            ${{ steps.tools.outputs.image }} /workspace/docker/main-menu-smoke.sh
 
       - name: Upload main menu smoke artifacts
         if: always() && matrix.group == 'unit'
@@ -85,7 +79,6 @@ jobs:
 
   lint:
     name: Lint-equivalent Build
-    needs: [build-images]
     runs-on: self-hosted
     permissions:
       contents: read
@@ -100,14 +93,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Pull exact Linux build image
-        run: docker pull ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
+      - name: Resolve source tool version (wait for independent publication)
+        id: tools
+        timeout-minutes: 125
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build Dockerfile 7200 >> "$GITHUB_OUTPUT"
 
       - name: Run lint-equivalent debug build inside container
         run: |
           bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TYPE=Debug \
-            ghcr.io/${{ github.repository }}/build:sha-${{ github.sha }}
+            ${{ steps.tools.outputs.image }}
 
       - name: Verify lint-equivalent build output
         run: test -x build/duel6r
@@ -117,6 +112,7 @@ jobs:
     runs-on: windows-2025
     permissions:
       contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v7
@@ -127,17 +123,22 @@ jobs:
         shell: powershell
         run: Start-Service docker
 
-      - name: Build native Windows tool image
-        shell: powershell
-        run: |
-          docker build `
-            --file Dockerfile.windows-native-transport `
-            --tag duel6r-windows-transport:ci `
-            .
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Resolve source tool version (wait for independent publication)
+        id: tools
+        shell: bash
+        timeout-minutes: 125
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build-windows-transport Dockerfile.windows-native-transport 7200 >> "$GITHUB_OUTPUT"
 
       - name: Build and test inside native Windows container
         shell: powershell
-        run: .\docker\run-windows-native-transport.ps1
+        run: .\docker\run-windows-native-transport.ps1 -Image '${{ steps.tools.outputs.image }}'
 
   macos:
     name: Platform / macOS native builds
@@ -151,15 +152,30 @@ jobs:
     name: Platform / Linux ARM64
     permissions:
       contents: read
+      packages: read
     uses: ./.github/workflows/arm64.yml
 
   tag:
     name: Tag - sanity
     permissions:
       contents: 'write'
+      packages: read
     runs-on: ubuntu-latest
     needs: [sanity, lint, native-windows-transport, macos, arm64]
     steps:
+      - uses: actions/checkout@v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Require the matching Windows cross image for nightly packaging
+        timeout-minutes: 125
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build-w64 Dockerfile.windows-cross 7200
+
       - uses: mkapusnik-apps/commons/tag@v1
         with:
           tag: sanity

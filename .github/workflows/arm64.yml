@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 env:
   D6R_SOURCE_REVISION: ${{ github.sha }}
@@ -19,18 +20,26 @@ jobs:
   x86-client:
     name: Build x86 client for ARM interoperability
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 145
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - name: Build x86 tool image
-        run: docker build -t duel6r-build:x86-client .
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Resolve x86 tool version
+        id: tools
+        timeout-minutes: 125
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build Dockerfile 7200 >> "$GITHUB_OUTPUT"
       - name: Stage x86 client, resolver and runtime dependencies
         run: |
           bash docker/run-with-daemon-workspace.sh \
             --entrypoint bash -e D6R_SOURCE_REVISION -e D6R_WORKFLOW_REVISION \
-            duel6r-build:x86-client -euo pipefail -c '
+            ${{ steps.tools.outputs.image }} -euo pipefail -c '
               cmake -S /workspace -B /tmp/x86-build \
                 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
                 -DD6R_RENDERER=gl4 -DD6R_WITH_LUA=ON
@@ -63,22 +72,30 @@ jobs:
     name: Native ARM64 build and CTests
     needs: [x86-client]
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 40
+    timeout-minutes: 165
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - name: Build native tool image
-        run: docker build -t duel6r-build:arm64 .
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Resolve native ARM64 tool version
+        id: tools
+        timeout-minutes: 125
+        run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build-arm64 Dockerfile 7200 >> "$GITHUB_OUTPUT"
       - name: Build and test default ARM renderer
         run: |
           bash docker/run-with-daemon-workspace.sh \
             -e BUILD_TYPE=Release -e BUILD_TESTING=ON -e RUN_TESTS=ON \
-            -e CLEAN_OUTPUT_DIR=ON duel6r-build:arm64
+            -e CLEAN_OUTPUT_DIR=ON ${{ steps.tools.outputs.image }}
       - name: Validate separate ARM bundle
         run: |
           docker run --rm --entrypoint bash \
-            -v "$PWD/build:/bundle:ro" -w /bundle duel6r-build:arm64 \
+            -v "$PWD/build:/bundle:ro" -w /bundle ${{ steps.tools.outputs.image }} \
             -c 'test "$(uname -m)" = aarch64 && sha256sum -c linux-aarch64.sha256sums && ! test -e linux-x86_64.sha256sums'
       - name: Download same-run x86 client
         uses: actions/download-artifact@v8
@@ -94,7 +111,7 @@ jobs:
           docker run --rm --network none --entrypoint bash \
             -v "$PWD:/workspace" -e QEMU_CPU=max \
             -e D6R_SOURCE_REVISION -e D6R_WORKFLOW_REVISION \
-            duel6r-build:arm64 -euo pipefail -c '
+            ${{ steps.tools.outputs.image }} -euo pipefail -c '
               tar --keep-directory-symlink -xzf /workspace/x86-client/x86-client-runtime.tar.gz -C /
               printf "production_source_sha=%s\nworkflow_sha=%s\nconfig=Linux ARM64 Release gl1 Lua ON; x86 client QEMU_CPU=max\n" \
                 "$D6R_SOURCE_REVISION" "$D6R_WORKFLOW_REVISION"
@@ -108,12 +125,12 @@ jobs:
           docker run --rm --network none --entrypoint bash \
             -v "$PWD:/workspace" \
             -e BUILD_DIR=/tmp/arm-smoke -e SMOKE_DIR=/workspace/smoke-arm64 \
-            duel6r-build:arm64 \
-            -c 'mkdir /tmp/arm-smoke && cp -a build/. /tmp/arm-smoke/ && duel6r-main-menu-smoke'
+            ${{ steps.tools.outputs.image }} \
+            -c 'mkdir /tmp/arm-smoke && cp -a build/. /tmp/arm-smoke/ && bash /workspace/docker/main-menu-smoke.sh'
       - name: Archive ARM bundle preserving executable permissions
         run: |
           docker run --rm --entrypoint bash \
-            -v "$PWD:/workspace" duel6r-build:arm64 \
+            -v "$PWD:/workspace" ${{ steps.tools.outputs.image }} \
             -c 'tar -czf duel6r-linux-aarch64.tar.gz -C build . && sha256sum duel6r-linux-aarch64.tar.gz > duel6r-linux-aarch64.tar.gz.sha256'
       - name: Upload ARM candidate (not Pi hardware acceptance)
         uses: actions/upload-artifact@v7
