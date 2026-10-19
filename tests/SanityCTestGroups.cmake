@@ -32,6 +32,7 @@ set(D6R_SANITY_COMMON_TESTS
 )
 set(D6R_SANITY_NETWORK_TESTS
     application-mode-process
+    openssl-certificate-fixture
     networking-prototype-behavior
     networking-windows-command-line-contract
     duel6r-dedicated-service-process-tests

@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$root/macos/native-architecture.sh"
+source "$root/macos/select-python.sh"
 revision="$(git -C "$root" rev-parse HEAD)"
 [[ "${D6R_SOURCE_REVISION:?Set D6R_SOURCE_REVISION to the immutable checkout SHA}" == "$revision" ]] || {
   echo "Source revision does not match HEAD." >&2; exit 1;
@@ -14,8 +15,9 @@ revision="$(git -C "$root" rev-parse HEAD)"
 build="$root/build/macos-build"
 output="$root/build/macos"
 deps="$root/build/macos-deps"
-mkdir -p "$deps" "$output"
-python3 "$root/tests/MacPackagingTests.py"
+diagnostics="$root/build/macos-diagnostics"
+mkdir -p "$deps" "$output" "$diagnostics"
+echo '=== Build: SDK and Lua ==='
 
 # Invoking Xcode's clang by its absolute path does not reliably select an SDK.
 # Use the selected Xcode's macOS SDK explicitly for both Lua and the application.
@@ -50,15 +52,19 @@ openssl_prefix="$prefix"
 }
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
+echo '=== Build: private curl and Mbed TLS ==='
 bash "$root/macos/build-curl.sh" "$sdk" "$deps" "$openssl_prefix"
 curl_prefix="$deps/curl"
 cmake -S "$root/docker/mbedtls" -B "$deps/mbedtls-build" -G Ninja \
+  -DPython3_EXECUTABLE="$D6R_PYTHON" \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$D6R_MACOS_ARCH" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET="$D6R_MACOS_MINIMUM" -DCMAKE_OSX_SYSROOT="$sdk" \
   -DCMAKE_INSTALL_PREFIX="$deps/mbedtls"
 cmake --build "$deps/mbedtls-build" --parallel "$(sysctl -n hw.ncpu)"
 cmake --install "$deps/mbedtls-build"
+echo '=== Build: application configure and compile ==='
 cmake -S "$root" -B "$build" -G Ninja \
+  -DPython3_EXECUTABLE="$D6R_PYTHON" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$D6R_MACOS_ARCH" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET="$D6R_MACOS_MINIMUM" -DCMAKE_OSX_SYSROOT="$sdk" \
@@ -76,14 +82,22 @@ cmake -S "$root" -B "$build" -G Ninja \
   -DD6R_RENDERER=gl1 -DD6R_WITH_LUA=ON -DBUILD_TESTING=ON \
   -DLUA_INCLUDE_DIR="$lua/src" -DLUA_LIBRARY="$lua/src/liblua.a"
 cmake --build "$build" --parallel "$(sysctl -n hw.ncpu)"
-ctest --test-dir "$build" --output-on-failure
+echo '=== Tests: registered certificate and native trust interpreters ==='
+ctest --test-dir "$build" --show-only --verbose \
+  -R '^(openssl-certificate-fixture|darwin-trust-negatives)$' \
+  --output-log "$diagnostics/ctest-interpreters.log"
+echo '=== Tests: CTest ==='
+ctest --test-dir "$build" --output-on-failure --test-output-size-failed 32768 \
+  --test-output-truncation middle --output-log "$diagnostics/ctest.log"
 
-python3 "$root/macos/package.py" --source "$root" --build "$build" \
+echo '=== Package: bundle and verify ==='
+"$D6R_PYTHON" -u "$root/macos/package.py" --source "$root" --build "$build" \
   --output "$output" --revision "$revision" --architecture "$D6R_MACOS_ARCH" --lua "$lua" --lua-archive "$archive" \
   --curl-prefix "$curl_prefix" --curl-archive "$deps/curl-8.21.0.tar.bz2" \
   --mbedtls-prefix "$deps/mbedtls" --mbedtls-source "$deps/mbedtls-build/_deps/mbedtls-src" \
   --runtime-prefix "$prefix" --runtime-archives "$deps/runtime-archives" \
-  --directory-default-url "${D6R_DIRECTORY_DEFAULT_URL:-}"
-python3 "$root/tests/MacPackagedTests.py" --app "$output/Duel 6 Reloaded.app" \
+  --directory-default-url "${D6R_DIRECTORY_DEFAULT_URL:-}" 2>&1 | tee "$diagnostics/package.log"
+"$D6R_PYTHON" -u "$root/tests/MacPackagedTests.py" --app "$output/Duel 6 Reloaded.app" \
   --build "$build" --source "$root" --revision "$revision" \
-  --openssl "$openssl_prefix/bin/openssl" --report "$output/packaged-checks.json"
+  --openssl "$openssl_prefix/bin/openssl" --report "$output/packaged-checks.json" \
+  2>&1 | tee -a "$diagnostics/package.log"

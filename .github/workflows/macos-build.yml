@@ -21,6 +21,7 @@ jobs:
   build:
     name: Build experimental macOS app (${{ matrix.arch }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Existing ARM64 image retires on 2026-11-02.
@@ -41,23 +42,34 @@ jobs:
         run: brew install cmake ninja pkg-config
 
       - name: Set up Python
+        id: python
         uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
       - name: Verify Python
+        env:
+          D6R_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
-          python3 --version
-          python3 -c "import platform, sys; print(sys.executable); print(platform.machine()); assert sys.version_info[:2] == (3, 13)"
+          "$D6R_PYTHON" --version
+          "$D6R_PYTHON" -c "import platform, sys; print(sys.executable); print(platform.machine()); assert sys.version_info[:2] == (3, 13)"
 
       - name: Prepare runtime dependencies for the target minimum macOS
-        run: D6R_MACOS_ARCH=${{ matrix.arch }} bash macos/prepare-runtime-dependencies.sh
+        env:
+          D6R_MACOS_ARCH: ${{ matrix.arch }}
+          D6R_PYTHON: ${{ steps.python.outputs.python-path }}
+        shell: bash
+        run: |
+          mkdir -p build/macos-diagnostics
+          bash macos/prepare-runtime-dependencies.sh 2>&1 | tee build/macos-diagnostics/preparation.log
 
       - name: Build, test, and package macOS app
         env:
           D6R_MACOS_ARCH: ${{ matrix.arch }}
           D6R_DIRECTORY_DEFAULT_URL: ${{ inputs.directory_default_url }}
-        run: D6R_SOURCE_REVISION="$(git rev-parse HEAD)" bash macos/build.sh
+          D6R_PYTHON: ${{ steps.python.outputs.python-path }}
+        shell: bash
+        run: D6R_SOURCE_REVISION="$(git rev-parse HEAD)" bash macos/build.sh 2>&1 | tee build/macos-diagnostics/build.log
 
       - name: Upload macOS package
         uses: actions/upload-artifact@v7
@@ -70,11 +82,26 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
 
-      - name: Upload macOS CTest diagnostics
+      - name: Collect bounded macOS phase logs
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p build/macos-diagnostics/excerpts
+          for phase in preparation build ctest-interpreters ctest package; do
+            log="build/macos-diagnostics/$phase.log"
+            if [[ -f "$log" ]]; then
+              tail -c 1048576 "$log" > "build/macos-diagnostics/excerpts/$phase.log"
+            fi
+          done
+
+      - name: Upload macOS failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: macos-ctest-diagnostics-${{ matrix.arch }}
-          path: build/macos-build/Testing/Temporary/LastTest.log
+          name: macos-failure-diagnostics-${{ matrix.arch }}
+          path: |
+            build/macos-diagnostics/excerpts/*.log
+            build/macos-build/Testing/Temporary/LastTest.log
+            build/macos-build/Testing/Temporary/LastTestsFailed.log
           if-no-files-found: ignore
           retention-days: 7

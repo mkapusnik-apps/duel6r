@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 import tarfile
 
 from package import minimum_macos, require_macos_binary, source_notices
@@ -78,6 +79,7 @@ def main():
     commands = []
     for project in projects:
         name = project["name"]
+        print(f"=== Runtime dependency: {name} ({architecture}, macOS {minimum}) ===", flush=True)
         source = unpack(project, cache / project["sha256"], work / name / "source")
         for packet in project.get("vendored", []):
             extracted = unpack(packet, cache / packet["sha256"], work / name / packet["name"])
@@ -95,10 +97,20 @@ def main():
                        f"--prefix={prefix}", f"--openssldir={prefix / 'ssl'}", "--libdir=lib"]
             checked(*command, cwd=build, env=environment)
             checked("make", f"-j{jobs}", cwd=build, env=environment)
-            checked("make", "install_sw", cwd=build, env=environment)
+            checked("make", "install_sw", "install_ssldirs", cwd=build, env=environment)
+            # The fixture uses its own config; check installation completeness separately.
+            config = prefix / "ssl/openssl.cnf"
+            if not config.is_file() or not config.read_bytes():
+                raise RuntimeError(f"Private OpenSSL configuration missing or empty: {config}")
+            print(f"Private OpenSSL configuration installed: {config}", flush=True)
+            checked(prefix / "bin/openssl", "version", "-a", env=environment)
+            print("=== Preparation: private OpenSSL certificate preflight ===", flush=True)
+            checked(sys.executable, root / "tests/DarwinCurlTrustFixtures.py",
+                    "--preflight", prefix / "bin/openssl", env=environment)
         else:
             command = ["cmake", "-S", source / project.get("cmake_subdir", "."), "-B", build, "-G", "Ninja",
                        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+                       f"-DPython3_EXECUTABLE={sys.executable}",
                        f"-DCMAKE_OSX_ARCHITECTURES={architecture}", f"-DCMAKE_OSX_DEPLOYMENT_TARGET={minimum}",
                        f"-DCMAKE_OSX_SYSROOT={sdk}", f"-DCMAKE_INSTALL_PREFIX={prefix}",
                        f"-DCMAKE_INSTALL_NAME_DIR={prefix / 'lib'}", f"-DCMAKE_PREFIX_PATH={prefix}",

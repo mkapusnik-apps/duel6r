@@ -5,6 +5,7 @@ sdk="${1:?macOS SDK required}"
 deps="${2:?private dependency directory required}"
 openssl="${3:?OpenSSL prefix required}"
 source "$(dirname "$0")/native-architecture.sh"
+source "$(dirname "$0")/select-python.sh"
 version=8.21.0
 checksum=ad6f2f94934b38e31e48272833c99b891d045b4565fe942a53fbd27bd3910e16
 url="https://curl.se/download/curl-$version.tar.bz2"
@@ -39,7 +40,7 @@ flags="-arch $D6R_MACOS_ARCH -mmacosx-version-min=$D6R_MACOS_MINIMUM"
   make -j"$(sysctl -n hw.ncpu)"
   make install
 )
-python3 - "$build/lib/curl_config.h" "$prefix" "$version" "$checksum" "$D6R_MACOS_ARCH" "$D6R_MACOS_MINIMUM" <<'PY'
+"$D6R_PYTHON" - "$build/lib/curl_config.h" "$prefix" "$version" "$checksum" "$D6R_MACOS_ARCH" "$D6R_MACOS_MINIMUM" <<'PY'
 import hashlib, json, pathlib, re, subprocess, sys
 config, prefix, version, checksum, architecture, minimum = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), *sys.argv[3:]
 defines = set(re.findall(r'^\s*#define\s+(\w+)\b', config.read_text(), re.M))
