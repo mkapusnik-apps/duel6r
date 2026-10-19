@@ -137,7 +137,13 @@ def collect_runtime(prefix, manifest, archives, licenses, architecture, origins)
         if not path.is_relative_to(prefix) or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise RuntimeError("Private runtime library identity mismatch: " + relative)
         verified.add(path)
-    if not set(origins) <= verified:
+    # Match canonical identities on both sides, including Darwin directory aliases.
+    # Equal bytes at a foreign or unlisted path still do not establish an origin.
+    try:
+        canonical_origins = {path.resolve(strict=True) for path in origins}
+    except (OSError, RuntimeError) as error:
+        raise RuntimeError("Unaccounted private runtime dependency origin: unresolved origin") from error
+    if not canonical_origins <= verified:
         raise RuntimeError("Unaccounted private runtime dependency origin")
     target = licenses / "runtime"
     target.mkdir(parents=True, exist_ok=True)
