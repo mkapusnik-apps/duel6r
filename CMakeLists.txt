@@ -40,6 +40,14 @@ include(CTest)
 # Darwin process/security gates remain independently executable alongside the
 # graphical target; they do not require launching the application UI.
 if (BUILD_TESTING)
+    if (NOT CMAKE_CROSSCOMPILING AND (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        find_program(D6R_OPENSSL_EXECUTABLE openssl REQUIRED)
+        add_test(NAME openssl-certificate-fixture COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/DarwinCurlTrustFixtureTests.py ${D6R_OPENSSL_EXECUTABLE})
+        set_tests_properties(openssl-certificate-fixture PROPERTIES TIMEOUT 60
+                LABELS "application;security")
+    endif ()
     add_executable(duel6r-application-mode-tests tests/TestMain.cpp tests/ApplicationModeTests.cpp source/ApplicationMode.cpp)
     target_compile_features(duel6r-application-mode-tests PRIVATE cxx_std_17)
     target_include_directories(duel6r-application-mode-tests PRIVATE ${CMAKE_SOURCE_DIR})
