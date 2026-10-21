@@ -52,6 +52,9 @@ target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE
 target_link_libraries(duel6r-session-transport-tests PRIVATE duel6r-network-scaffold)
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_definitions(duel6r-session-transport-tests PRIVATE D6R_TEST_OBSERVE_STAGING)
+    target_compile_definitions(duel6r-session-transport-tests PRIVATE D6R_TEST_CLOSE_WAIT_BOUNDARY)
+    target_link_options(duel6r-session-transport-tests PRIVATE
+            "-Wl,--wrap=pthread_cond_clockwait,--wrap=pthread_mutex_lock,--wrap=_ZNSt18condition_variable10notify_allEv")
     target_link_libraries(duel6r-session-transport-tests PRIVATE
             "-Wl,--wrap=mbedtls_ssl_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
 endif ()

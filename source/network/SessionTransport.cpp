@@ -927,7 +927,10 @@ namespace Duel6::Network {
                     std::move(password), secureLimits);
             if (handshakeDeadline == TransportTimePoint{})
                 handshakeDeadline = acceptedAt + std::chrono::seconds(server ? 3 : 10);
+            readerFinished.store(false);
+            writerFinished.store(false);
             reader = std::thread([this, handshakeDeadline] {
+                WorkerCompletion completed{readerFinished};
                 if (secure && !secure->handshake(handshakeDeadline,
                         [this] { return stop.load() || closeRequested.load(); })) {
                     fail(TransportFailure::NotAuthorized);
@@ -936,7 +939,7 @@ namespace Duel6::Network {
                 secureReady.store(true);
                 readLoop();
             });
-            writer = std::thread([this] { writeLoop(); });
+            writer = std::thread([this] { WorkerCompletion completed{writerFinished}; writeLoop(); });
         }
 
         ~Impl() { close(); }
@@ -1121,6 +1124,8 @@ namespace Duel6::Network {
         TransportTimePoint acceptedAt() const { return acceptanceTime; }
         TransportTimePoint terminalAt() const { return terminalTime.load(); }
 
+        bool retirementReady() const { return readerFinished.load() && writerFinished.load(); }
+
         void markAdmissionSucceeded() {
             admissionComplete.store(true);
             if (admissionReservation) admissionReservation->release();
@@ -1143,6 +1148,10 @@ namespace Duel6::Network {
         std::atomic<TransportFailure> failure{TransportFailure::None};
 
     private:
+        struct WorkerCompletion {
+            std::atomic<bool> &finished;
+            ~WorkerCompletion() { finished.store(true); }
+        };
         struct PendingFrame {
             std::uint16_t kind;
             std::vector<std::uint8_t> payload;
@@ -1166,6 +1175,7 @@ namespace Duel6::Network {
         std::shared_ptr<Trust::PendingAdmissionLimiter::Reservation> admissionReservation;
         std::thread reader;
         std::thread writer;
+        std::atomic<bool> readerFinished{true}, writerFinished{true};
         // Lock order: acceptance -> inner -> input -> terminal. Writers only
         // acquire inner; neither terminal nor input ever acquires acceptance.
         std::mutex inputAcceptanceMutex;
@@ -1235,6 +1245,10 @@ namespace Duel6::Network {
         }
 
         void fail(TransportFailure reason, bool timedOut = false) {
+            // The close-wait predicate is protected by outputMutex. Publish its
+            // stop transition under that mutex so notify cannot precede the
+            // writer's atomic unlock-and-wait. Keep output -> terminal order.
+            std::lock_guard<std::mutex> outputLock(outputMutex);
             std::lock_guard<std::mutex> terminalLock(terminalMutex);
             ClientState current = state.load();
             if (terminal(current)) return;
@@ -2176,7 +2190,12 @@ namespace Duel6::Network {
 
         void reapClosedLocked() {
             connections.erase(std::remove_if(connections.begin(), connections.end(), [](const auto &connection) {
-                return terminal(connection->state());
+                // EOF is terminal to the application while accepted output may
+                // still be draining. Retain ownership until both workers have
+                // exited: dropping the last reference here must not join that
+                // drain under the listener mutex before shutdown requests the
+                // remaining connections' shared close windows.
+                return terminal(connection->state()) && connection->impl->retirementReady();
             }), connections.end());
         }
 

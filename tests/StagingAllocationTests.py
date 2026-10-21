@@ -64,7 +64,8 @@ void operator delete(void *value, std::size_t) noexcept { release(value); }
 void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
 int main() {
   try {
-    for (bool failing : {true, false}) {
+    for (unsigned scenario : {0u, 1u, 2u}) {
+      const bool failing = scenario == 0, closing = scenario == 2;
       std::deque<TransportFrame> input;
       // libstdc++ default allocator: force the next push to allocate a real node.
       // If this layout changes, the injected=false qualification fails closed.
@@ -73,11 +74,14 @@ int main() {
       for (std::size_t i = 0; i < initialFrames; ++i) input.push_back({{}, stamp});
       std::size_t inputBytes = 0;
       std::mutex inputMutex;
+      std::atomic<ClientState> state{closing ? ClientState::Closing : ClientState::Connected};
       InboundTransportDependencies inbound;
       std::function<TransportTimePoint()> now = [stamp] { return stamp; };
       constexpr unsigned kind = 0, ApplicationFrame = 0;
       freed = wiped = injected = false;
+      unsigned publications = 0;
       inbound.beforeApplicationPublish = [&](TransportTimePoint receivedAt) {
+        ++publications;
         require(receivedAt == stamp, "publication timestamp changed");
         armed = failing;
       };
@@ -87,10 +91,19 @@ int main() {
         std::fill(payload.begin(), payload.end(), 0xa7);
         watched = payload.data();
         deliver();
-        require(delivered && payload.empty(), "successful move did not transfer ownership");
+        if (closing) require(!delivered && payload.size() == payloadSize, "Closing published application data");
+        else require(delivered && payload.empty(), "successful move did not transfer ownership");
       } catch (const std::bad_alloc &) { caught = true; }
       armed = false;
-      if (failing) {
+      if (closing) {
+        require(!caught && !injected && publications == 0, "Closing entered publication/allocation path");
+        require(freed && wiped && inputBytes == 0 && input.size() == initialFrames,
+                "Closing discard changed ownership/accounting or did not erase staging");
+        require(std::all_of(input.begin(), input.end(), [stamp](const auto &frame) {
+          return frame.payload.empty() && frame.receivedAt == stamp;
+        }), "Closing discard changed existing queue/timestamps");
+        std::cout << "PASS Closing guard: no publication, wiped staging, queue/accounting unchanged\n";
+      } else if (failing) {
         std::cout << "OBSERVATION allocation-exception=" << (injected && caught)
                   << " freed=" << freed << " wiped=" << wiped
                   << " input-bytes=" << inputBytes << " queue-delta=" << (input.size() - initialFrames) << '\n';

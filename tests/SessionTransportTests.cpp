@@ -19,6 +19,52 @@
 #include "source/network/SessionTransport.h"
 #include "source/network/SessionLifecycle.h"
 
+#ifdef D6R_TEST_CLOSE_WAIT_BOUNDARY
+#include <pthread.h>
+namespace CloseWaitBoundary {
+    std::atomic<bool> armed{false}, entered{false}, fatalBoundary{false}, returned{false};
+    std::atomic<Duel6::Network::TcpConnection *> connection{nullptr};
+    std::atomic<pthread_cond_t *> condition{nullptr};
+    std::atomic<pthread_mutex_t *> outputMutex{nullptr};
+    thread_local bool writer = false;
+    std::mutex gateMutex;
+    std::condition_variable gate;
+    bool released = false;
+    void release() { std::lock_guard<std::mutex> lock(gateMutex); released = true; gate.notify_all(); }
+}
+extern "C" int __real_pthread_cond_clockwait(pthread_cond_t *, pthread_mutex_t *, clockid_t, const timespec *);
+extern "C" int __wrap_pthread_cond_clockwait(pthread_cond_t *condition, pthread_mutex_t *mutex,
+                                            clockid_t clock, const timespec *deadline) {
+    auto *connection = CloseWaitBoundary::connection.load();
+    const bool intercept = CloseWaitBoundary::armed && CloseWaitBoundary::writer && connection
+        && connection->state() == Duel6::Network::ClientState::Closing && !CloseWaitBoundary::entered.exchange(true);
+    if (intercept) {
+        CloseWaitBoundary::condition = condition; CloseWaitBoundary::outputMutex = mutex;
+        // The production predicate has returned false, and its mutex is still
+        // held. Select the otherwise tiny pre-wait window without sleeps.
+        std::unique_lock<std::mutex> lock(CloseWaitBoundary::gateMutex);
+        CloseWaitBoundary::gate.wait_for(lock, std::chrono::seconds(3), [] { return CloseWaitBoundary::released; });
+    }
+    const int result = __real_pthread_cond_clockwait(condition, mutex, clock, deadline);
+    if (intercept) CloseWaitBoundary::returned = true;
+    return result;
+}
+extern "C" int __real_pthread_mutex_lock(pthread_mutex_t *);
+extern "C" int __wrap_pthread_mutex_lock(pthread_mutex_t *mutex) {
+    if (CloseWaitBoundary::armed && !CloseWaitBoundary::writer && mutex == CloseWaitBoundary::outputMutex)
+        CloseWaitBoundary::fatalBoundary = true; // Fixed fail path is waiting to acquire the predicate mutex.
+    return __real_pthread_mutex_lock(mutex);
+}
+void closeWaitRealNotify(std::condition_variable *) noexcept __asm__("__real__ZNSt18condition_variable10notify_allEv");
+void closeWaitWrapNotify(std::condition_variable *) noexcept __asm__("__wrap__ZNSt18condition_variable10notify_allEv");
+void closeWaitWrapNotify(std::condition_variable *condition) noexcept {
+    closeWaitRealNotify(condition);
+    if (CloseWaitBoundary::armed && !CloseWaitBoundary::writer
+        && condition->native_handle() == CloseWaitBoundary::condition)
+        CloseWaitBoundary::fatalBoundary = true; // Old fail path has already sent its unprotected notification.
+}
+#endif
+
 #ifdef D6R_TEST_OBSERVE_STAGING
 #include <mbedtls/ssl.h>
 // Observe actual production staging and deallocation. Every SDK/allocator
@@ -1872,6 +1918,83 @@ void listenerClosesSilentCapacityInOneWindow() {
     for (const auto &connection : connections) CHECK(connection->state() == ClientState::Closed);
 }
 
+void listenerRetirementCannotSerializeDrainWindows() {
+    const auto baseline = Trust::processQueueBudget().used();
+    SessionTransportDependencies dependencies;
+    dependencies.outbound.send = [](auto, auto, const auto *, auto) {
+        return OutboundSendOutcome{OutboundSendStatus::WouldBlock, 0};
+    };
+    const auto port = unusedPort(); TcpListener listener(2, dependencies); startListener(listener, port);
+    RawSocketOwner halfClosed(connectRaw(port)); auto retiring = awaitAccept(listener);
+    RawSocketOwner silent(connectRaw(port)); auto other = awaitAccept(listener);
+    SendResult queued = SendResult::Accepted;
+    for (unsigned index = 0; index <= MaxQueuedTransportFrames && queued == SendResult::Accepted; ++index)
+        queued = retiring->send(std::vector<std::uint8_t>(MaxPayloadBytes, 0x51));
+    CHECK(queued == SendResult::Backpressure);
+#ifdef D6R_TRANSPORT_WINDOWS
+    CHECK(::shutdown(halfClosed.get(), SD_SEND) == 0);
+#else
+    CHECK(::shutdown(halfClosed.get(), SHUT_WR) == 0);
+#endif
+    CHECK(waitUntil([&] { return retiring->state() == ClientState::Failed; }, 1s));
+    CHECK(retiring->failure() == TransportFailure::PeerClosed);
+    std::weak_ptr<TcpConnection> retired = retiring;
+    retiring.reset(); // Listener now owns the last reference.
+    // Weak expiry selects retirement itself, not an arbitrary delay. On the old
+    // code the destructor is still joining a draining writer under the mutex.
+    CHECK(waitUntil([&] { return retired.expired(); }, 3s));
+    const auto began = std::chrono::steady_clock::now();
+    listener.shutdown();
+    const auto elapsed = std::chrono::steady_clock::now() - began;
+    CHECK(other->state() == ClientState::Closed);
+    CHECK(Trust::processQueueBudget().used() == baseline);
+    std::cout << "retirement-overlap shutdown-ms="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() << '\n';
+    CHECK(elapsed < 3s);
+}
+
+#ifdef D6R_TEST_CLOSE_WAIT_BOUNDARY
+void closingFatalCannotLoseWriterWake() {
+    CloseWaitBoundary::armed = false;
+    CloseWaitBoundary::entered = CloseWaitBoundary::fatalBoundary = CloseWaitBoundary::returned = false;
+    CloseWaitBoundary::condition = nullptr; CloseWaitBoundary::outputMutex = nullptr;
+    { std::lock_guard<std::mutex> lock(CloseWaitBoundary::gateMutex); CloseWaitBoundary::released = false; }
+    SessionTransportDependencies dependencies;
+    auto writes = std::make_shared<NativeWriteObservations>();
+    dependencies.outbound.observations = writes;
+    dependencies.outbound.send = [](auto socket, auto, const auto *bytes, auto size) {
+        CloseWaitBoundary::writer = true;
+        const auto count = ::send(static_cast<int>(socket), bytes, size, MSG_NOSIGNAL);
+        if (count > 0) return OutboundSendOutcome{OutboundSendStatus::Sent, static_cast<std::size_t>(count)};
+        return OutboundSendOutcome{count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)
+            ? OutboundSendStatus::WouldBlock : OutboundSendStatus::Failed, 0};
+    };
+    const auto port = unusedPort(); TcpListener listener(1, dependencies); startListener(listener, port);
+    RawSocketOwner peer(connectRaw(port)); auto connection = awaitAccept(listener);
+    CHECK(connection->send({1}) == SendResult::Accepted);
+    CHECK(waitUntil([&] { return writes->applicationFramesWritten == 1; }, 1s));
+    CloseWaitBoundary::connection = connection.get(); CloseWaitBoundary::armed = true;
+    struct Release {
+        ~Release() { CloseWaitBoundary::release(); CloseWaitBoundary::armed = false; CloseWaitBoundary::connection = nullptr; }
+    } release;
+    connection->requestClose();
+    CHECK(waitUntil([] { return CloseWaitBoundary::outputMutex.load() != nullptr; }, 1s));
+    const auto invalid = envelope(TransportFramingIdentifier, TransportFramingVersion, 99, 0);
+    sendAll(peer.get(), invalid.data(), invalid.size());
+    const bool selected = waitUntil([] { return CloseWaitBoundary::fatalBoundary.load(); }, 1s);
+    const auto began = std::chrono::steady_clock::now();
+    CloseWaitBoundary::release();
+    // No second requestClose/close notification is allowed to mask the race.
+    const bool prompt = waitUntil([] { return CloseWaitBoundary::returned.load(); }, 500ms);
+    CloseWaitBoundary::armed = false;
+    connection->close(); listener.shutdown();
+    CHECK(selected && connection->failure() == TransportFailure::ProtocolViolation);
+    std::cout << "fatal-boundary selected=" << selected << " prompt=" << prompt << " completion-ms="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count() << '\n';
+    CHECK(prompt);
+}
+#endif
+
 void conditionalAdmissionAcceptanceAccounting() {
     auto &budget = Trust::processQueueBudget();
     const std::size_t baseline = budget.used();
@@ -2734,6 +2857,10 @@ int main() {
     }
 #endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+        {"shutdown ordering retirement overlaps listener close", listenerRetirementCannotSerializeDrainWindows},
+#ifdef D6R_TEST_CLOSE_WAIT_BOUNDARY
+        {"shutdown ordering fatal cannot lose writer wake", closingFatalCannotLoseWriterWake},
+#endif
         {"healthy Closing framing crypto and original deadline", healthyClosingReadBoundaries},
         {"healthy Closing simultaneous encrypted FIFO flush", simultaneousEncryptedCloseFlushesBothWriters},
         {"healthy Closing silent listener capacity shares one window", listenerClosesSilentCapacityInOneWindow},
