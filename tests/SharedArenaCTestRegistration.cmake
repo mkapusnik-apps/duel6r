@@ -56,6 +56,10 @@ add_test(
     NAME shared-arena-image-assertions
     COMMAND ${D6R_SHARED_ARENA_python3} ${CMAKE_SOURCE_DIR}/tests/SharedArenaImageAssertionsTests.py
 )
+add_test(NAME menu-transfer-frame-assertions
+    COMMAND ${D6R_SHARED_ARENA_python3} ${CMAKE_SOURCE_DIR}/tests/MenuTransferFrameTests.py)
+set_tests_properties(menu-transfer-frame-assertions PROPERTIES
+    LABELS "application;regression;menu;sanity-unit" TIMEOUT 10)
 set_tests_properties(shared-arena-image-assertions PROPERTIES
     LABELS "application;regression;shared-arena"
     TIMEOUT 30

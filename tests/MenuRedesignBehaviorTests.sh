@@ -120,6 +120,14 @@ PY
   fail "capture remained blank: $1"
 }
 
+capture_transfer_state() {
+  local status=0
+  python3 "${workspace_dir}/tests/MenuTransferFrame.py" "$1" "$2" --deadline "$app_deadline" || status=$?
+  # Retain the final original frame on failure as well as successful readiness.
+  if [[ -f "$1" ]]; then d6r_record_full_screenshot "$1"; fi
+  (( status == 0 )) || fail "selection/transfer state was not rendered within the original process budget"
+}
+
 # Release fills the 1280x900 Xvfb display. The 850x700 logical menu therefore
 # uses scale 9/7 and origin (93, 0). Convert points from the former centered
 # 1:1 canvas, and normalize captures when assertions operate on logical pixels.
@@ -650,9 +658,9 @@ xdotool key --window "$window_id" BackSpace BackSpace BackSpace BackSpace BackSp
 # Add UnrankedFree with >>. Refresh must retain its selected row; repeated >>
 # and person-row double-click must not duplicate roster membership.
 xdotool mousemove "$(menu_x 315)" "$(menu_y 346)" click 1
-capture "${scenario_dir}/free-selected.png"
+capture_transfer_state "${scenario_dir}/free-selected.png" 2
 xdotool mousemove "$(menu_x 517)" "$(menu_y 534)" click 1
-capture "${scenario_dir}/free-after-transfer.png"
+capture_transfer_state "${scenario_dir}/free-after-transfer.png" 3
 normalize_menu "${scenario_dir}/free-selected.png" "${scenario_dir}/free-selected-normalized.png"
 normalize_menu "${scenario_dir}/free-after-transfer.png" "${scenario_dir}/free-after-transfer-normalized.png"
 convert "${scenario_dir}/free-selected-normalized.png" -crop 288x18+16+237 +repage "${scenario_dir}/free-selected-row.png"
