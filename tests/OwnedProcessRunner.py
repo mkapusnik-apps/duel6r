@@ -83,14 +83,24 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
     process = None
     result = {"phase": "launch", "exit": None, "cleanup": False, "reaped": {}}
     log = Path(log)
-    log.parent.mkdir(parents=True, exist_ok=True)
+    diagnostic_errors = []
 
     def record(event):
         record = dict(result, event=event, elapsed=round(time.monotonic() - started, 3),
                       timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-        with log.open("a") as output:
-            output.write(json.dumps(record, sort_keys=True) + "\n")
-        print(json.dumps(record, sort_keys=True), flush=True)
+        # Neither sink is a prerequisite for terminating/reaping the owned tree.
+        # Try both independently and defer reporting failure until after cleanup.
+        payload = json.dumps(record, sort_keys=True)
+        try:
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open("a") as output:
+                output.write(payload + "\n")
+        except OSError as error:
+            diagnostic_errors.append(f"{event}: log: {error}")
+        try:
+            print(payload, flush=True)
+        except OSError as error:
+            diagnostic_errors.append(f"{event}: stdout: {error}")
 
     try:
         record("begin")
@@ -113,37 +123,44 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
         raise
     finally:
         try:
-            result["remaining"] = sorted(descendants(os.getpid()))
-            result["process_state"] = {}
-            for pid in result["remaining"]:
-                try:
-                    # State/parent/group/session only; never argv or environment.
-                    result["process_state"][pid] = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[:4]
-                except FileNotFoundError:
-                    pass
-            record("cleanup-begin")
-            for sig, grace in ((signal.SIGTERM, 1.0), (signal.SIGKILL, 3.0)):
-                deadline = time.monotonic() + grace
-                while True:
-                    signal_tree(sig)
-                    complete, statuses = reap()
-                    result["reaped"].update(statuses)
-                    if complete:
-                        result["cleanup"] = True
+            try:
+                result["remaining"] = sorted(descendants(os.getpid()))
+                result["process_state"] = {}
+                for pid in result["remaining"]:
+                    try:
+                        # State/parent/group/session only; never argv or environment.
+                        result["process_state"][pid] = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[:4]
+                    except FileNotFoundError:
+                        pass
+                record("cleanup-begin")
+            finally:
+                # Even an unexpected diagnostic/snapshot exception must pass
+                # through this boundary before propagating to the caller.
+                for sig, grace in ((signal.SIGTERM, 1.0), (signal.SIGKILL, 3.0)):
+                    deadline = time.monotonic() + grace
+                    while True:
+                        signal_tree(sig)
+                        complete, statuses = reap()
+                        result["reaped"].update(statuses)
+                        if complete:
+                            result["cleanup"] = True
+                            break
+                        if time.monotonic() >= deadline:
+                            break
+                        time.sleep(0.02)
+                    if result["cleanup"]:
                         break
-                    if time.monotonic() >= deadline:
-                        break
-                    time.sleep(0.02)
-                if result["cleanup"]:
-                    break
-                result["forced"] = True
-            result["remaining"] = sorted(descendants(os.getpid()))
-            if process is not None and process.pid in result["reaped"]:
-                process.returncode = result["reaped"][process.pid]
-            record("end")
+                    result["forced"] = True
+                if process is not None and process.pid in result["reaped"]:
+                    process.returncode = result["reaped"][process.pid]
+                result["remaining"] = sorted(descendants(os.getpid()))
+                record("end")
         finally:
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
+    if diagnostic_errors:
+        raise RuntimeError(f"test supervisor diagnostics failed after cleanup={result['cleanup']}: "
+                           + "; ".join(diagnostic_errors))
     return result
 
 

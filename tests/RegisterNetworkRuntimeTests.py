@@ -7,7 +7,10 @@ import subprocess
 import sys
 
 binary, resources, server, destination = map(Path, sys.argv[1:])
-names = subprocess.check_output([str(binary)], env=dict(os.environ, D6R_TEST_LIST="1"),
+enumeration_environment = dict(os.environ, D6R_TEST_LIST="1")
+for execution_filter in ("D6R_TEST_FILTER", "D6R_TEST_EXACT"):
+    enumeration_environment.pop(execution_filter, None)
+names = subprocess.check_output([str(binary)], env=enumeration_environment,
                                 text=True, timeout=10).splitlines()
 assert names and len(names) == len(set(names)), "empty or duplicate runtime registry"
 # These cases exercise pure models, not the SDL/GL or real-service fixtures.
