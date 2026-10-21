@@ -317,6 +317,10 @@ if (NOT D6R_TRANSPORT_ONLY)
         add_test(NAME authenticated-peer-half-close COMMAND duel6r-public-authenticated-peer --half-close-regression)
         set_tests_properties(authenticated-peer-half-close PROPERTIES
                 LABELS "application;network;process;regression;sanity-network" TIMEOUT 15)
+        add_test(NAME authenticated-peer-half-close-deadline
+                COMMAND duel6r-public-authenticated-peer --half-close-deadline-regression)
+        set_tests_properties(authenticated-peer-half-close-deadline PROPERTIES
+                LABELS "application;network;process;regression;sanity-network" TIMEOUT 15)
         add_test(NAME duel6r-public-dedicated-process-tests
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
                         $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>

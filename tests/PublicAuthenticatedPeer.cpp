@@ -15,6 +15,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
@@ -23,6 +24,7 @@
 #include <iostream>
 #include <iterator>
 #include <optional>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -49,6 +51,7 @@ struct PeerReceipt {
     std::size_t requested = 0, progress = 0;
     unsigned clientFrames = 0, serviceFrames = 0, emitted = 0;
     unsigned frontendReadsAfterAttack = 0;
+    unsigned writeRetries = 0;
     bool budgetExpired = false, attackSeen = false, attackForwarded = false;
     bool frontendEof = false, leaveForwarded = false;
     int backendUnread = -1;
@@ -119,13 +122,15 @@ struct Frame {
     void reset() { Trust::secureEraseMemory(bytes.data(), bytes.size()); bytes.assign(TransportEnvelopeBytes, 0); used = 0; total = TransportEnvelopeBytes; }
 };
 static bool write(SecureSession &session, const std::vector<std::uint8_t> &bytes,
-                  const char *operation = "write") {
+                  const char *operation = "write",
+                  Clock::time_point enclosingDeadline = Clock::time_point::max()) {
     std::size_t offset = 0;
-    const auto deadline = Clock::now() + 2s; // Stable retry arguments; no replenishment.
+    const auto deadline = std::min(Clock::now() + 2s, enclosingDeadline); // No replenishment across relay phases.
     if (activeReceipt) {
         activeReceipt->operation = operation; activeReceipt->ioBegan = Clock::now();
         activeReceipt->requested = bytes.size(); activeReceipt->progress = 0;
         activeReceipt->mapped = -99; activeReceipt->budgetExpired = false;
+        activeReceipt->writeRetries = 0;
     }
     while (offset < bytes.size() && !stopped && Clock::now() < deadline) {
         const auto count = session.send(bytes.data() + offset, bytes.size() - offset);
@@ -135,14 +140,18 @@ static bool write(SecureSession &session, const std::vector<std::uint8_t> &bytes
             if (activeReceipt) activeReceipt->emit("write-failed", __LINE__);
             return false;
         }
-        else std::this_thread::sleep_for(1ms);
+        else {
+            if (activeReceipt) ++activeReceipt->writeRetries;
+            std::this_thread::sleep_for(1ms);
+        }
         if (activeReceipt) activeReceipt->progress = offset;
     }
-    if (offset != bytes.size() && activeReceipt) {
+    const bool complete = offset == bytes.size() && !stopped && Clock::now() < deadline;
+    if (!complete && activeReceipt) {
         activeReceipt->budgetExpired = Clock::now() >= deadline;
         activeReceipt->emit("write-incomplete", __LINE__);
     }
-    return offset == bytes.size();
+    return complete;
 }
 static std::vector<std::uint8_t> frame(const std::vector<std::uint8_t> &payload) {
     std::vector<std::uint8_t> bytes{'D','6','R','T',0,1,0,0,0,0,0,0};
@@ -156,8 +165,16 @@ static bool summary(const Frame &value) {
     return b.size() >= p + 49 && b[p] == 'P' && b[p+1] == 'R' && b[p+2] == '6' && b[p+3] == 'D'
         && b[p+4] == 3 && b[p+5] == 0 && (b[p+6] == 1 || b[p+6] == 2) && b[p+7] == 0 && b[p+48] == 3;
 }
+struct HalfCloseTestControl {
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::optional<Clock::time_point> deadline;
+    std::atomic<unsigned> forwardedAfterEof{0}, retries{0};
+    std::atomic<bool> writeExpired{false};
+};
 static void bridge(int accepted, unsigned id, unsigned backendPort, const std::filesystem::path &root,
-                   const std::string &scenario, const std::shared_ptr<const SessionPassword> &password) {
+                   const std::string &scenario, const std::shared_ptr<const SessionPassword> &password,
+                   HalfCloseTestControl *testControl = nullptr) {
     Socket front{accepted}, back{::socket(AF_INET, SOCK_STREAM, 0)};
     const char *stage = "proxy";
     PeerReceipt receipt{root, id, stage};
@@ -195,6 +212,11 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         bool frontendEnded = false;
         Clock::time_point coordinationDeadline{};
         Clock::time_point frontendCloseDeadline{};
+        const auto enclosingDeadline = [&] {
+            auto deadline = gated ? coordinationDeadline : Clock::time_point::max();
+            if (frontendEnded) deadline = std::min(deadline, frontendCloseDeadline);
+            return deadline;
+        };
         std::deque<std::vector<std::uint8_t>> reverseTraffic;
         std::size_t reverseBytes = 0;
         struct EraseDeferred {
@@ -220,7 +242,8 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 if (command >> target >> action >> session && target == id
                     && (action == "maintenance" || action == "controller" || action == "wrong")) {
                     std::filesystem::remove(root / "action");
-                    require(write(client, frame(PublicSession::terminalNotice(session + (action == "wrong"), action != "controller")), "notice-write"));
+                    require(write(client, frame(PublicSession::terminalNotice(session + (action == "wrong"), action != "controller")), "notice-write", enclosingDeadline()));
+                    require(Clock::now() < enclosingDeadline());
                     marker(root, "acted");
                 }
             }
@@ -240,6 +263,10 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 // any armed coordination budget or querying a fatal context.
                 frontendEnded = true;
                 frontendCloseDeadline = gated ? coordinationDeadline : Clock::now() + 2s;
+                if (testControl) {
+                    std::lock_guard<std::mutex> lock(testControl->mutex);
+                    testControl->deadline = frontendCloseDeadline; testControl->changed.notify_all();
+                }
                 require(::shutdown(back.fd, SHUT_WR) == 0 || errno == ENOTCONN);
             }
             if (received > 0) {
@@ -265,7 +292,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     reverseBytes += incoming.bytes.size(); reverseTraffic.push_back(incoming.bytes);
                 }
                 else {
-                    require(write(service, incoming.bytes, "backend-write"));
+                    require(write(service, incoming.bytes, "backend-write", enclosingDeadline()));
                     if (thisIsAttack) {
                         attackForwarded = receipt.attackForwarded = true;
                         deferAttackRead = true;
@@ -292,14 +319,15 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 && std::filesystem::exists(root / "flow-trigger-fatal")) {
                 stage = "fatal-before-End";
                 require(::shutdown(back.fd, SHUT_WR) == 0 || errno == ENOTCONN);
-                require(!write(service, reverseTraffic.front()) && !service.usable());
+                require(!write(service, reverseTraffic.front(), "fatal-opposite-write", enclosingDeadline()) && !service.usable());
+                require(Clock::now() < enclosingDeadline());
                 marker(root, "flow-fatal-before-End");
                 // Never read/query pending on the failed service context. Keep
                 // the distinct front context usable until actual End on peer2
                 // proves server invalidation, then expose ambiguous loss to3.
                 while (!stopped && Clock::now() < coordinationDeadline
                     && !std::filesystem::exists(root / "flow-service-End")) std::this_thread::sleep_for(1ms);
-                require(std::filesystem::exists(root / "flow-service-End"));
+                require(Clock::now() < coordinationDeadline && std::filesystem::exists(root / "flow-service-End"));
                 marker(root, "flow-negative-qualified");
                 return;
             }
@@ -347,13 +375,20 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                         if (traffic == 0) std::this_thread::sleep_for(1ms);
                     }
                     stage = "race-opposite-write";
-                    require(traffic == 1 && !write(service, reverseTraffic.empty() ? incoming.bytes : reverseTraffic.front())
+                    require(traffic == 1 && !write(service, reverseTraffic.empty() ? incoming.bytes : reverseTraffic.front(),
+                                                  "race-opposite-write", enclosingDeadline())
                         && !service.usable());
+                    require(Clock::now() < enclosingDeadline());
                     marker(root, attackTerminal ? "attack-write-failed"
                             : summaryTerminal ? "summary-write-failed" : "race-write-failed"); raceCompleted = true;
                 }
                 stage = "authenticated-forward";
-                require(write(client, outgoing.bytes, "frontend-write"));
+                const auto forwardDeadline = std::min(enclosingDeadline(), end ? endDeadline : Clock::time_point::max());
+                require(write(client, outgoing.bytes, "frontend-write", forwardDeadline));
+                // A successful final SDK call can cross the deadline. Never
+                // turn that into a forwarded-frame or authenticated-End claim.
+                require(Clock::now() < forwardDeadline);
+                if (testControl && frontendEnded) ++testControl->forwardedAfterEof;
                 if (end) {
                     marker(root, ("end-forwarded-" + std::to_string(id)).c_str());
                     // Do not create an unrelated frontend fatal-write race by
@@ -361,8 +396,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     // accepted ordinary output until it closes, within the same
                     // original two-second boundary. Never touch fatal backend
                     // SDK state or manufacture an application acknowledgement.
-                    const auto drainDeadline = gated ? coordinationDeadline
-                        : frontendEnded ? frontendCloseDeadline : endDeadline;
+                    const auto drainDeadline = std::min(enclosingDeadline(), endDeadline);
                     while (!frontendEnded && !stopped && Clock::now() < drainDeadline) {
                         const int remaining = incoming.read(client);
                         if (remaining < 0) break;
@@ -376,10 +410,14 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
             std::this_thread::sleep_for(1ms);
         }
     } catch (...) {
+        if (testControl && std::string_view(receipt.operation) == "frontend-write") {
+            testControl->retries = receipt.writeRetries;
+            testControl->writeExpired = receipt.budgetExpired;
+        }
         if (!stopped) { std::ofstream out(root / ("peer-failed-" + std::to_string(id))); out << stage; }
     }
 }
-static int halfCloseRegression() {
+static int halfCloseRegression(bool blocked = false) {
     // Opaque application frames test duplex relay behavior, not an invented End
     // notice. The dedicated process journeys still qualify actual service End.
     char temporary[] = "/tmp/duel6r-peer-half-close-XXXXXX";
@@ -407,6 +445,7 @@ static int halfCloseRegression() {
     require(backend.fd >= 0 && frontend.fd >= 0);
     const auto backendPort = listen(backend.fd), frontendPort = listen(frontend.fd);
     auto password = std::make_shared<SessionPassword>("half-close-test-only");
+    HalfCloseTestControl control;
     std::atomic<bool> backendRequest{false}, backendEof{false}, backendReply{false}, backendFailed{false};
     std::thread backendWorker, relayWorker;
     struct Stop {
@@ -426,20 +465,39 @@ static int halfCloseRegression() {
             require(write(service, frame({0x71})));
             Frame request; require(read(request, service) == 1 && request.bytes == frame({0x72}));
             backendRequest = true;
-            require(write(service, frame({0x73})));
+            if (!blocked) require(write(service, frame({0x73})));
             Frame eof;
             require(read(eof, service) == -1 && service.usable());
             backendEof = true;
             // The reverse reply is causally AFTER the forwarded half-close;
             // neither a sleep nor queue acceptance can qualify the assertion.
-            backendReply = write(service, frame({0x74}));
+            if (blocked) {
+                std::unique_lock<std::mutex> lock(control.mutex);
+                require(control.changed.wait_for(lock, 2s, [&] { return control.deadline.has_value(); }));
+                // Deliberately release the response in the last quarter of the
+                // ORIGINAL window. This schedules a fault, not a stability sleep.
+                control.changed.wait_until(lock, *control.deadline - 500ms, [] { return stopped.load(); });
+                require(!stopped && Clock::now() < *control.deadline);
+                lock.unlock();
+                backendReply = write(service, frame(std::vector<std::uint8_t>(MaxPayloadBytes, 0x74)));
+            } else backendReply = write(service, frame({0x74}));
         } catch (...) { backendFailed = true; }
     });
     relayWorker = std::thread([&] {
         const int accepted = ::accept(frontend.fd, nullptr, nullptr);
-        if (accepted >= 0) bridge(accepted, 1, backendPort, root, "half-close-regression", password);
+        if (accepted >= 0) {
+            if (blocked) {
+                const int bytes = 4096;
+                if (setsockopt(accepted, SOL_SOCKET, SO_SNDBUF, &bytes, sizeof(bytes)) != 0) { ::close(accepted); return; }
+            }
+            bridge(accepted, 1, backendPort, root, "half-close-regression", password, blocked ? &control : nullptr);
+        }
     });
     Socket socket{::socket(AF_INET, SOCK_STREAM, 0)}; require(socket.fd >= 0);
+    if (blocked) {
+        const int bytes = 4096;
+        require(setsockopt(socket.fd, SOL_SOCKET, SO_RCVBUF, &bytes, sizeof(bytes)) == 0);
+    }
     sockaddr_in address{}; address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(frontendPort);
     require(::connect(socket.fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
@@ -450,13 +508,24 @@ static int halfCloseRegression() {
     require(write(client, frame({0x72})));
     require(::shutdown(socket.fd, SHUT_WR) == 0);
     bool receivedReply = false;
-    for (unsigned count = 0; count < 2; ++count) {
+    for (unsigned count = 0; !blocked && count < 2; ++count) {
         Frame response;
         if (read(response, client) != 1) break;
         if (response.bytes == frame({0x74})) { receivedReply = true; break; }
         require(response.bytes == frame({0x73}));
     }
     backendWorker.join(); relayWorker.join();
+    if (blocked) {
+        require(control.deadline.has_value());
+        const auto overrun = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - *control.deadline).count();
+        std::cout << "half-close deadline: overrun-ms=" << overrun << " actual-write-retries=" << control.retries
+                  << " forwarded-after-eof=" << control.forwardedAfterEof << " expired-write=" << control.writeExpired << '\n';
+        require(backendRequest && backendEof && backendReply && !backendFailed);
+        require(control.retries > 0 && control.writeExpired && control.forwardedAfterEof == 0);
+        require(overrun >= 0 && overrun < 250);
+        std::cout << "PASS late reverse response and native backpressure retain original EOF deadline\n";
+        return 0;
+    }
     std::cout << "half-close relay: backend-request=" << backendRequest << " backend-eof=" << backendEof << " reply-written=" << backendReply
               << " reply-received=" << receivedReply << " backend-failed=" << backendFailed << '\n';
     require(backendRequest && backendEof && backendReply && receivedReply && !backendFailed);
@@ -466,9 +535,10 @@ static int halfCloseRegression() {
 
 int main(int argc, char **argv) {
     try {
-        if (argc == 2 && std::string_view(argv[1]) == "--half-close-regression") {
+        if (argc == 2 && (std::string_view(argv[1]) == "--half-close-regression"
+                         || std::string_view(argv[1]) == "--half-close-deadline-regression")) {
             std::signal(SIGTERM, stop); std::signal(SIGINT, stop);
-            return halfCloseRegression();
+            return halfCloseRegression(std::string_view(argv[1]) == "--half-close-deadline-regression");
         }
         require(argc == 5);
         const std::filesystem::path root(argv[3]);
@@ -486,7 +556,7 @@ int main(int argc, char **argv) {
             pollfd readable{listener.fd, POLLIN, 0};
             if (::poll(&readable, 1, 100) > 0) {
                 const int accepted = ::accept(listener.fd, nullptr, nullptr);
-                if (accepted >= 0) workers.emplace_back(bridge, accepted, ++id, std::stoul(argv[2]), root, std::string(argv[4]), password);
+                if (accepted >= 0) workers.emplace_back(bridge, accepted, ++id, std::stoul(argv[2]), root, std::string(argv[4]), password, nullptr);
             }
         }
         for (auto &worker: workers) worker.join();
