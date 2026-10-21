@@ -122,6 +122,36 @@ else:
 sys.exit(1)  # diagnostic failure must remain a failing run even after safe cleanup
 ''', str(RUNNER.parent), str(root), str(log), sink, event,
                            sys.executable, "-c", FIXTURE, str(root), "normal"]
+            if mode.startswith("stat-"):
+                command = [sys.executable, "-c", r'''
+import errno, json, sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+from OwnedProcessRunner import run_owned
+root, log, kind = Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4]
+error = {"missing": FileNotFoundError(errno.ENOENT, "injected missing stat"),
+         "gone": ProcessLookupError(errno.ESRCH, "injected exited process"),
+         "denied": PermissionError(errno.EACCES, "injected denied stat"),
+         "io": OSError(errno.EIO, "injected stat I/O failure")}[kind]
+original_read = Path.read_text
+injected = []
+def read_stat(path, *args, **kwargs):
+    if path.parent.parent == Path("/proc") and path.name == "stat":
+        assert (root / "ready").exists(), "injection preceded child readiness"
+        injected.append(int(path.parent.name))
+        raise error
+    return original_read(path, *args, **kwargs)
+try:
+    with patch.object(Path, "read_text", read_stat):
+        run_owned(sys.argv[5:], 2, log)
+except OSError as caught:
+    assert caught is error, repr(caught)
+    raise
+finally:
+    (root / "injected.json").write_text(json.dumps(injected))
+''', str(RUNNER.parent), str(root), str(log), mode.removeprefix("stat-"),
+                           sys.executable, "-c", FIXTURE, str(root), "normal"]
             decoy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"])
             try:
                 with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as runner:
@@ -143,9 +173,18 @@ sys.exit(1)  # diagnostic failure must remain a failing run even after safe clea
                 else:
                     records = [json.loads(line) for line in log.read_text().splitlines()]
                     result = records[-1]
+                stat_success = mode in ("stat-missing", "stat-gone")
+                if mode.startswith("stat-"):
+                    injected = json.loads((root / "injected.json").read_text())
+                    self.assertTrue(injected, "stat failure was not exercised")
+                    self.assertEqual({}, result["process_state"])
+                    self.assertEqual(stat_success, any(record["event"] == "cleanup-begin" for record in records))
+                    if not stat_success:
+                        self.assertIn("injected", err)
                 self.assertTrue(result["cleanup"], (out, err))
                 self.assertEqual([], result["remaining"])
-                expected_phase = ("diagnostic-failure" if mode.startswith("diagnostic-") else
+                expected_phase = ("exited" if mode.startswith("stat-") else
+                                  "diagnostic-failure" if mode.startswith("diagnostic-") else
                                   {"normal": "exited", "timeout": "timeout", "cancel": "cancelled",
                                    "exception": "exception"}[mode])
                 self.assertEqual(expected_phase, result["phase"])
@@ -154,7 +193,7 @@ sys.exit(1)  # diagnostic failure must remain a failing run even after safe clea
                     self.assertIn(str(pid), result["reaped"])
                     self.assertFalse(Path(f"/proc/{pid}").exists(), f"{name} still exists, including zombie")
                 self.assertIsNone(decoy.poll(), "unrelated sibling was killed")
-                self.assertEqual(mode == "normal", runner.returncode == 0)
+                self.assertEqual(mode == "normal" or stat_success, runner.returncode == 0)
             finally:
                 decoy.terminate()
                 decoy.wait(timeout=3)
@@ -176,6 +215,10 @@ sys.exit(1)  # diagnostic failure must remain a failing run even after safe clea
     def test_full_log_disk_at_cleanup_end(self): self.scenario("diagnostic-log:end")
     def test_broken_stdout_at_cleanup_start(self): self.scenario("diagnostic-stdout:cleanup-begin")
     def test_broken_stdout_at_cleanup_end(self): self.scenario("diagnostic-stdout:end")
+    def test_missing_stat_still_reaps_full_tree(self): self.scenario("stat-missing")
+    def test_exited_process_stat_still_reaps_full_tree(self): self.scenario("stat-gone")
+    def test_stat_permission_failure_propagates_after_cleanup(self): self.scenario("stat-denied")
+    def test_stat_io_failure_propagates_after_cleanup(self): self.scenario("stat-io")
 
 
 if __name__ == "__main__":
