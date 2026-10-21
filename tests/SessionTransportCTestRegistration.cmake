@@ -314,6 +314,9 @@ if (NOT D6R_TRANSPORT_ONLY)
         add_executable(duel6r-public-authenticated-peer ${CMAKE_SOURCE_DIR}/tests/PublicAuthenticatedPeer.cpp)
         target_include_directories(duel6r-public-authenticated-peer PRIVATE ${CMAKE_SOURCE_DIR})
         target_link_libraries(duel6r-public-authenticated-peer PRIVATE duel6r-network-scaffold)
+        add_test(NAME authenticated-peer-half-close COMMAND duel6r-public-authenticated-peer --half-close-regression)
+        set_tests_properties(authenticated-peer-half-close PROPERTIES
+                LABELS "application;network;process;regression;sanity-network" TIMEOUT 15)
         add_test(NAME duel6r-public-dedicated-process-tests
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
                         $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>

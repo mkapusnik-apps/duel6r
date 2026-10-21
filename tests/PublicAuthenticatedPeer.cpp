@@ -9,6 +9,7 @@
 #include <poll.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <algorithm>
 #include <array>
@@ -16,6 +17,7 @@
 #include <chrono>
 #include <cerrno>
 #include <csignal>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -48,6 +50,9 @@ struct PeerReceipt {
     unsigned clientFrames = 0, serviceFrames = 0, emitted = 0;
     unsigned frontendReadsAfterAttack = 0;
     bool budgetExpired = false, attackSeen = false, attackForwarded = false;
+    bool frontendEof = false, leaveForwarded = false;
+    int backendUnread = -1;
+    std::size_t backendPartial = 0;
     void emit(const char *event, unsigned line) noexcept {
         // Fixed aliases/stages and numeric state only. No bytes, paths, session
         // identities or credential data; at most three receipts per connection.
@@ -63,7 +68,9 @@ struct PeerReceipt {
                 << " budget-expired=" << budgetExpired << " stopped=" << stopped.load()
                 << " client-frames=" << clientFrames << " service-frames=" << serviceFrames
                 << " attack-seen=" << attackSeen << " attack-forwarded=" << attackForwarded
-                << " frontend-reads-after-attack=" << frontendReadsAfterAttack << '\n';
+                << " frontend-reads-after-attack=" << frontendReadsAfterAttack
+                << " frontend-eof=" << frontendEof << " leave-forwarded=" << leaveForwarded
+                << " backend-unread=" << backendUnread << " backend-partial=" << backendPartial << '\n';
         } catch (...) {} // Logging failure must never replace the original failure.
     }
 };
@@ -185,7 +192,9 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         const bool summaryTerminal = scenario == "summary-return-ordered" && id == 2;
         const bool attackTerminal = scenario.compare(0, 7, "attack-") == 0 && id == 3;
         bool gated = false;
+        bool frontendEnded = false;
         Clock::time_point coordinationDeadline{};
+        Clock::time_point frontendCloseDeadline{};
         std::deque<std::vector<std::uint8_t>> reverseTraffic;
         std::size_t reverseBytes = 0;
         struct EraseDeferred {
@@ -205,6 +214,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                         : summaryTerminal ? "summary-end-armed" : "flow-armed");
             }
             if (gated) require(Clock::now() < coordinationDeadline);
+            if (frontendEnded) require(Clock::now() < frontendCloseDeadline);
             if (id == 2) {
                 std::ifstream command(root / "action"); unsigned target = 0; std::string action; std::uint64_t session = 0;
                 if (command >> target >> action >> session && target == id
@@ -216,8 +226,22 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
             }
             // Once the exact malicious request is fully forwarded, ordinary
             // reverse traffic must not make a failed write hide service EOF.
-            const int received = attackForwarded ? 0 : incoming.read(client, "frontend-read");
-            if (received < 0) return;
+            const int received = attackForwarded || frontendEnded ? 0 : incoming.read(client, "frontend-read");
+            if (received < 0) {
+                receipt.frontendEof = receipt.mapped == 0;
+                (void) ioctl(back.fd, FIONREAD, &receipt.backendUnread);
+                receipt.backendPartial = outgoing.used;
+                receipt.emit("frontend-terminal", __LINE__);
+                if (!receipt.frontendEof || !client.usable()) return;
+                // Healthy frontend EOF closes only the client->service leg.
+                // Returning here would close a backend with unread canonical
+                // traffic and could discard its already-written Leave/End.
+                // Keep reading/forwarding the reverse leg, without restarting
+                // any armed coordination budget or querying a fatal context.
+                frontendEnded = true;
+                frontendCloseDeadline = gated ? coordinationDeadline : Clock::now() + 2s;
+                require(::shutdown(back.fd, SHUT_WR) == 0 || errno == ENOTCONN);
+            }
             if (received > 0) {
                 { std::ofstream out(root / ("peer-client-frame-" + std::to_string(id)));
                   out << ++clientFrames << ':' << incoming.bytes.size() << ':' << unsigned(incoming.bytes[7]); }
@@ -251,7 +275,10 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                                        incoming.bytes.begin() + TransportEnvelopeBytes + 10, "D6LC\0\2\0\6\0\3")) {
                         const auto action = Lifecycle::deserializeParticipantAction(
                             {incoming.bytes.begin() + TransportEnvelopeBytes, incoming.bytes.end()});
-                        if (action) marker(root, ("peer-Leave-forwarded-" + std::to_string(id)).c_str());
+                        if (action) {
+                            receipt.leaveForwarded = true;
+                            marker(root, ("peer-Leave-forwarded-" + std::to_string(id)).c_str());
+                        }
                     }
                 }
                 incoming.reset();
@@ -334,8 +361,9 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                     // accepted ordinary output until it closes, within the same
                     // original two-second boundary. Never touch fatal backend
                     // SDK state or manufacture an application acknowledgement.
-                    const auto drainDeadline = gated ? coordinationDeadline : endDeadline;
-                    while (!stopped && Clock::now() < drainDeadline) {
+                    const auto drainDeadline = gated ? coordinationDeadline
+                        : frontendEnded ? frontendCloseDeadline : endDeadline;
+                    while (!frontendEnded && !stopped && Clock::now() < drainDeadline) {
                         const int remaining = incoming.read(client);
                         if (remaining < 0) break;
                         if (remaining > 0) incoming.reset();
@@ -351,8 +379,97 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         if (!stopped) { std::ofstream out(root / ("peer-failed-" + std::to_string(id))); out << stage; }
     }
 }
+static int halfCloseRegression() {
+    // Opaque application frames test duplex relay behavior, not an invented End
+    // notice. The dedicated process journeys still qualify actual service End.
+    char temporary[] = "/tmp/duel6r-peer-half-close-XXXXXX";
+    require(::mkdtemp(temporary) != nullptr);
+    const std::filesystem::path root(temporary);
+    struct Remove { std::filesystem::path root; ~Remove() { std::error_code ignored; std::filesystem::remove_all(root, ignored); } } remove{root};
+    const auto listen = [](int socket) {
+        sockaddr_in address{}; address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        require(::bind(socket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
+        require(::listen(socket, 1) == 0);
+        socklen_t length = sizeof(address);
+        require(::getsockname(socket, reinterpret_cast<sockaddr *>(&address), &length) == 0);
+        return ntohs(address.sin_port);
+    };
+    const auto read = [](Frame &frame, SecureSession &session) {
+        const auto deadline = Clock::now() + 2s;
+        while (!stopped && Clock::now() < deadline) {
+            const int result = frame.read(session);
+            if (result != 0) return result;
+            std::this_thread::sleep_for(1ms);
+        }
+        return -2;
+    };
+    Socket backend{::socket(AF_INET, SOCK_STREAM, 0)}, frontend{::socket(AF_INET, SOCK_STREAM, 0)};
+    require(backend.fd >= 0 && frontend.fd >= 0);
+    const auto backendPort = listen(backend.fd), frontendPort = listen(frontend.fd);
+    auto password = std::make_shared<SessionPassword>("half-close-test-only");
+    std::atomic<bool> backendRequest{false}, backendEof{false}, backendReply{false}, backendFailed{false};
+    std::thread backendWorker, relayWorker;
+    struct Stop {
+        int backend, frontend; std::thread &server, &relay;
+        ~Stop() {
+            stopped = true; ::shutdown(backend, SHUT_RDWR); ::shutdown(frontend, SHUT_RDWR);
+            if (server.joinable()) server.join();
+            if (relay.joinable()) relay.join();
+        }
+    } cleanup{backend.fd, frontend.fd, backendWorker, relayWorker};
+    backendWorker = std::thread([&] {
+        try {
+            Socket socket{::accept(backend.fd, nullptr, nullptr)}; require(socket.fd >= 0);
+            require(fcntl(socket.fd, F_SETFL, O_NONBLOCK) == 0);
+            SecureSession service(socket.fd, true, password);
+            require(service.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
+            require(write(service, frame({0x71})));
+            Frame request; require(read(request, service) == 1 && request.bytes == frame({0x72}));
+            backendRequest = true;
+            require(write(service, frame({0x73})));
+            Frame eof;
+            require(read(eof, service) == -1 && service.usable());
+            backendEof = true;
+            // The reverse reply is causally AFTER the forwarded half-close;
+            // neither a sleep nor queue acceptance can qualify the assertion.
+            backendReply = write(service, frame({0x74}));
+        } catch (...) { backendFailed = true; }
+    });
+    relayWorker = std::thread([&] {
+        const int accepted = ::accept(frontend.fd, nullptr, nullptr);
+        if (accepted >= 0) bridge(accepted, 1, backendPort, root, "half-close-regression", password);
+    });
+    Socket socket{::socket(AF_INET, SOCK_STREAM, 0)}; require(socket.fd >= 0);
+    sockaddr_in address{}; address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(frontendPort);
+    require(::connect(socket.fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
+    require(fcntl(socket.fd, F_SETFL, O_NONBLOCK) == 0);
+    SecureSession client(socket.fd, false, password);
+    require(client.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
+    Frame greeting; require(read(greeting, client) == 1 && greeting.bytes == frame({0x71}));
+    require(write(client, frame({0x72})));
+    require(::shutdown(socket.fd, SHUT_WR) == 0);
+    bool receivedReply = false;
+    for (unsigned count = 0; count < 2; ++count) {
+        Frame response;
+        if (read(response, client) != 1) break;
+        if (response.bytes == frame({0x74})) { receivedReply = true; break; }
+        require(response.bytes == frame({0x73}));
+    }
+    backendWorker.join(); relayWorker.join();
+    std::cout << "half-close relay: backend-request=" << backendRequest << " backend-eof=" << backendEof << " reply-written=" << backendReply
+              << " reply-received=" << receivedReply << " backend-failed=" << backendFailed << '\n';
+    require(backendRequest && backendEof && backendReply && receivedReply && !backendFailed);
+    std::cout << "PASS authenticated relay preserves reverse response after frontend write EOF\n";
+    return 0;
+}
+
 int main(int argc, char **argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "--half-close-regression") {
+            std::signal(SIGTERM, stop); std::signal(SIGINT, stop);
+            return halfCloseRegression();
+        }
         require(argc == 5);
         const std::filesystem::path root(argv[3]);
         std::string secret; require(static_cast<bool>(std::getline(std::cin, secret)));

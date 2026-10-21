@@ -617,7 +617,9 @@ int main(int argc, char **argv) {
                             "fatal-before-End qualification missing");
                 }
             }
+            const auto endCallBegan = std::chrono::steady_clock::now();
             first.endSession();
+            const auto endCallElapsed = std::chrono::steady_clock::now() - endCallBegan;
             if (scenario == "flow-fatal-before-end") {
                 require(pumpUntil([&] { return first.snapshot().journey == J::Inactive
                     && second.snapshot().journey == J::HostEnded && observer.snapshot().journey == J::Failure; }, endDeadline),
@@ -632,7 +634,11 @@ int main(int argc, char **argv) {
             }
             const bool ended = pumpUntil([&] { return first.snapshot().journey == J::Inactive
                 && second.snapshot().journey == J::HostEnded && observer.snapshot().journey == J::HostEnded; }, endDeadline);
-            if (!ended) failureContext(std::filesystem::path(argv[2]), "flow-end-outcome", first, second, observer);
+            if (!ended) {
+                std::cerr << "flow end-call-us=" << std::chrono::duration_cast<std::chrono::microseconds>(endCallElapsed).count()
+                          << " request-offset-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(endCallBegan - (endDeadline - 5s)).count() << '\n';
+                failureContext(std::filesystem::path(argv[2]), "flow-end-outcome", first, second, observer);
+            }
             require(ended,
                 "confirmed end outcome: controller journey=" + std::to_string(static_cast<int>(first.snapshot().journey))
                 + " guest journey=" + std::to_string(static_cast<int>(second.snapshot().journey))
