@@ -2130,7 +2130,7 @@ void sealWinsStalePredecryptCheckWithoutLateInput() {
     }
 }
 
-void authenticatedCompletionSealAndFatalWriterShareStableTail() {
+void authenticatedCompletionSealAndFatalWriterCase(bool participantLeave) {
     const auto baseline = Trust::processQueueBudget().used();
     IngressPause pause;
     std::atomic<bool> sealing{false};
@@ -2148,10 +2148,16 @@ void authenticatedCompletionSealAndFatalWriterShareStableTail() {
     receiving.inbound.beforeInputSeal = [&] { sealing = true; };
     TcpClient client(receiving); CHECK(client.start({"127.0.0.1", port})); requireConnected(client, "completion peer");
     auto peer = awaitAccept(listener); auto connection = client.connection();
-    const auto notice = Lifecycle::serializeIntentionalHostEnd({91});
+    std::future<TransportInputSnapshot> sealed;
+    // Release before the future/transport destructors can wait, even if a
+    // boundary assertion fails. Never wait for a fatal writer under this gate.
+    struct Release { IngressPause &pause; ~Release() { pause.release(); } } release{pause};
+    const auto notice = participantLeave
+        ? Lifecycle::serializeParticipantAction({91, 2, Lifecycle::ParticipantActionKind::Leave})
+        : Lifecycle::serializeIntentionalHostEnd({91});
     CHECK(peer->send(notice) == SendResult::Accepted);
     CHECK(waitUntil([&] { return pause.entered.load(); }, 2s));
-    auto sealed = std::async(std::launch::async, [&] { return connection->sealAndDrainInput(); });
+    sealed = std::async(std::launch::async, [&] { return connection->sealAndDrainInput(); });
     CHECK(waitUntil([&] { return sealing.load(); }, 1s));
     const bool sealBlocked = sealed.wait_for(20ms) == std::future_status::timeout;
     // Real OS send failure; the maintained inner engine is not replaced. Its
@@ -2169,16 +2175,27 @@ void authenticatedCompletionSealAndFatalWriterShareStableTail() {
     CHECK(tail.frames.front().receivedAt == originalReceipt.load());
     CHECK(waitUntil([&] { return connection->state() == ClientState::Failed; }, 2s));
     CHECK(tail.frames.front().receivedAt < connection->terminalAt());
-    auto parsed = Lifecycle::deserializeIntentionalHostEnd(tail.frames.front().payload);
-    CHECK(parsed && parsed->sessionId == 91);
-    Lifecycle::GuestSessionRecovery recovery(91, 2, 8, true);
-    CHECK(recovery.acceptIntentionalHostEnd(*parsed, 8, tail.frames.front().receivedAt));
-    recovery.transportClosed(connection->terminalAt(), true);
-    CHECK(recovery.journey() == Lifecycle::GuestJourney::HostEnded); // Prefatal authenticated proof wins.
+    if (participantLeave) {
+        const auto parsed = Lifecycle::deserializeParticipantAction(tail.frames.front().payload);
+        CHECK(parsed && parsed->sessionId == 91 && parsed->participantId == 2
+              && parsed->kind == Lifecycle::ParticipantActionKind::Leave);
+    } else {
+        auto parsed = Lifecycle::deserializeIntentionalHostEnd(tail.frames.front().payload);
+        CHECK(parsed && parsed->sessionId == 91);
+        Lifecycle::GuestSessionRecovery recovery(91, 2, 8, true);
+        CHECK(recovery.acceptIntentionalHostEnd(*parsed, 8, tail.frames.front().receivedAt));
+        recovery.transportClosed(connection->terminalAt(), true);
+        CHECK(recovery.journey() == Lifecycle::GuestJourney::HostEnded); // Prefatal authenticated proof wins.
+    }
     TransportFrame late;
     CHECK(!connection->receive(late)); CHECK(connection->sealAndDrainInput().frames.empty());
     connection->close(); client.close(); peer->close(); listener.shutdown();
     CHECK(Trust::processQueueBudget().used() == baseline);
+}
+
+void authenticatedCompletionSealAndFatalWriterShareStableTail() {
+    for (const bool participantLeave : {false, true})
+        authenticatedCompletionSealAndFatalWriterCase(participantLeave);
 }
 
 void securePartialStagingCannotBecomeSealedTerminalProof() {

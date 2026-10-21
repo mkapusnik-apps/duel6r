@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -17,6 +18,7 @@
 #include <vector>
 
 #include "tests/TestHarness.h"
+#include "source/server/CanonicalMatchRuntime.h"
 #include "tests/RuntimeObservationReceipt.h"
 #include "source/network/AdmissionProtocol.h"
 #include "source/network/CompatibilityManifest.h"
@@ -2509,6 +2511,259 @@ D6R_TEST_CASE("PR83 production final-summary Leave and expiry remove membership 
         cancelled = true; worker.join();
         D6R_REQUIRE_EQ(0, status);
     }
+}
+
+namespace {
+struct SecureIntakeSchedule {
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool parkHost = false, hostParked = false, releaseHost = false;
+    bool publishArmed = false, publishParked = false, releasePublish = false, turnDone = false;
+    bool expired = false, targetRetired = false;
+    unsigned received = 0, parkAt = 0, replyFailures = 0, leavesConsumed = 0;
+    std::shared_ptr<Network::TcpConnection> target;
+    std::atomic<bool> stop{false};
+    std::atomic<std::int64_t> frozenAt{0};
+    Network::TransportTimePoint now() const {
+        const auto value = frozenAt.load();
+        return value ? Network::TransportTimePoint(std::chrono::nanoseconds(value)) : std::chrono::steady_clock::now();
+    }
+    bool await(const std::function<bool()> &predicate) {
+        std::unique_lock<std::mutex> lock(mutex);
+        return changed.wait_for(lock, 2s, predicate);
+    }
+    void unblock() {
+        std::lock_guard<std::mutex> lock(mutex);
+        releaseHost = releasePublish = true;
+        changed.notify_all();
+    }
+};
+
+class SecureIntakeConnection final : public Server::AdmissionRuntimeConnection {
+public:
+    SecureIntakeConnection(std::shared_ptr<Network::TcpConnection> tcp, SecureIntakeSchedule &schedule)
+        : tcp(std::move(tcp)), schedule(schedule) {}
+    Network::SendResult send(std::vector<std::uint8_t> bytes) override {
+        const auto message = Network::Replication::deserializeReplicationFrame(bytes);
+        const auto result = tcp->send(std::move(bytes));
+        if (message && message->kind == Network::Replication::ReplicationFrameKind::QualityResponse
+            && result == Network::SendResult::Closing) {
+            std::lock_guard<std::mutex> lock(schedule.mutex);
+            ++schedule.replyFailures;
+        }
+        return result;
+    }
+    Network::SendResult sendSensitive(std::vector<std::uint8_t> bytes) override { return tcp->sendSensitive(std::move(bytes)); }
+    bool receive(Network::TransportFrame &frame) override {
+        const bool result = tcp->receive(frame);
+        if (result) observe(frame);
+        return result;
+    }
+    Network::TransportInputSnapshot sealAndDrainInput(std::size_t count) override {
+        auto result = tcp->sealAndDrainInput(count);
+        for (const auto &frame : result.frames) observe(frame);
+        return result;
+    }
+    Network::ClientState state() const override { return tcp->state(); }
+    Network::TransportTimePoint acceptedAt() const override { return tcp->acceptedAt(); }
+    Network::TransportTimePoint terminalAt() const override { return tcp->terminalAt(); }
+    bool permitAdmissionAcceptance() override { return tcp->permitAdmissionAcceptance(); }
+    void revokeAdmissionAcceptance() override { tcp->revokeAdmissionAcceptance(); }
+    void markAdmissionSucceeded() override { tcp->markAdmissionSucceeded(); }
+    void requestClose() override { tcp->requestClose(); }
+private:
+    void observe(const Network::TransportFrame &frame) {
+        const auto action = Network::Lifecycle::deserializeParticipantAction(frame.payload);
+        if (action && action->kind == Network::Lifecycle::ParticipantActionKind::Leave) {
+            std::lock_guard<std::mutex> lock(schedule.mutex);
+            ++schedule.leavesConsumed;
+        }
+    }
+    std::shared_ptr<Network::TcpConnection> tcp;
+    SecureIntakeSchedule &schedule;
+};
+
+class SecureIntakeListener final : public Server::AdmissionRuntimeListener {
+public:
+    SecureIntakeListener(std::size_t capacity, SecureIntakeSchedule &schedule)
+        : schedule(schedule), listener(capacity, dependencies(schedule)) {}
+    bool start(const Network::Endpoint &endpoint) override { return listener.start(endpoint); }
+    bool waitForReady(std::chrono::milliseconds timeout) override { return listener.waitForReady(timeout); }
+    Network::ListenerState state() const override { return listener.state(); }
+    Network::TransportFailure failure() const override { return listener.failure(); }
+    std::shared_ptr<Server::AdmissionRuntimeConnection> acceptConnection() override {
+        auto tcp = listener.acceptConnection();
+        if (!tcp) return {};
+        { std::lock_guard<std::mutex> lock(schedule.mutex); schedule.target = tcp; }
+        return std::make_shared<SecureIntakeConnection>(std::move(tcp), schedule);
+    }
+    void shutdown() override { listener.shutdown(); }
+private:
+    static Network::SessionTransportDependencies dependencies(SecureIntakeSchedule &schedule) {
+        auto result = secureAdmissionTransport();
+        result.now = [&] { return schedule.now(); };
+        result.inbound.beforeApplicationPublish = [&](auto) {
+            std::unique_lock<std::mutex> lock(schedule.mutex);
+            if (!schedule.publishArmed || ++schedule.received != schedule.parkAt) return;
+            // Earlier frames on this connection have completed authenticated
+            // publication. Hold only the following frame's callback/inner lock.
+            schedule.publishParked = true; schedule.changed.notify_all();
+            if (!schedule.changed.wait_for(lock, 4s, [&] { return schedule.releasePublish; })) schedule.expired = true;
+        };
+        return result;
+    }
+    SecureIntakeSchedule &schedule;
+    Network::TcpListener listener;
+};
+
+void realSecureClosingIntake(unsigned scenario) {
+    const auto resources = fs::path(__FILE__).parent_path().parent_path() / "resources";
+    const auto built = Network::CompatibilityManifestBuilder(resources.string()).build();
+    D6R_REQUIRE(built.valid());
+    SecureIntakeSchedule schedule;
+    std::atomic<bool> ready{false}, hostReady{false};
+    Server::AdmissionRuntimeDependencies dependencies;
+    dependencies.authoritativeRuntimeFactory = [](const auto &config, const auto &roster, const auto &content) {
+        return Server::Authoritative::CanonicalMatchRuntime::createDependencies(config, roster, content);
+    };
+    dependencies.now = [&] { return schedule.now(); };
+    dependencies.cancelled = [&] { return schedule.stop.load(); };
+    dependencies.hostedServiceStatus = [&](auto status) {
+        if (status == Network::HostServiceStatusCode::Ready) ready = true;
+        return true;
+    };
+    dependencies.hostReadinessChange = [&]() -> std::optional<bool> {
+        return hostReady.exchange(false) ? std::optional<bool>(true) : std::nullopt;
+    };
+    dependencies.lifecycleObserver = [&](const auto &event) {
+        if (event.stage == Server::AdmissionLifecycleStage::ConnectionClosed && event.connectionId == 2) {
+            std::lock_guard<std::mutex> lock(schedule.mutex);
+            schedule.targetRetired = true; schedule.changed.notify_all();
+        }
+        return true;
+    };
+    dependencies.listenerFactory = [&](std::size_t capacity, bool) {
+        return std::make_unique<SecureIntakeListener>(capacity, schedule);
+    };
+    dependencies.wait = [&](auto duration) {
+        {
+            std::unique_lock<std::mutex> lock(schedule.mutex);
+            if (schedule.parkHost && !schedule.releaseHost) {
+                schedule.hostParked = true; schedule.changed.notify_all();
+                if (!schedule.changed.wait_for(lock, 4s, [&] { return schedule.releaseHost; })) schedule.expired = true;
+            } else if (schedule.replyFailures) {
+                schedule.turnDone = true; schedule.changed.notify_all();
+            }
+        }
+        std::this_thread::sleep_for(duration); // Ordinary service wait, not a race-selection delay.
+    };
+    auto config = runtimeServerConfig();
+    config.resourcePath = resources.string();
+    config.listenEndpoint.port = unusedLoopbackPort();
+    std::ostringstream output;
+    int status = -1;
+    std::thread host([&] {
+        Server::HeadlessServer server(config, dependencies);
+        server.runtimeDependencies.productionReplicationProtocol = true; // Adapter retains real encrypted transport.
+        status = server.run(output);
+    });
+    struct Stop {
+        SecureIntakeSchedule &schedule; std::thread &host;
+        ~Stop() { schedule.unblock(); schedule.stop = true; if (host.joinable()) host.join(); }
+    } stop{schedule, host};
+    const auto readyDeadline = std::chrono::steady_clock::now() + 2s;
+    while (!ready && std::chrono::steady_clock::now() < readyDeadline) std::this_thread::sleep_for(1ms);
+    D6R_REQUIRE(ready);
+    auto observer = connectProductionPeer(config.listenEndpoint, built.manifest);
+    D6R_REQUIRE(pumpUntil(*observer, [&] { return observer->admitted; }, 2s));
+    auto departing = connectProductionPeer(config.listenEndpoint, built.manifest);
+    D6R_REQUIRE(pumpUntil(*departing, [&] { return departing->admitted; }, 2s));
+    // New admission cleared earlier readiness. All three real participants must
+    // enter a canonical active match before the close schedule is armed.
+    D6R_REQUIRE(observer->connection->send(Network::Lifecycle::serializeParticipantAction({
+        observer->reconnectGrant->sessionId, observer->offer->participantId,
+        Network::Lifecycle::ParticipantActionKind::Ready})) == Network::SendResult::Accepted);
+    hostReady = true;
+    D6R_REQUIRE(pumpUntil(*observer, [&] {
+        pumpProductionPeer(*departing);
+        return !observer->states.empty() && observer->states.back().phase == Network::Replication::Phase::ActiveRound;
+    }, 3s));
+    const auto before = observer->states.back();
+    const auto participant = departing->offer->participantId;
+    { std::lock_guard<std::mutex> lock(schedule.mutex); schedule.parkHost = true; }
+    D6R_REQUIRE(schedule.await([&] { return schedule.hostParked; }));
+    const unsigned probes = scenario == 3 ? Network::Trust::NonInputActionBurst : 1;
+    const unsigned extra = scenario == 1 ? 1 : 0;
+    {
+        std::lock_guard<std::mutex> lock(schedule.mutex);
+        schedule.parkAt = probes + extra + 2; // Probe(s), optional invalid frame, Leave, parked frame.
+        schedule.publishArmed = true;
+        schedule.frozenAt = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count(); // No token replenishment during the batch.
+    }
+    for (unsigned index = 0; index < probes; ++index)
+        D6R_REQUIRE(departing->connection->send(Network::Replication::serializeQualityProbe(index + 1)) == Network::SendResult::Accepted);
+    if (scenario == 1) D6R_REQUIRE(departing->connection->send({0xff}) == Network::SendResult::Accepted);
+    D6R_REQUIRE(departing->connection->send(Network::Lifecycle::serializeParticipantAction({
+        departing->reconnectGrant->sessionId, scenario == 2 ? before.hostParticipantId : participant,
+        Network::Lifecycle::ParticipantActionKind::Leave})) == Network::SendResult::Accepted);
+    D6R_REQUIRE(departing->connection->send(Network::Replication::serializeQualityProbe(100)) == Network::SendResult::Accepted);
+    D6R_REQUIRE(schedule.await([&] { return schedule.publishParked; }));
+    std::shared_ptr<Network::TcpConnection> target;
+    { std::lock_guard<std::mutex> lock(schedule.mutex); target = schedule.target; }
+    D6R_REQUIRE(target->send(Network::Replication::serializeQualityResponse(100, 1)) == Network::SendResult::Accepted);
+    target->requestClose();
+    D6R_REQUIRE(target->state() == Network::ClientState::Closing);
+    { std::lock_guard<std::mutex> lock(schedule.mutex); schedule.releaseHost = true; schedule.changed.notify_all(); }
+    const bool handledClosingReply = schedule.await([&] { return schedule.turnDone; });
+    // Never wait for writer completion/terminal while publication holds its lock.
+    schedule.unblock();
+    D6R_REQUIRE(handledClosingReply);
+    D6R_REQUIRE(schedule.await([&] { return schedule.targetRetired; }));
+    // Freeze only the finite intake/token batch, not the later canonical tick
+    // that publishes its committed lifecycle outcome to the observer.
+    schedule.frozenAt = 0;
+    const bool observed = pumpUntil(*observer, [&] {
+        if (observer->states.empty()) return false;
+        const auto &state = observer->states.back();
+        const auto row = std::find_if(state.participants.begin(), state.participants.end(),
+            [&](const auto &entry) { return entry.participantId == participant; });
+        if (scenario != 0)
+            return row != state.participants.end() && row->connection == Network::Replication::ConnectionState::Reconnecting;
+        // Active-round identity history is retained; removal is represented by
+        // Departed on every owned slot, not by erasing the historical rows.
+        return std::all_of(departing->offer->playerIds.begin(), departing->offer->playerIds.end(), [&](auto id) {
+            const auto slot = std::find_if(state.players.begin(), state.players.end(), [&](const auto &entry) { return entry.playerId == id; });
+            return slot != state.players.end() && slot->lifeState == Network::Replication::LifeState::Departed;
+        });
+    }, 2s);
+    std::ostringstream detail;
+    {
+        std::lock_guard<std::mutex> lock(schedule.mutex);
+        detail << "scenario=" << scenario << ";authenticated-before-park=" << schedule.received - 1
+               << ";closing-reply-failures=" << schedule.replyFailures << ";leaves-consumed=" << schedule.leavesConsumed;
+        D6R_REQUIRE(!schedule.expired && schedule.replyFailures == 1);
+    }
+    if (!observed) Test::fail("real admitted intake applies only eligible authenticated Leave", __FILE__, __LINE__, detail.str());
+    const auto &after = observer->states.back();
+    D6R_REQUIRE_EQ(before.matchId, after.matchId);
+    D6R_REQUIRE(before.round && after.round && before.round->roundId == after.round->roundId);
+    for (const auto id : departing->offer->playerIds) {
+        const auto row = std::find_if(after.players.begin(), after.players.end(), [&](const auto &entry) { return entry.playerId == id; });
+        D6R_REQUIRE(row != after.players.end());
+        D6R_REQUIRE_EQ(scenario == 0, row->lifeState == Network::Replication::LifeState::Departed);
+    }
+    std::cout << detail.str() << '\n';
+    observer->client->close(); departing->client->close(); schedule.stop = true; host.join();
+    D6R_REQUIRE_EQ(0, status);
+}
+}
+
+D6R_TEST_CASE("real secure admitted Closing reply failure preserves eligible queued Leave") {
+    realSecureClosingIntake(0);
+}
+D6R_TEST_CASE("real secure admitted Closing tail retains invalid identity and budget rejection") {
+    for (unsigned scenario : {1u, 2u, 3u}) realSecureClosingIntake(scenario);
 }
 
 D6R_TEST_CASE("PR83 production guest Leave after host restore before reconnect response removes without renewed reservation") {

@@ -5051,7 +5051,7 @@ D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team cont
     // Removing the sole opposing team restores solo play, not a victory. Both
     // archers must retain their charge and remain controllable without a reset.
     opponent.leave();
-    D6R_REQUIRE(pumpRuntimes(host, opponent, ally, 3s, [&] {
+    const bool departureConfirmed = pumpRuntimes(host, opponent, ally, 3s, [&] {
         for (const auto *runtime : {&host, &ally}) {
             const auto snapshot = runtime->snapshot();
             if (snapshot.journey != Client::NetworkJourney::Match || !snapshot.failure.empty()
@@ -5078,7 +5078,31 @@ D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team cont
             if (snapshot.canonical->phaseTime <= observed) return false;
         }
         return true;
-    }));
+    });
+    if (!departureConfirmed) {
+        std::ostringstream detail;
+        detail << "expected-departed=" << opposingId << ";match=" << before.matchId
+               << ";round=" << (before.round ? before.round->roundId : 0) << '\n';
+        for (const auto *runtime : {&host, &opponent, &ally}) {
+            const auto snapshot = runtime->snapshot();
+            detail << "peer=" << snapshot.localParticipantId << ";journey=" << unsigned(snapshot.journey)
+                   << ";failure=" << snapshot.failure;
+            if (snapshot.canonical) {
+                const auto &state = *snapshot.canonical;
+                detail << ";phase=" << unsigned(state.phase) << ";tick=" << state.phaseTime
+                       << ";match=" << state.matchId << ";round=" << (state.round ? state.round->roundId : 0)
+                       << ";countdown=" << state.roundEndCountdown;
+                for (const auto &participant : state.participants)
+                    detail << ";participant=" << participant.participantId << ":connection=" << unsigned(participant.connection);
+                for (const auto &slot : state.players)
+                    detail << ";player=" << slot.playerId << ":life-state=" << unsigned(slot.lifeState)
+                           << ":ammo=" << slot.ammunition << ":charge=" << slot.charge << ":actions=" << slot.actionMask;
+            }
+            detail << '\n';
+        }
+        Test::fail("charged archers retain live solo state after confirmed opponent departure",
+                   __FILE__, __LINE__, detail.str());
+    }
     input.setPressed(SDLK_q, false); input.setPressed(SDLK_u, false);
     const bool firedOnRelease = pumpRuntimes(host, opponent, ally, 500ms, [&] {
         for (const auto *runtime : {&host, &ally}) {
