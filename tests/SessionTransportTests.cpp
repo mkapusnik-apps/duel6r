@@ -47,9 +47,20 @@ namespace CommonStagingObservation {
         }
     }
 }
+namespace ClosingSdkObservation {
+    std::atomic<bool> armed{false};
+    std::atomic<mbedtls_ssl_context *> fatal{nullptr};
+    std::atomic<unsigned> afterFatal{0};
+}
 extern "C" int __real_mbedtls_ssl_read(mbedtls_ssl_context *, unsigned char *, std::size_t);
 extern "C" int __wrap_mbedtls_ssl_read(mbedtls_ssl_context *ctx, unsigned char *bytes, std::size_t size) {
+    if (ClosingSdkObservation::armed && ClosingSdkObservation::fatal == ctx) ++ClosingSdkObservation::afterFatal;
     const int result = __real_mbedtls_ssl_read(ctx, bytes, size);
+    if (ClosingSdkObservation::armed && result < 0
+        && result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) {
+        mbedtls_ssl_context *empty = nullptr;
+        ClosingSdkObservation::fatal.compare_exchange_strong(empty, ctx);
+    }
     if (CommonStagingObservation::armed && CommonStagingObservation::receivingApplication
         && result > 0 && result == static_cast<int>(CommonStagingObservation::readBytes.load())
         && std::equal(CommonStagingObservation::expected.begin(), CommonStagingObservation::expected.begin() + result, bytes)) {
@@ -1730,6 +1741,137 @@ void closeAndShutdownBounds() {
     CHECK(std::chrono::steady_clock::now() - started < 3s); CHECK(listener.state() == ListenerState::Stopped);
 }
 
+void healthyClosingReadBoundaries() {
+    // Silent/readable peers, partial framing, malformed framing, fatal crypto,
+    // and key exhaustion all share the first close deadline and one reader.
+    for (unsigned scenario = 0; scenario < 7; ++scenario) {
+        const auto baseline = Trust::processQueueBudget().used();
+        SessionTransportDependencies encrypted; encrypted.secureSession = true;
+        if (scenario == 6) encrypted.secureLimits.plaintextBytesPerDirection = 2 * (TransportEnvelopeBytes + 1) + 128;
+        std::atomic<unsigned> published{0};
+        encrypted.inbound.beforeApplicationPublish = [&](auto) { ++published; };
+        const auto port = unusedPort(); TcpListener listener(1, encrypted); startListener(listener, port);
+        RawSocketOwner socket(connectRaw(port));
+#ifdef D6R_TRANSPORT_WINDOWS
+        u_long nonblocking = 1; CHECK(ioctlsocket(socket.get(), FIONBIO, &nonblocking) == 0);
+#else
+        CHECK(fcntl(socket.get(), F_SETFL, O_NONBLOCK) == 0);
+#endif
+        SecureSession peer(static_cast<std::intptr_t>(socket.get()), false, {});
+        CHECK(peer.handshake(std::chrono::steady_clock::now() + 3s, [] { return false; }));
+        auto server = awaitAccept(listener);
+        const auto sendEncrypted = [&](const std::vector<std::uint8_t> &bytes) {
+            std::size_t offset = 0;
+            const auto deadline = std::chrono::steady_clock::now() + 1s;
+            while (offset < bytes.size() && std::chrono::steady_clock::now() < deadline) {
+                const auto count = peer.send(bytes.data() + offset, bytes.size() - offset);
+                CHECK(count > 0 || count == -2);
+                if (count > 0) offset += static_cast<std::size_t>(count);
+                else std::this_thread::yield();
+            }
+            CHECK(offset == bytes.size());
+        };
+        const auto packet = [](std::uint32_t size, std::size_t supplied) {
+            const auto header = envelope(TransportFramingIdentifier, TransportFramingVersion, 0, size);
+            std::vector<std::uint8_t> bytes(header.begin(), header.end());
+            bytes.insert(bytes.end(), supplied, 0x51);
+            return bytes;
+        };
+        sendEncrypted(packet(1, 1)); sendEncrypted(packet(1, 1));
+        CHECK(waitUntil([&] { return published == 2; }, 2s));
+        // requestClose waits for any preselected publication to finish; both
+        // accepted frames remain owned and timestamped through the close.
+#ifdef D6R_TEST_OBSERVE_STAGING
+        ClosingSdkObservation::fatal = nullptr; ClosingSdkObservation::afterFatal = 0;
+        ClosingSdkObservation::armed = true;
+        struct ObserveEnd { ~ObserveEnd() { ClosingSdkObservation::armed = false; } } observeEnd;
+#endif
+        const auto began = std::chrono::steady_clock::now();
+        server->requestClose();
+        CHECK(server->send({9}) == SendResult::Closing);
+        if (scenario == 2) { auto bytes = packet(0, 0); bytes.resize(5); sendEncrypted(bytes); }
+        if (scenario == 3) sendEncrypted(packet(128, 3));
+        if (scenario == 4) { auto bytes = packet(0, 0); bytes[0] ^= 0xff; sendEncrypted(bytes); }
+        if (scenario == 5) {
+            const std::array<std::uint8_t, 6> invalidRecord{{23, 3, 3, 0, 1, 0}};
+            sendAll(socket.get(), invalidRecord.data(), invalidRecord.size());
+        }
+        if (scenario == 6) sendEncrypted(packet(256, 256));
+        const auto traffic = packet(32, 32);
+        std::size_t offset = 0, sent = 0;
+        CHECK(waitUntil([&] {
+            server->requestClose(); // Neither repeat nor progress may extend the deadline.
+            if (scenario == 1 && server->state() == ClientState::Closing) {
+                const auto count = peer.send(traffic.data() + offset, traffic.size() - offset);
+                if (count > 0) {
+                    offset += static_cast<std::size_t>(count);
+                    if (offset == traffic.size()) { offset = 0; ++sent; }
+                }
+            }
+            return server->state() == ClientState::Closed || server->state() == ClientState::Failed;
+        }, 2500ms));
+        const auto elapsed = std::chrono::steady_clock::now() - began;
+        CHECK(elapsed < 2500ms);
+        if (scenario <= 3) { CHECK(elapsed >= 1800ms); CHECK(server->state() == ClientState::Closed); }
+        else CHECK(server->state() == ClientState::Failed);
+        if (scenario == 1) CHECK(sent > 10);
+        if (scenario == 4 || scenario == 5) CHECK(server->failure() == TransportFailure::ProtocolViolation);
+        const auto failure = server->failure(); const auto terminal = server->terminalAt();
+        server->requestClose();
+        CHECK(server->failure() == failure && server->terminalAt() == terminal);
+        CHECK(published == 2); // No new app publication or capacity accumulation while Closing.
+        const auto tail = server->sealAndDrainInput();
+        CHECK(tail.frames.size() == 2);
+        for (const auto &frame : tail.frames) CHECK(frame.payload == std::vector<std::uint8_t>{0x51});
+        server->close(); listener.shutdown();
+#ifdef D6R_TEST_OBSERVE_STAGING
+        CHECK(ClosingSdkObservation::afterFatal == 0);
+#endif
+        CHECK(Trust::processQueueBudget().used() == baseline);
+        std::cout << "closing scenario=" << scenario << " ms="
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()
+                  << " published=" << published << " retained=" << tail.frames.size() << '\n';
+    }
+}
+
+void simultaneousEncryptedCloseFlushesBothWriters() {
+    SessionTransportDependencies clientSettings, serverSettings;
+    clientSettings.secureSession = serverSettings.secureSession = true;
+    auto clientWrites = std::make_shared<NativeWriteObservations>();
+    auto serverWrites = std::make_shared<NativeWriteObservations>();
+    clientSettings.outbound.observations = clientWrites; serverSettings.outbound.observations = serverWrites;
+    const auto port = unusedPort(); TcpListener listener(1, serverSettings); startListener(listener, port);
+    TcpClient client(clientSettings); CHECK(client.start({"127.0.0.1", port})); requireConnected(client, "simultaneous close");
+    auto server = awaitAccept(listener); auto connection = client.connection();
+    CHECK(connection->send({0}) == SendResult::Accepted);
+    TransportFrame frame; CHECK(waitUntil([&] { return server->receive(frame); }, 2s));
+    CHECK(server->send({0}) == SendResult::Accepted);
+    CHECK(waitUntil([&] { return connection->receive(frame); }, 2s));
+    for (unsigned index = 0; index < 8; ++index) {
+        CHECK(connection->send({static_cast<std::uint8_t>(index)}) == SendResult::Accepted);
+        CHECK(server->send({static_cast<std::uint8_t>(index)}) == SendResult::Accepted);
+    }
+    const auto began = std::chrono::steady_clock::now();
+    connection->requestClose(); server->requestClose();
+    client.close(); server->close(); listener.shutdown();
+    CHECK(std::chrono::steady_clock::now() - began < 2500ms);
+    CHECK(clientWrites->applicationFramesWritten == 9 && serverWrites->applicationFramesWritten == 9);
+}
+
+void listenerClosesSilentCapacityInOneWindow() {
+    const auto port = unusedPort(); TcpListener listener(15); startListener(listener, port);
+    std::vector<std::unique_ptr<RawSocketOwner>> peers;
+    std::vector<std::shared_ptr<TcpConnection>> connections;
+    for (unsigned index = 0; index < 15; ++index) {
+        peers.push_back(std::make_unique<RawSocketOwner>(connectRaw(port)));
+        connections.push_back(awaitAccept(listener));
+    }
+    const auto began = std::chrono::steady_clock::now();
+    listener.shutdown();
+    CHECK(std::chrono::steady_clock::now() - began < 3s);
+    for (const auto &connection : connections) CHECK(connection->state() == ClientState::Closed);
+}
+
 void conditionalAdmissionAcceptanceAccounting() {
     auto &budget = Trust::processQueueBudget();
     const std::size_t baseline = budget.used();
@@ -1953,8 +2095,10 @@ void boundedSealedTailRetainsQueueAccountingAndRejectsNewInput() {
     auto &budget = Trust::processQueueBudget();
     const auto baseline = budget.used();
     AcceptedInputClock clock;
+    std::atomic<unsigned> publications{0};
     SessionTransportDependencies dependencies;
     dependencies.now = [&] { return clock.now(); };
+    dependencies.inbound.beforeApplicationPublish = [&](auto) { ++publications; };
     const auto port = unusedPort();
     TcpListener listener(1, dependencies); startListener(listener, port);
     RawSocketOwner peer(connectRaw(port));
@@ -1981,7 +2125,9 @@ void boundedSealedTailRetainsQueueAccountingAndRejectsNewInput() {
     CHECK(connection->sealAndDrainInput(1).frames.empty());
     CHECK(budget.used() == baseline);
     connection->close(); // Positive reader/writer join boundary, not a sleep.
-    CHECK(clock.receipts.load() == count); // No post-seal application publication.
+    // A clock call also timestamps terminal close; count actual application
+    // publications instead of mistaking that close timestamp for late input.
+    CHECK(publications == count);
     listener.shutdown();
     CHECK(budget.used() == baseline);
 }
@@ -2588,6 +2734,9 @@ int main() {
     }
 #endif
     const std::vector<std::pair<const char *, void (*)()>> tests = {
+        {"healthy Closing framing crypto and original deadline", healthyClosingReadBoundaries},
+        {"healthy Closing simultaneous encrypted FIFO flush", simultaneousEncryptedCloseFlushesBothWriters},
+        {"healthy Closing silent listener capacity shares one window", listenerClosesSilentCapacityInOneWindow},
 #ifdef D6R_TEST_OBSERVE_STAGING
         {"common encrypted staging erasure and ownership", commonEncryptedStagingErasureAndOwnership},
 #endif
