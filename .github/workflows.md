@@ -79,6 +79,21 @@ Each registered CTest has exactly one primary label from this table. Keep existi
 - Platform is an execution overlay, not a fourth primary CTest label. Windows MSVC x64, Linux ARM64, and Apple Silicon and Intel x86_64 macOS retain their existing suites and platform-specific verification. They intentionally overlap the thematic groups. The Debug lint-equivalent build remains separate.
 - All three Linux groups, the Debug build, and all platform jobs must pass before the `sanity` tag advances. These are post-integration gates. Pull-request wiring is unchanged. The existing macOS GUI/live cross-OS deferrals and ARM hardware acceptance limits still apply.
 
+### Linux build capacity and phase logs
+
+`docker/build.sh` accepts `CMAKE_BUILD_PARALLEL_LEVEL` as a positive integer. It limits concurrent build jobs, not container CPU use or CTest concurrency. If the value is unset or empty, the build uses `nproc`. CMake rejects invalid values.
+
+Measure available host capacity and concurrent workloads before selecting a value. Confirm which runners share a host or Docker daemon; runner names do not establish this. Pass the selected value into the build container, for example:
+
+```sh
+bash docker/run-with-daemon-workspace.sh \
+  -e CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL}" \
+  -e BUILD_TESTING=ON -e RUN_TESTS=ON \
+  duel6r-build:local
+```
+
+The build logs UTC phase starts and ends, elapsed seconds since script start, exit status, selected build jobs, and visible CPUs. Compilation and CTest starts include bounded load and memory snapshots, plus readable cgroup v2 CPU, CPU-set, and memory values. These values describe the visible namespace; they do not establish physical-host identity, exclusive capacity, or all ancestor limits. No environment dump or continuous monitor is collected. Failed phases retain the command's exit status and existing CTest diagnostics.
+
 ## Dedicated service boundary
 
 - The [dedicated contract](../docs/network-play-first-release.md#public-dedicated-pilot) defines Linux x86-64 and Linux ARM64 packaged services. Linux x86-64, Windows x86-64, Linux AArch64/Pi 5 and experimental Apple Silicon macOS 14+ and Intel x86_64 macOS 13 Ventura+ clients use the same encrypted channel for either hosting kind. Dedicated Windows/macOS hosting remains outside scope.

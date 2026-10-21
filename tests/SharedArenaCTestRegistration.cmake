@@ -56,25 +56,27 @@ add_test(
     NAME shared-arena-image-assertions
     COMMAND ${D6R_SHARED_ARENA_python3} ${CMAKE_SOURCE_DIR}/tests/SharedArenaImageAssertionsTests.py
 )
+add_test(NAME menu-transfer-frame-assertions
+    COMMAND ${D6R_SHARED_ARENA_python3} ${CMAKE_SOURCE_DIR}/tests/MenuTransferFrameTests.py)
+set_tests_properties(menu-transfer-frame-assertions PROPERTIES
+    LABELS "application;regression;menu;sanity-unit" TIMEOUT 10)
 set_tests_properties(shared-arena-image-assertions PROPERTIES
     LABELS "application;regression;shared-arena"
     TIMEOUT 30
 )
 
-add_test(
-    NAME shared-arena-behavior
-    COMMAND ${D6R_BASH_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/SharedArenaBehaviorTests.sh
-)
-set_tests_properties(
-    shared-arena-behavior
-    PROPERTIES
-    ENVIRONMENT
-        "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/shared-arena-behavior;DISPLAY=:98"
-    LABELS "application;regression;e2e;shared-arena"
-    RUN_SERIAL TRUE
-    TIMEOUT 420
-)
+foreach(scenario deathmatch-2 predator-3 team2-ff-off-4 team2-ff-on-4
+        team3-ff-off-6 team3-ff-on-6 team4-ff-off-8 team4-ff-on-15)
+    set(test_name "shared-arena-behavior-${scenario}")
+    add_test(NAME ${test_name}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/OwnedProcessRunner.py
+                --timeout 100 --log ${CMAKE_BINARY_DIR}/${test_name}/process.log --
+                ${D6R_BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/SharedArenaBehaviorTests.sh ${scenario})
+    set_tests_properties(${test_name} PROPERTIES
+        ENVIRONMENT "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/${test_name};DISPLAY=:98"
+        LABELS "application;regression;e2e;shared-arena;sanity-common"
+        RUN_SERIAL TRUE TIMEOUT 115)
+endforeach()
 
 add_test(
     NAME async-menu-background-behavior

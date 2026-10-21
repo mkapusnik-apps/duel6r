@@ -29,8 +29,6 @@
 #include "PlayerControls.h"
 
 namespace Duel6 {
-    std::vector<std::unique_ptr<PlayerControls>> PlayerControlsManager::controls;
-
     bool KeyboardButton::isPressed() const {
         return input.isPressed(keyCode);
     }

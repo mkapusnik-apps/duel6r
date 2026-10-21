@@ -11,9 +11,51 @@ build_testing="${BUILD_TESTING:-ON}"
 run_tests="${RUN_TESTS:-OFF}"
 ctest_label_regex="${CTEST_LABEL_REGEX:-}"
 clean_output_dir="${CLEAN_OUTPUT_DIR:-OFF}"
+visible_cpus="$(nproc)"
+build_jobs="${CMAKE_BUILD_PARALLEL_LEVEL:-${visible_cpus}}"
+phase=""
+
+phase_start() {
+  phase="$1"
+  printf '%s phase=%s start elapsed=%ss build_jobs=%s visible_cpus=%s\n' \
+    "$(date -u +%FT%TZ)" "${phase}" "${SECONDS}" "${build_jobs}" "${visible_cpus}"
+}
+
+phase_end() {
+  printf '%s phase=%s end elapsed=%ss status=%s\n' \
+    "$(date -u +%FT%TZ)" "${phase}" "${SECONDS}" "${1:-0}"
+  phase=""
+}
+
+resource_snapshot() {
+  local key value unit file load1 load5 load15 _rest
+  if [[ -r /proc/loadavg ]]; then
+    read -r load1 load5 load15 _rest < /proc/loadavg
+    printf 'resources load_average_1_5_15=%s %s %s\n' "${load1}" "${load5}" "${load15}"
+  fi
+  if [[ -r /proc/meminfo ]]; then
+    while read -r key value unit; do
+      case "${key}" in
+        MemTotal:|MemAvailable:|SwapFree:)
+          printf 'resources %s %s %s\n' "${key}" "${value}" "${unit}" ;;
+      esac
+    done < /proc/meminfo
+  fi
+  # Report only visible cgroup v2 values; do not infer host capacity from them.
+  for file in /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpuset.cpus.effective \
+    /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.current; do
+    if [[ -r "${file}" ]]; then
+      printf 'resources %s=%s\n' "${file}" "$(<"${file}")"
+    fi
+  done
+}
 
 tmp_build_dir="$(mktemp -d /tmp/duel6r-build-XXXXXX)"
 cleanup() {
+  local status=$?
+  if [[ -n "${phase}" ]]; then
+    phase_end "${status}"
+  fi
   rm -rf "${tmp_build_dir}"
 }
 trap cleanup EXIT
@@ -22,14 +64,19 @@ renderer_options=()
 if [[ -n "${renderer}" ]]; then
   renderer_options+=("-DD6R_RENDERER=${renderer}")
 fi
+phase_start configure
 cmake -S "${workspace_dir}" -B "${tmp_build_dir}" \
   -DCMAKE_BUILD_TYPE="${build_type}" \
   -DBUILD_TESTING="${build_testing}" \
   -DD6R_WITH_LUA="${with_lua}" \
   -DD6R_DIRECTORY_DEFAULT_URL="${directory_default_url}" \
   "${renderer_options[@]}"
+phase_end
 
-cmake --build "${tmp_build_dir}" -j"$(nproc)"
+phase_start compile
+resource_snapshot
+cmake --build "${tmp_build_dir}" --parallel "${build_jobs}"
+phase_end
 
 if [[ "${run_tests}" == "ON" ]]; then
   diagnostics_dir="${workspace_dir}/${output_dir}/ci-diagnostics"
@@ -38,7 +85,10 @@ if [[ "${run_tests}" == "ON" ]]; then
     ctest_options+=(--label-regex "${ctest_label_regex}" --no-tests=error)
   fi
   test_status=0
+  phase_start ctest
+  resource_snapshot
   ctest --test-dir "${tmp_build_dir}" --output-on-failure "${ctest_options[@]}" || test_status=$?
+  phase_end "${test_status}"
   if [[ "${test_status}" -ne 0 ]]; then
     diagnostics_ready=true
     if ! rm -rf "${diagnostics_dir}" || ! mkdir -p "${diagnostics_dir}"; then
@@ -60,6 +110,7 @@ if [[ "${run_tests}" == "ON" ]]; then
     || echo "Warning: unable to remove stale CTest diagnostics: ${diagnostics_dir}" >&2
 fi
 
+phase_start package
 if [[ "${clean_output_dir}" == "ON" ]]; then
   rm -rf "${workspace_dir:?}/${output_dir}"
 fi
@@ -127,3 +178,4 @@ with (root / f"linux-{architecture}.sha256sums").open("w") as manifest:
 PY
 
 echo "Linux runtime bundle written to ${workspace_dir}/${output_dir}"
+phase_end

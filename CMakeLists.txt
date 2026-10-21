@@ -1150,6 +1150,25 @@ list(REMOVE_ITEM D6R_SHARED_RUNTIME_LIBRARIES duel6r-game-engine duel6r-network-
 target_link_libraries(duel6r-game-engine PUBLIC ${D6R_SHARED_RUNTIME_LIBRARIES})
 
 if (BUILD_TESTING)
+    add_executable(duel6r-player-controls-tests tests/TestMain.cpp tests/PlayerControlsLifetimeTests.cpp)
+    target_include_directories(duel6r-player-controls-tests PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(duel6r-player-controls-tests PRIVATE duel6r-game-engine)
+    add_test(NAME player-controls-lifetime COMMAND duel6r-player-controls-tests)
+    set_tests_properties(player-controls-lifetime PROPERTIES TIMEOUT 30 LABELS "application;input;regression;sanity-unit")
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        # Instrument the borrowing controls and Input accesses as well as the
+        # lifetime fixture; reuse the rest of the normal engine build.
+        add_executable(duel6r-player-controls-sanitizer-tests tests/TestMain.cpp
+                tests/PlayerControlsLifetimeTests.cpp source/input/PlayerControls.cpp source/input/Input.cpp)
+        target_include_directories(duel6r-player-controls-sanitizer-tests PRIVATE ${CMAKE_SOURCE_DIR})
+        target_compile_options(duel6r-player-controls-sanitizer-tests PRIVATE
+                -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(duel6r-player-controls-sanitizer-tests PRIVATE -fsanitize=address,undefined)
+        target_link_libraries(duel6r-player-controls-sanitizer-tests PRIVATE duel6r-game-engine)
+        add_test(NAME player-controls-lifetime-sanitizer COMMAND duel6r-player-controls-sanitizer-tests)
+        set_tests_properties(player-controls-lifetime-sanitizer PROPERTIES TIMEOUT 30
+                LABELS "application;input;asan;ubsan;regression;sanity-unit")
+    endif ()
     add_executable(duel6r-mac-pointer-tests tests/TestMain.cpp tests/MacPointerTests.cpp)
     if (NOT APPLE)
         target_sources(duel6r-mac-pointer-tests PRIVATE source/platform/MacLocal.cpp)

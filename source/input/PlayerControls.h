@@ -168,7 +168,8 @@ namespace Duel6 {
 
     class PlayerControlsManager {
     private:
-        static std::vector<std::unique_ptr<PlayerControls>> controls;
+        // Presets borrow this manager's Input; never share them across applications.
+        std::vector<std::unique_ptr<PlayerControls>> controls;
         const Input &input;
 
     public:

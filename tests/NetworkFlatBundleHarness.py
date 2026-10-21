@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Run graphical behavior tests beside the real server in a flat content root."""
-
+"""One independently budgeted case in an isolated flat runtime root."""
 import argparse
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
-import time
+from OwnedProcessRunner import run_owned
 
 
 def main():
@@ -15,13 +13,17 @@ def main():
     parser.add_argument("test_binary", type=Path)
     parser.add_argument("resources", type=Path)
     parser.add_argument("server", type=Path)
-    parser.add_argument("--bundle", type=Path,
-                        help="Use an existing runtime bundle rather than staging build outputs")
+    parser.add_argument("--bundle", type=Path)
+    parser.add_argument("--case", required=True)
+    parser.add_argument("--timeout", type=float, default=90)
+    parser.add_argument("--diagnostics", type=Path, required=True)
+    parser.add_argument("--model", action="store_true")
     args = parser.parse_args()
-    # The harness owns this independent execution copy and cleanup on every exit.
-    # Never add a nested resources directory to compensate for application paths.
-    with tempfile.TemporaryDirectory(prefix="duel6r-flat-behavior-") as directory:
-        root = Path(directory)
+    diagnostics = args.diagnostics.resolve()
+    diagnostics.mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="duel6r-flat-behavior-"))
+    cleanup = True
+    try:
         shutil.copytree(args.bundle or args.resources, root, dirs_exist_ok=True)
         assert not (root / "resources").exists(), "Expected a flat application content root"
         for required in ("data", "levels", "profiles", "shaders", "sound", "textures"):
@@ -29,30 +31,28 @@ def main():
         executable = root / args.test_binary.name
         shutil.copy2(args.test_binary, executable)
         if args.bundle is None:
-            # CMake may expose a version-suffixed target file. The application
-            # launches its sibling through the normal unversioned runtime name.
             shutil.copy2(args.server, root / "duel6r")
             shutil.copy2(args.server.with_name("duel6r-resolver"), root / "duel6r-resolver")
         assert (root / "duel6r").is_file()
-        environment = dict(os.environ, SDL_AUDIODRIVER="dummy")
-        listed = subprocess.run([str(executable)], cwd=root,
-                                env=dict(environment, D6R_TEST_LIST="1"),
-                                capture_output=True, text=True, timeout=10, check=True)
-        names = listed.stdout.splitlines()
-        assert names, "No graphical behavior tests matched the requested filter"
-        failures = 0
-        deadline = time.monotonic() + 240
-        # The application has process-global control presets referencing Input.
-        # Each normal application lifetime is one process; do not let successive
-        # test Applications/virtual controllers retain a previous case's Input.
-        for name in names:
-            case_environment = dict(environment, D6R_TEST_FILTER=name, D6R_TEST_EXACT="1")
-            case_environment.pop("D6R_TEST_LIST", None)
-            result = subprocess.run(["xvfb-run", "-a", str(executable)], cwd=root, env=case_environment,
-                                    timeout=max(1, deadline - time.monotonic()), check=False)
-            failures += result.returncode != 0
-        print(f"Executed {len(names)} isolated graphical behavior case(s), failures: {failures}", flush=True)
-        return int(failures != 0)
+        environment = dict(os.environ, SDL_AUDIODRIVER="dummy", LIBGL_ALWAYS_SOFTWARE="1",
+                           D6R_TEST_FILTER=args.case, D6R_TEST_EXACT="1")
+        environment.pop("D6R_TEST_LIST", None)
+        command = [str(executable)] if args.model else ["xvfb-run", "-a", str(executable)]
+        print(f"BEGIN case={args.case!r} budget={args.timeout}s", flush=True)
+        with (diagnostics / "case.stdout").open("w") as out, (diagnostics / "case.stderr").open("w") as err:
+            cleanup = False
+            result = run_owned(command, args.timeout, diagnostics / "process.log",
+                               cwd=root, env=environment, stdout=out, stderr=err)
+            cleanup = result["cleanup"]
+        for name in ("case.stdout", "case.stderr"):
+            print((diagnostics / name).read_text(errors="replace"), end="", flush=True)
+        print(f"END case={args.case!r} result={result}", flush=True)
+        return int(not cleanup or result["phase"] != "exited" or result["exit"] != 0)
+    finally:
+        if cleanup:
+            shutil.rmtree(root)
+        else:
+            print(f"Unconfirmed cleanup: retaining runtime {root}", flush=True)
 
 
 if __name__ == "__main__":

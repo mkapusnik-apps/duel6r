@@ -264,20 +264,32 @@ if (NOT D6R_TRANSPORT_ONLY)
             D6R_TEST_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
     add_dependencies(duel6r-network-session-runtime-tests ${D6R_SERVER_APP_NAME}
             duel6r-authoritative-match-behavior-tests)
-    if (UNIX)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_program(D6R_TEST_XVFB_RUN_EXECUTABLE xvfb-run REQUIRED)
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
-        add_test(NAME duel6r-network-session-runtime-tests
-                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/NetworkFlatBundleHarness.py
+        set(runtime_registration "${CMAKE_BINARY_DIR}/network-runtime-tests.cmake")
+        add_custom_command(TARGET duel6r-network-session-runtime-tests POST_BUILD
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/RegisterNetworkRuntimeTests.py
                         $<TARGET_FILE:duel6r-network-session-runtime-tests>
-                        ${CMAKE_SOURCE_DIR}/resources $<TARGET_FILE:${D6R_SERVER_APP_NAME}>)
+                        ${CMAKE_SOURCE_DIR}/resources $<TARGET_FILE:${D6R_SERVER_APP_NAME}>
+                        ${runtime_registration})
+        set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES "${runtime_registration}")
+        add_test(NAME runtime-registration-coverage COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/RuntimeRegistrationTests.py ${CMAKE_BINARY_DIR}
+                $<TARGET_FILE:duel6r-network-session-runtime-tests>)
+        set_tests_properties(runtime-registration-coverage PROPERTIES TIMEOUT 30 LABELS "regression;sanity-unit")
+        add_test(NAME owned-process-runner COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/OwnedProcessRunnerTests.py)
+        set_tests_properties(owned-process-runner PROPERTIES TIMEOUT 30 LABELS "process;regression;sanity-unit")
+        # Re-discover after changes to registration even when C++ is unchanged.
+        set_property(SOURCE ${CMAKE_SOURCE_DIR}/tests/NetworkSessionRuntimeTests.cpp APPEND PROPERTY
+                OBJECT_DEPENDS ${CMAKE_SOURCE_DIR}/tests/RegisterNetworkRuntimeTests.py)
     else ()
         add_test(NAME duel6r-network-session-runtime-tests COMMAND duel6r-network-session-runtime-tests)
+        set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
+                LABELS "application;integration;network;runtime;presentation;reconnect;regression"
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources TIMEOUT 300)
     endif ()
-    set_tests_properties(duel6r-network-session-runtime-tests PROPERTIES
-            LABELS "application;integration;network;runtime;presentation;reconnect;regression"
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resources
-            TIMEOUT 300)
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(duel6r-public-dedicated-runtime-tests
                 ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedRuntimeTests.cpp)

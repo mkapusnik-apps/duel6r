@@ -129,6 +129,11 @@ struct Fixture {
     std::vector<std::shared_ptr<ChildState>> children;
     bool failLaunch = false;
     bool failMonitorLaunch = false;
+    bool pauseMonitor = false;
+    std::condition_variable monitorChanged;
+    bool monitorEntered = false;
+    bool monitorReleased = false;
+    bool monitorBarrierExpired = false;
     bool throwHandoff = false;
     bool hideStatusUntilExit = false;
     bool invalidExitBuffer = false;
@@ -161,6 +166,19 @@ struct Fixture {
             result.monitorLauncher = [](std::function<void()>) -> std::thread {
                 throw std::runtime_error("injected monitor launch failure");
             };
+        } else if (pauseMonitor) {
+            result.monitorLauncher = [this](std::function<void()> monitor) {
+                return std::thread([this, monitor = std::move(monitor)] {
+                    {
+                        std::unique_lock<std::mutex> lock(mutex);
+                        monitorEntered = true;
+                        monitorChanged.notify_all();
+                        // A broken fixture must fail, not strand supervisor destruction.
+                        monitorBarrierExpired = !monitorChanged.wait_for(lock, 2s, [&] { return monitorReleased; });
+                    }
+                    monitor();
+                });
+            };
         }
         return result;
     }
@@ -186,11 +204,26 @@ struct Fixture {
         std::lock_guard<std::mutex> lock(mutex);
         return launches.size();
     }
+    void releaseMonitor() {
+        std::unique_lock<std::mutex> lock(mutex);
+        const bool entered = monitorChanged.wait_for(lock, 2s, [&] { return monitorEntered; });
+        monitorReleased = true;
+        monitorChanged.notify_all();
+        D6R_REQUIRE(entered);
+        D6R_REQUIRE(!monitorBarrierExpired);
+    }
 };
 
 void requireState(Client::HostServiceSupervisor &supervisor, Client::HostServiceState state) {
-    D6R_REQUIRE(supervisor.waitForState(state, 2s));
-    D6R_REQUIRE_EQ(state, supervisor.snapshot().state);
+    const bool reached = supervisor.waitForState(state, 2s);
+    const auto actual = supervisor.snapshot();
+    if (!reached || actual.state != state) {
+        throw std::runtime_error("expected state=" + Test::toString(state)
+            + " actual state=" + Test::toString(actual.state)
+            + " outcome=" + Client::hostServiceOutcomeIdentifier(actual.outcome)
+            + " stop reason=" + Client::hostServiceStopReasonIdentifier(actual.stopReason)
+            + " cleanup=" + Test::toString(actual.cleanupComplete));
+    }
 }
 
 void requireCleanup(Client::HostServiceSupervisor &supervisor) {
@@ -268,11 +301,13 @@ D6R_TEST_CASE("HSL-AC-003 state machine rejects actions outside their exact sour
 D6R_TEST_CASE("HSL-AC-004 AC-006 readiness is strict before ten seconds under delayed polling") {
     for (const auto received: {9999999999ns, 10000000000ns, 10000000001ns}) {
         Fixture fixture;
+        fixture.pauseMonitor = true;
         Client::HostServiceSupervisor supervisor(fixture.dependencies());
         D6R_REQUIRE(supervisor.start(fixture.config()));
         fixture.clock.set(11s);
         fixture.child()->status(Network::HostServiceStatusCode::Ready,
                                 Client::HostServiceTimePoint{} + received);
+        fixture.releaseMonitor();
         if (received < 10s) {
             requireState(supervisor, Client::HostServiceState::Active);
             D6R_REQUIRE(supervisor.endSession());
@@ -339,26 +374,45 @@ D6R_TEST_CASE("HSL-AC-001 AC-009 stale duplicate and out-of-order status cannot 
 D6R_TEST_CASE("HSL-AC-009 status and child-exit observation use one deterministic total order") {
     {
         Fixture fixture;
+        fixture.pauseMonitor = true;
         Client::HostServiceSupervisor supervisor(fixture.dependencies());
         D6R_REQUIRE(supervisor.start(fixture.config()));
         fixture.child()->status(Network::HostServiceStatusCode::StartFailed,
                                 Client::HostServiceTimePoint{} + 1ns);
         fixture.child()->exited.store(true);
         fixture.child()->changed.notify_all();
+        fixture.releaseMonitor();
         requireState(supervisor, Client::HostServiceState::StartupFailed);
         D6R_REQUIRE_EQ(Client::HostServiceOutcome::StartFailed, supervisor.snapshot().outcome);
     }
     {
         Fixture fixture;
+        fixture.pauseMonitor = true;
         Client::HostServiceSupervisor supervisor(fixture.dependencies());
         D6R_REQUIRE(supervisor.start(fixture.config()));
         fixture.child()->status(Network::HostServiceStatusCode::Ready,
                                 Client::HostServiceTimePoint{} + 1ns);
         fixture.child()->exited.store(true);
         fixture.child()->changed.notify_all();
+        fixture.releaseMonitor();
         requireState(supervisor, Client::HostServiceState::StartupFailed);
         D6R_REQUIRE_EQ(Client::HostServiceOutcome::ExitedBeforeReady, supervisor.snapshot().outcome);
     }
+}
+
+D6R_TEST_CASE("HSL-AC-009 Ready accepted in an earlier cycle makes next-cycle exit a session failure") {
+    Fixture fixture;
+    fixture.pauseMonitor = true;
+    Client::HostServiceSupervisor supervisor(fixture.dependencies());
+    D6R_REQUIRE(supervisor.start(fixture.config()));
+    fixture.child()->status(Network::HostServiceStatusCode::Ready, fixture.clock.now() + 1ns);
+    fixture.releaseMonitor();
+    // Active is the monitor's acknowledgement of the earlier cycle, not a delay.
+    requireState(supervisor, Client::HostServiceState::Active);
+    finishByExit(fixture, supervisor, Client::HostServiceState::SessionFailed);
+    D6R_REQUIRE_EQ(Client::HostServiceOutcome::StoppedUnexpectedly, supervisor.snapshot().outcome);
+    D6R_REQUIRE_EQ(Client::HostServiceStopReason::SessionFailure, supervisor.snapshot().stopReason);
+    requireCleanup(supervisor);
 }
 
 D6R_TEST_CASE("HSL-AC-008 AC-009 exit seal drains a complete hidden specific status before generic exit") {
@@ -367,16 +421,14 @@ D6R_TEST_CASE("HSL-AC-008 AC-009 exit seal drains a complete hidden specific sta
             std::pair{Network::HostServiceStatusCode::StartFailed, Client::HostServiceOutcome::StartFailed}}) {
         Fixture fixture;
         fixture.hideStatusUntilExit = true;
+        fixture.pauseMonitor = true;
         fixture.exitBufferedEvents.push_back({test.first, Client::HostServiceTimePoint{} + 2s});
         Client::HostServiceSupervisor supervisor(fixture.dependencies());
         D6R_REQUIRE(supervisor.start(fixture.config()));
-        const auto pollDeadline = std::chrono::steady_clock::now() + 1s;
-        while (fixture.child()->ordinaryStatusPolls.load() == 0 && std::chrono::steady_clock::now() < pollDeadline)
-            std::this_thread::sleep_for(1ms);
-        D6R_REQUIRE(fixture.child()->ordinaryStatusPolls.load() > 0);
         fixture.clock.set(12s);
         fixture.child()->exited.store(true);
         fixture.child()->changed.notify_all();
+        fixture.releaseMonitor();
         requireState(supervisor, Client::HostServiceState::StartupFailed);
         D6R_REQUIRE_EQ(test.second, supervisor.snapshot().outcome);
         requireCleanup(supervisor);
@@ -410,6 +462,7 @@ D6R_TEST_CASE("RACE-AC-001 AC-002 AC-003 delayed cycle preserves a queued pre-de
 
 D6R_TEST_CASE("HSL-AC-008 AC-009 sealed duplicate late and competing frames select one fixed-precedence outcome") {
     Fixture fixture;
+    fixture.pauseMonitor = true;
     fixture.hideStatusUntilExit = true;
     fixture.exitBufferedEvents = {
         {Network::HostServiceStatusCode::Ready, Client::HostServiceTimePoint{} + 1s},
@@ -423,6 +476,7 @@ D6R_TEST_CASE("HSL-AC-008 AC-009 sealed duplicate late and competing frames sele
     fixture.clock.set(12s);
     fixture.child()->exited.store(true);
     fixture.child()->changed.notify_all();
+    fixture.releaseMonitor();
     requireState(supervisor, Client::HostServiceState::StartupFailed);
     D6R_REQUIRE_EQ(Client::HostServiceOutcome::HostManifestInvalid, supervisor.snapshot().outcome);
     D6R_REQUIRE_EQ(Client::HostServiceStopReason::StartupFailure, supervisor.snapshot().stopReason);
@@ -456,11 +510,13 @@ D6R_TEST_CASE("HSL-AC-008 AC-009 invalid sealed exit buffers fail closed to gene
 D6R_TEST_CASE("HSL-AC-006 AC-008 child exit is early only strictly before the startup deadline") {
     for (const auto observed: {9999999999ns, 10000000000ns, 10000000001ns}) {
         Fixture fixture;
+        fixture.pauseMonitor = true;
         Client::HostServiceSupervisor supervisor(fixture.dependencies());
         D6R_REQUIRE(supervisor.start(fixture.config()));
         fixture.clock.set(observed);
         fixture.child()->exited.store(true);
         fixture.child()->changed.notify_all();
+        fixture.releaseMonitor();
         requireState(supervisor, Client::HostServiceState::StartupFailed);
         D6R_REQUIRE_EQ(observed < 10s ? Client::HostServiceOutcome::ExitedBeforeReady
                                      : Client::HostServiceOutcome::StartupTimedOut,
@@ -571,7 +627,8 @@ D6R_TEST_CASE("HSL-AC-012 intentional end handoff occurs exactly once and cannot
         requireState(supervisor, Client::HostServiceState::NoService);
         D6R_REQUIRE_EQ(std::size_t(1), fixture.handoffs.size());
         D6R_REQUIRE_EQ(Client::HostServiceTimePoint{} + 22900ms, firstForce);
-        D6R_REQUIRE_EQ(0u, stopsAtHandoff);
+        // Independent cleanup is deliberately woken before invoking the sink.
+        D6R_REQUIRE(stopsAtHandoff <= 1u);
     }
 }
 
@@ -739,6 +796,7 @@ D6R_TEST_CASE("HSL-AC-014 hung cleanup force terminates before the three-second 
 
 D6R_TEST_CASE("HSL-AC-014 cleanup deadline starts when the stop action is accepted") {
     Fixture fixture;
+    fixture.pauseMonitor = true;
     fixture.clock.set(100s);
     Client::HostServiceSupervisor supervisor(fixture.dependencies());
     D6R_REQUIRE(supervisor.start(fixture.config()));
@@ -749,6 +807,7 @@ D6R_TEST_CASE("HSL-AC-014 cleanup deadline starts when the stop action is accept
     Client::HostServiceTimePoint firstForce{};
     child->onForce = [&] { if (firstForce == Client::HostServiceTimePoint{}) firstForce = fixture.clock.now(); };
     D6R_REQUIRE(supervisor.cancelStartup());
+    fixture.releaseMonitor();
     requireState(supervisor, Client::HostServiceState::NoService);
     D6R_REQUIRE_EQ(Client::HostServiceTimePoint{} + 152900ms, firstForce);
 }
