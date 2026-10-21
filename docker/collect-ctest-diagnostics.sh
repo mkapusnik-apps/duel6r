@@ -38,7 +38,15 @@ else
     echo "Warning: CTest failure list is unavailable; per-test diagnostics cannot be selected safely." >&2
 fi
 
-for test_output in \
+split_outputs=()
+for test_name in "${!failed_tests[@]}"; do
+    case "$test_name" in
+        network-runtime-*|network-model-*|shared-arena-behavior-*)
+            # Split registrations own identically named diagnostic roots.
+            [[ "$test_name" =~ ^[a-zA-Z0-9-]+$ ]] && split_outputs+=("${test_name}:${test_name}") ;;
+    esac
+done
+for test_output in "${split_outputs[@]}" \
     shared-arena-behavior:shared-arena-behavior \
     async-menu-background-behavior:async-menu-background-behavior \
     menu-redesign-behavior:menu-redesign-behavior \

@@ -16,11 +16,11 @@ def fail(message):
 
 def load_rgb(path):
     width, height = map(int, subprocess.check_output(
-        ["identify", "-format", "%w %h", path], text=True).split())
+        ["identify", "-format", "%w %h", path], text=True, timeout=10).split())
     if (width, height) != (WIDTH, HEIGHT):
         fail(f"{path}: expected {WIDTH}x{HEIGHT}, got {width}x{height}")
     pixels = subprocess.check_output(
-        ["convert", path, "-alpha", "off", "-depth", "8", "rgb:-"])
+        ["convert", path, "-alpha", "off", "-depth", "8", "rgb:-"], timeout=10)
     expected = width * height * 3
     if len(pixels) != expected:
         fail(f"{path}: expected {expected} RGB bytes, got {len(pixels)}")
@@ -385,6 +385,8 @@ def main():
     parser.add_argument("--score", action="store_true")
     parser.add_argument("--final-score", action="store_true")
     parser.add_argument("--viewport-only", action="store_true")
+    parser.add_argument("--live-ready", action="store_true")
+    parser.add_argument("--start-prompt", action="store_true")
     parser.add_argument("--without-ranking")
     parser.add_argument("--without-score", help="validated open-summary image to compare with the closed state")
     parser.add_argument("--font")
@@ -392,7 +394,21 @@ def main():
 
     data = load_rgb(args.image)
     horizontal, vertical, edge_count, edge_total = assert_shared_viewport(data, args.label)
-    if args.viewport_only:
+    if args.start_prompt:
+        center = region_pixels(data, WIDTH // 2 - 130, HEIGHT // 2 - 8,
+                               WIDTH // 2 + 130, HEIGHT // 2 + 8)
+        if fraction(center, lambda rgb: rgb == (255, 204, 204)) < .25:
+            fail(f"{args.label}: statistics confirmation panel not rendered")
+        if fraction(center, lambda rgb: rgb[0] > 200 and rgb[1] < 80 and rgb[2] < 80) < .01:
+            fail(f"{args.label}: confirmation text not rendered")
+    elif args.live_ready:
+        left, width, rows = ranking_geometry(args.players, args.teams)
+        values = region_pixels(data, left + 1, 7, left + width - 1, 17)
+        coverage = (max(parent_team_fractions(values).values()) if args.teams
+                    else blue_overlay_fraction(values))
+        if coverage < .25:
+            fail(f"{args.label}: live ranking not rendered")
+    elif args.viewport_only:
         print(f"{args.label}: viewport dividers={horizontal}/{vertical} "
               f"edge={edge_count}/{edge_total}")
     elif args.without_score:

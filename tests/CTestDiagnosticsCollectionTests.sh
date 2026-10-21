@@ -39,6 +39,17 @@ printf 'passing screenshot\n' >"${passing_dir}/menu.png"
 printf 'passing log\n' >"${passing_dir}/app.stdout"
 printf 'deathmatch-2/menu.png\n' >"${build_dir}/shared-arena-behavior/.original-screenshots"
 
+for name in network-runtime-123abc network-runtime-456def shared-arena-behavior-team4-ff-on-15; do
+    mkdir -p "${build_dir}/${name}"
+    printf 'case log\n' >"${build_dir}/${name}/case.stdout"
+    printf 'phase and cleanup result\n' >"${build_dir}/${name}/process.log"
+done
+printf '3:network-runtime-123abc\n4:shared-arena-behavior-team4-ff-on-15\n' \
+    >>"${build_dir}/Testing/Temporary/LastTestsFailed.log"
+printf 'original\n' >"${build_dir}/shared-arena-behavior-team4-ff-on-15/last.png"
+printf 'derivative\n' >"${build_dir}/shared-arena-behavior-team4-ff-on-15/last-crop.png"
+printf 'last.png\n' >"${build_dir}/shared-arena-behavior-team4-ff-on-15/.original-screenshots"
+
 "${workspace_dir}/docker/collect-ctest-diagnostics.sh" "$build_dir" "$diagnostics_dir"
 
 python3 - "$diagnostics_dir" <<'PY'
@@ -54,6 +65,11 @@ expected = [
     "menu-redesign-behavior/person-list-refinement/app.stderr",
     "menu-redesign-behavior/person-list-refinement/before-detect-all.png",
     "menu-redesign-behavior/person-list-refinement/controller-short.png",
+    "network-runtime-123abc/case.stdout",
+    "network-runtime-123abc/process.log",
+    "shared-arena-behavior-team4-ff-on-15/case.stdout",
+    "shared-arena-behavior-team4-ff-on-15/last.png",
+    "shared-arena-behavior-team4-ff-on-15/process.log",
 ]
 if actual != expected:
     raise SystemExit(f"unexpected retained diagnostics:\nactual={actual!r}\nexpected={expected!r}")

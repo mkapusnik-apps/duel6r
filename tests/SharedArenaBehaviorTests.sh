@@ -2,8 +2,7 @@
 set -euo pipefail
 
 # Runtime regression harness for the shared-arena multiplayer view. This test is
-# intentionally run on demand because it starts the real SDL/OpenGL application
-# eight times under Xvfb. It also exercises the consolidated mode selector and
+# runs one selected SDL/OpenGL scenario under its own CTest budget. It exercises the mode selector and
 # its conditional Team settings before each shared-arena match starts.
 
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
@@ -26,10 +25,26 @@ done
 [[ -f "$image_assertions" ]] || fail "image assertion helper is missing: $image_assertions"
 [[ -d "${resource_dir}/data" ]] || fail "application resources are missing: $resource_dir"
 
-rm -rf "$test_root"
 mkdir -p "$test_root"
+: >"${test_root}/phase.log"
 source "${workspace_dir}/tests/GraphicalTestScreenshotManifest.sh"
 d6r_enable_screenshot_manifest "$test_root"
+
+# Bound tools independently of CTest. The outer owned-process runner also
+# cleans/reaps descendants of a wedged tool or shell cleanup.
+xdotool() { timeout -k 1 5 xdotool "$@"; }
+identify() { timeout -k 1 10 identify "$@"; }
+convert() { timeout -k 1 10 convert "$@"; }
+compare() { timeout -k 1 10 compare "$@"; }
+python3() { timeout -k 1 15 python3 "$@"; }
+import() {
+    timeout -k 1 10 "$D6R_IMAGEMAGICK_IMPORT" "$@"
+    d6r_record_full_screenshot "${!#}"
+}
+phase() {
+    printf '%s elapsed=%ss phase=%s app=%s xvfb=%s\n' "$(date -u +%FT%TZ)" "$SECONDS" "$*" \
+        "${app_pid:-none}" "${xvfb_pid:-none}" | tee -a "${test_root}/phase.log"
+}
 
 export DISPLAY="$display"
 export SDL_AUDIODRIVER=dummy
@@ -38,20 +53,25 @@ export LIBGL_ALWAYS_SOFTWARE=1
 xvfb_pid=""
 app_pid=""
 cleanup() {
+    phase cleanup
     if [[ -n "$app_pid" ]] && kill -0 "$app_pid" >/dev/null 2>&1; then
         kill "$app_pid" >/dev/null 2>&1 || true
-        wait "$app_pid" >/dev/null 2>&1 || true
+        timeout 2 tail --pid="$app_pid" -f /dev/null || kill -KILL "$app_pid" 2>/dev/null || true
     fi
     if [[ -n "$xvfb_pid" ]] && kill -0 "$xvfb_pid" >/dev/null 2>&1; then
         kill "$xvfb_pid" >/dev/null 2>&1 || true
-        wait "$xvfb_pid" >/dev/null 2>&1 || true
+        timeout 2 tail --pid="$xvfb_pid" -f /dev/null || kill -KILL "$xvfb_pid" 2>/dev/null || true
     fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
+phase display-start
 Xvfb "$display" -screen 0 1280x900x24 +extension GLX +render -noreset >"${test_root}/xvfb.log" 2>&1 &
 xvfb_pid="$!"
-for _ in {1..40}; do
+deadline=$((SECONDS + 10))
+while (( SECONDS < deadline )); do
     xdotool getdisplaygeometry >/dev/null 2>&1 && break
     sleep 0.25
 done
@@ -106,6 +126,29 @@ crop_conditional_settings() {
     convert "$1" -crop 240x110+930+235 +repage "$2"
 }
 
+# Wait for one input's rendered state, never resend it (which can skip modes or
+# toggle a checkbox twice). Poll intervals are not proof of readiness.
+wait_region() {
+    local before="$1" output="$2" geometry="$3" relation="$4"
+    local deadline=$((SECONDS + 10)) distance
+    phase "wait-${relation}-${output##*/}"
+    convert "$before" -crop "$geometry" +repage "${output%.png}-before-crop.png"
+    while (( SECONDS < deadline )); do
+        kill -0 "$app_pid" 2>/dev/null || fail "application exited during rendered-state wait"
+        import -window root "$output"
+        convert "$output" -crop "$geometry" +repage "${output%.png}-wait-crop.png"
+        distance="$(image_distance "${output%.png}-before-crop.png" "${output%.png}-wait-crop.png")"
+        if python3 - "$distance" "$relation" <<'PY'
+import sys
+value = float(sys.argv[1])
+raise SystemExit(0 if (value == 0 if sys.argv[2] == 'same' else value >= .01) else 1)
+PY
+        then return; fi
+        sleep .05
+    done
+    fail "rendered-state deadline: $relation $output distance=$distance"
+}
+
 assert_roster_team_colors() {
     local screenshot="$1" team_count="$2" player_count="$3" label="$4"
     local normalized="${screenshot%.png}-normalized.png"
@@ -115,15 +158,12 @@ import subprocess
 import sys
 
 image, team_count, player_count, label = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+pixels = subprocess.check_output(["convert", image, "-alpha", "off", "-depth", "8", "rgb:-"], timeout=10)
 expected = [(255, 0, 0), (0, 255, 0), (255, 255, 0), (255, 0, 255)]
 for index in range(player_count):
     # Sample clear of the player name in the center of each 18-pixel row.
     x, y = 420, 157 + index * 18
-    pixel = subprocess.check_output([
-        "convert", image, "-crop", f"1x1+{x}+{y}", "+repage",
-        "-alpha", "off", "-depth", "8", "rgb:-",
-    ])
-    actual = tuple(pixel)
+    actual = tuple(pixels[(y * 850 + x) * 3:(y * 850 + x) * 3 + 3])
     wanted = expected[index % team_count]
     if actual != wanted:
         raise SystemExit(
@@ -170,6 +210,7 @@ run_scenario() {
     local label="$5"
     local scenario_dir="${test_root}/${label}"
     local runtime_dir="${scenario_dir}/runtime"
+    rm -rf "$scenario_dir"
     mkdir -p "${runtime_dir}/data"
     cp "${build_dir}/duel6r" "${runtime_dir}/duel6r"
     cp -R "${resource_dir}/data/." "${runtime_dir}/data/"
@@ -194,17 +235,16 @@ PY
     (
         cd "$runtime_dir"
         # Image capture/assertion time is harness work, not an application hang.
-        # A separate app timeout can destroy the window while a captured frame
-        # is still being validated. Use the enclosing CTest timeout (420s) for
-        # the whole harness instead; standalone runs should likewise wrap this
-        # script, not the app. exec lets cleanup signal the actual application.
+        # The outer process supervisor bounds the whole case, including tools.
         exec ./duel6r "screen_mode split" "screen_zoom 6" \
             >"${scenario_dir}/app.stdout" 2>"${scenario_dir}/app.stderr"
     ) &
     app_pid="$!"
 
     local window_id=""
-    for _ in {1..80}; do
+    phase "$label-window"
+    local deadline=$((SECONDS + 20))
+    while (( SECONDS < deadline )); do
         if ! kill -0 "$app_pid" >/dev/null 2>&1; then
             wait "$app_pid" || fail "$label exited before opening its window"
         fi
@@ -220,7 +260,9 @@ PY
     # Window creation precedes texture/font initialization, especially on Pi.
     # Never compare the first mode's black startup frame to a later ready menu.
     local menu_ready=false
-    for _ in {1..60}; do
+    phase "$label-menu-ready"
+    deadline=$((SECONDS + 20))
+    while (( SECONDS < deadline )); do
         kill -0 "$app_pid" >/dev/null 2>&1 || fail "$label exited before its first menu frame"
         import -window root "${scenario_dir}/menu.png"
         local colors
@@ -235,27 +277,36 @@ PY
 
     # The logical mode spinner is scaled by 9/7 and centered at X=93 in this
     # 1280x900 Release viewport. Exercise the rendered arrow's aligned hitbox.
-    for ((i = 0; i < mode_index; i++)); do
-        import -window root "${scenario_dir}/mode-step-before.png"
-        crop_mode "${scenario_dir}/mode-step-before.png" "${scenario_dir}/mode-step-before-crop.png"
-        local mode_advanced=false
-        for _ in {1..3}; do
-            xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-            sleep 0.2
-            import -window root "${scenario_dir}/mode-step-after.png"
-            crop_mode "${scenario_dir}/mode-step-after.png" "${scenario_dir}/mode-step-after-crop.png"
-            step_delta="$(image_distance "${scenario_dir}/mode-step-before-crop.png" \
-                "${scenario_dir}/mode-step-after-crop.png")"
-            if python3 - "$step_delta" <<'PY'
-import sys
-raise SystemExit(0 if float(sys.argv[1]) >= 0.01 else 1)
-PY
-            then
-                mode_advanced=true
-                break
-            fi
+    # Build cross-mode references in this process, so no CTest depends on files
+    # or success from another scenario. Compare all three primary modes and
+    # conditional settings before restoring this case's requested selection.
+    primary_mode_crops=()
+    for ((i = 0; i <= 2; i++)); do
+        import -window root "${scenario_dir}/reference-${i}.png"
+        crop_mode "${scenario_dir}/reference-${i}.png" "${scenario_dir}/reference-${i}-mode.png"
+        crop_conditional_settings "${scenario_dir}/reference-${i}.png" "${scenario_dir}/reference-${i}-settings.png"
+        for previous_crop in "${primary_mode_crops[@]}"; do
+            assert_images_differ "$previous_crop" "${scenario_dir}/reference-${i}-mode.png" "distinct primary modes"
         done
-        [[ "$mode_advanced" == true ]] || fail "$label mode selector ignored repeated pointer clicks"
+        primary_mode_crops+=("${scenario_dir}/reference-${i}-mode.png")
+        (( i == 2 )) && break
+        import -window root "${scenario_dir}/mode-step-before.png"
+        xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+        wait_region "${scenario_dir}/mode-step-before.png" "${scenario_dir}/mode-step-after.png" 240x36+934+180 different
+    done
+    non_team_settings_crop="${scenario_dir}/reference-0-settings.png"
+    teams_mode_crop="${scenario_dir}/reference-2-mode.png"
+    assert_images_same "$non_team_settings_crop" "${scenario_dir}/reference-1-settings.png" "non-Team modes hide Team controls"
+    assert_images_differ "$non_team_settings_crop" "${scenario_dir}/reference-2-settings.png" "Teams controls become visible"
+    xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
+    sleep .1 # allow an intentionally inert action to pass one input/render cycle
+    import -window root "${scenario_dir}/past-teams.png"
+    crop_mode "${scenario_dir}/past-teams.png" "${scenario_dir}/past-teams-crop.png"
+    assert_images_same "$teams_mode_crop" "${scenario_dir}/past-teams-crop.png" "Teams is the final primary mode"
+    for ((i = 2; i > mode_index; i--)); do
+        import -window root "${scenario_dir}/mode-step-before.png"
+        xdotool mousemove 949 217 mousedown 1 sleep 0.08 mouseup 1
+        wait_region "${scenario_dir}/mode-step-before.png" "${scenario_dir}/mode-step-after.png" 240x36+934+180 different
     done
 
     import -window root "${scenario_dir}/primary-mode-selected.png"
@@ -263,44 +314,15 @@ PY
     crop_conditional_settings "${scenario_dir}/primary-mode-selected.png" \
         "${scenario_dir}/settings-crop.png"
 
-    if (( mode_index < 2 )); then
-        for previous_crop in "${primary_mode_crops[@]}"; do
-            assert_images_differ "$previous_crop" "${scenario_dir}/primary-mode-crop.png" \
-                "$label primary mode"
-        done
-        primary_mode_crops+=("${scenario_dir}/primary-mode-crop.png")
-        if [[ -z "$non_team_settings_crop" ]]; then
-            non_team_settings_crop="${scenario_dir}/settings-crop.png"
-        else
-            assert_images_same "$non_team_settings_crop" "${scenario_dir}/settings-crop.png" \
-                "$label hidden Team controls"
-        fi
-    else
-        if [[ -z "$teams_mode_crop" ]]; then
-            teams_mode_crop="${scenario_dir}/primary-mode-crop.png"
-            assert_images_differ "$non_team_settings_crop" "${scenario_dir}/settings-crop.png" \
-                "Teams controls become visible"
-
-            # Teams is the third and final primary option: another right-arrow
-            # activation must not expose one of the obsolete six entries.
-            xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-            sleep 0.2
-            import -window root "${scenario_dir}/past-teams.png"
-            crop_mode "${scenario_dir}/past-teams.png" "${scenario_dir}/past-teams-crop.png"
-            assert_images_same "$teams_mode_crop" "${scenario_dir}/past-teams-crop.png" \
-                "Teams is the final primary mode"
-        else
-            assert_images_same "$teams_mode_crop" "${scenario_dir}/primary-mode-crop.png" \
-                "$label uses the single Teams primary option"
-        fi
+    assert_images_same "${primary_mode_crops[$mode_index]}" "${scenario_dir}/primary-mode-crop.png" "$label selected primary mode"
+    if (( mode_index == 2 )); then
 
         # Defaults are two teams and Friendly Fire off. Advancing from those
         # defaults produces all requested 2/3/4 x off/on combinations.
         for ((i = 2; i < team_count; i++)); do
             import -window root "${scenario_dir}/team-count-before-${i}.png"
             xdotool mousemove 1157 244 mousedown 1 sleep 0.08 mouseup 1
-            sleep 0.2
-            import -window root "${scenario_dir}/team-count-after-${i}.png"
+            wait_region "${scenario_dir}/team-count-before-${i}.png" "${scenario_dir}/team-count-after-${i}.png" 600x190+585+180 different
             crop_team_settings "${scenario_dir}/team-count-before-${i}.png" \
                 "${scenario_dir}/team-count-before-${i}-crop.png"
             crop_team_settings "${scenario_dir}/team-count-after-${i}.png" \
@@ -311,8 +333,7 @@ PY
         if [[ "$friendly_fire" == "on" ]]; then
             import -window root "${scenario_dir}/friendly-fire-before.png"
             xdotool mousemove 950 283 click 1
-            sleep 0.2
-            import -window root "${scenario_dir}/friendly-fire-after.png"
+            wait_region "${scenario_dir}/friendly-fire-before.png" "${scenario_dir}/friendly-fire-after.png" 600x190+585+180 different
             crop_team_settings "${scenario_dir}/friendly-fire-before.png" \
                 "${scenario_dir}/friendly-fire-before-crop.png"
             crop_team_settings "${scenario_dir}/friendly-fire-after.png" \
@@ -334,8 +355,7 @@ PY
             # click both hidden controls at their former hit locations. The
             # selected values and roster coloring must survive those clicks.
             xdotool mousemove 949 217 mousedown 1 sleep 0.08 mouseup 1
-            sleep 0.2
-            import -window root "${scenario_dir}/teams-hidden.png"
+            wait_region "${scenario_dir}/reference-1.png" "${scenario_dir}/teams-hidden.png" 240x110+930+235 same
             crop_conditional_settings "${scenario_dir}/teams-hidden.png" \
                 "${scenario_dir}/teams-hidden-crop.png"
             assert_images_same "$non_team_settings_crop" "${scenario_dir}/teams-hidden-crop.png" \
@@ -343,8 +363,7 @@ PY
             xdotool mousemove 1157 244 mousedown 1 sleep 0.08 mouseup 1
             xdotool mousemove 950 283 click 1
             xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-            sleep 0.2
-            import -window root "${scenario_dir}/teams-restored.png"
+            wait_region "${scenario_dir}/team-settings-selected.png" "${scenario_dir}/teams-restored.png" 240x110+930+235 same
             crop_team_settings "${scenario_dir}/teams-restored.png" \
                 "${scenario_dir}/teams-restored-crop.png"
             crop_conditional_settings "${scenario_dir}/teams-restored.png" \
@@ -371,9 +390,32 @@ PY
     crop_mode "${scenario_dir}/mode-selected.png" "${scenario_dir}/mode-crop.png"
 
     xdotool key --window "$window_id" F1
-    sleep 0.5
+    phase "$label-start-prompt"
+    deadline=$((SECONDS + 15))
+    local ready=false assertion=""
+    while (( SECONDS < deadline )); do
+        import -window root "${scenario_dir}/start-prompt.png"
+        if assertion="$(python3 "$image_assertions" "${scenario_dir}/start-prompt.png" "$label" "$player_count" "$team_count" --start-prompt 2>&1)"; then
+            ready=true; break
+        fi
+        sleep .05
+    done
+    [[ "$ready" == true ]] || fail "$assertion"
     xdotool key --window "$window_id" n
-    sleep 5
+    phase "$label-live-ready"
+    deadline=$((SECONDS + 15))
+    ready=false
+    while (( SECONDS < deadline )); do
+        import -window root "${scenario_dir}/live-ready.png"
+        if assertion="$(python3 "$image_assertions" "${scenario_dir}/live-ready.png" "$label" "$player_count" "$team_count" --live-ready 2>&1)"; then
+            ready=true; break
+        fi
+        sleep .05
+    done
+    [[ "$ready" == true ]] || fail "$assertion"
+    # Location indicators intentionally last three seconds after round start;
+    # sample layout drift after that product animation, not a guessed load wait.
+    sleep 3
     import -window root "${scenario_dir}/live-a.png"
     sleep 0.15
     import -window root "${scenario_dir}/live-b.png"
@@ -438,7 +480,9 @@ PY
     xdotool key --window "$window_id" --delay 80 Tab
     score_assertion=""
     score_ready=false
-    for _ in {1..30}; do
+    phase "$label-score-open"
+    deadline=$((SECONDS + 15))
+    while (( SECONDS < deadline )); do
         sleep 0.1
         import -window root "${scenario_dir}/score-tab.png"
         if [[ ! -f "${scenario_dir}/score-tab-first.png" ]]; then
@@ -470,7 +514,9 @@ PY
     # header location, not whole-frame equality against an animated arena.
     xdotool key --window "$window_id" --delay 80 Tab
     score_closed=false
-    for _ in {1..30}; do
+    phase "$label-score-close"
+    deadline=$((SECONDS + 15))
+    while (( SECONDS < deadline )); do
         sleep 0.1
         import -window root "${scenario_dir}/score-tab-closed.png"
         if score_assertion="$(python3 "$image_assertions" "${scenario_dir}/score-tab-closed.png" \
@@ -484,7 +530,7 @@ PY
     [[ "$score_closed" == true ]] || fail "$score_assertion"
 
     xdotool key --window "$window_id" Shift+Escape
-    sleep 1
+    wait_region "${scenario_dir}/mode-selected.png" "${scenario_dir}/after-gameplay-return.png" 240x36+934+180 same
     if (( mode_index == 2 )); then
         import -window root "${scenario_dir}/after-gameplay-return.png"
         crop_team_settings "${scenario_dir}/after-gameplay-return.png" \
@@ -502,6 +548,8 @@ PY
             "$label Teams mode after gameplay return"
     fi
     xdotool key --window "$window_id" Escape
+    phase "$label-shutdown"
+    timeout 5 tail --pid="$app_pid" -f /dev/null || fail "$label shutdown deadline"
     set +e
     wait "$app_pid"
     local app_status=$?
@@ -515,13 +563,16 @@ PY
 
 # Every selectable mode is exercised. Counts cover the supported minimum,
 # historical 2/3/4-way split layouts, intermediate teams, and maximum roster.
-run_scenario 0 2 0 off deathmatch-2
-run_scenario 1 3 0 off predator-3
-run_scenario 2 4 2 off team2-ff-off-4
-run_scenario 2 4 2 on  team2-ff-on-4
-run_scenario 2 6 3 off team3-ff-off-6
-run_scenario 2 6 3 on  team3-ff-on-6
-run_scenario 2 8 4 off team4-ff-off-8
-run_scenario 2 15 4 on team4-ff-on-15
+case "${1:-}" in
+    deathmatch-2) run_scenario 0 2 0 off "$1" ;;
+    predator-3) run_scenario 1 3 0 off "$1" ;;
+    team2-ff-off-4) run_scenario 2 4 2 off "$1" ;;
+    team2-ff-on-4) run_scenario 2 4 2 on "$1" ;;
+    team3-ff-off-6) run_scenario 2 6 3 off "$1" ;;
+    team3-ff-on-6) run_scenario 2 6 3 on "$1" ;;
+    team4-ff-off-8) run_scenario 2 8 4 off "$1" ;;
+    team4-ff-on-15) run_scenario 2 15 4 on "$1" ;;
+    *) fail "select one registered scenario" ;;
+esac
 
 echo "Shared arena behavior test passed. Artifacts: ${test_root}"
