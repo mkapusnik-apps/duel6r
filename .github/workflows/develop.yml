@@ -120,8 +120,9 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Check Windows Docker availability
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
         run: |
+          $ErrorActionPreference = 'Stop'
           if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
             throw 'Install Docker CLI and make it available to the runner account.'
           }
@@ -132,6 +133,7 @@ jobs:
           if ($dockerOs -ne 'windows') {
             throw 'Select Windows containers in Docker on the runner host before retrying.'
           }
+          if (Test-Path -LiteralPath variable:\LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -147,9 +149,12 @@ jobs:
         run: bash docker/resolve-tool-image.sh ghcr.io/${{ github.repository }}/build-windows-transport Dockerfile.windows-native-transport 7200 >> "$GITHUB_OUTPUT"
 
       - name: Build and test inside native Windows container
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
         timeout-minutes: 45
-        run: .\docker\run-windows-native-transport.ps1 -Image '${{ steps.tools.outputs.image }}'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\docker\run-windows-native-transport.ps1 -Image '${{ steps.tools.outputs.image }}'
+          if (Test-Path -LiteralPath variable:\LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Upload Windows CTest diagnostics
         if: failure()
