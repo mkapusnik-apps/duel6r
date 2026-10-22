@@ -119,12 +119,11 @@ jobs:
           unzip -t release-assets/duel6r-nightly.zip
 
       - name: Move nightly tag
-        uses: mkapusnik-apps/commons/git-ref@v1
+        uses: mkapusnik-apps/commons/tag@v1
         with:
-          ref: refs/tags/nightly
+          tag: nightly
           commit_sha: ${{ needs.source.outputs.sanity_sha }}
           token: ${{ secrets.PAT_ACTIONS }}
-          create_if_missing: 'false'
 
       - name: Delete existing nightly release without deleting the tag
         shell: bash
