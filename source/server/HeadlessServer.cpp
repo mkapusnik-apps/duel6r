@@ -2877,10 +2877,13 @@ namespace Duel6::Server {
                                     const bool readOnly = message && (message->kind == Network::Replication::ReplicationFrameKind::QualityProbe
                                             || message->kind == Network::Replication::ReplicationFrameKind::ResynchronizationRequest);
                                     // A valid read-only request can lose its reply leg
-                                    // on EOF, and replication then drops that sender.
+                                    // during graceful Closing or on EOF, and replication
+                                    // then drops that sender. Closing is an egress state,
+                                    // not a rejection of the authenticated queued tail.
                                     // This is not an ingress/authority rejection: keep
                                     // consuming the sealed, budgeted tail for Leave.
-                                    if (terminalState(connection->state()) && readOnly
+                                    const auto replyState = connection->state();
+                                    if ((terminalState(replyState) || replyState == Network::ClientState::Closing) && readOnly
                                         && (result == Network::Replication::HostReplicationResult::SendFailed
                                             || result == Network::Replication::HostReplicationResult::UnknownConnection))
                                         connection->requestClose();

@@ -52,6 +52,9 @@ target_include_directories(duel6r-session-transport-tests PRIVATE ${CMAKE_SOURCE
 target_link_libraries(duel6r-session-transport-tests PRIVATE duel6r-network-scaffold)
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_definitions(duel6r-session-transport-tests PRIVATE D6R_TEST_OBSERVE_STAGING)
+    target_compile_definitions(duel6r-session-transport-tests PRIVATE D6R_TEST_CLOSE_WAIT_BOUNDARY)
+    target_link_options(duel6r-session-transport-tests PRIVATE
+            "-Wl,--wrap=pthread_cond_clockwait,--wrap=pthread_mutex_lock,--wrap=_ZNSt18condition_variable10notify_allEv")
     target_link_libraries(duel6r-session-transport-tests PRIVATE
             "-Wl,--wrap=mbedtls_ssl_read,--wrap=_ZdlPv,--wrap=_ZdlPvm")
 endif ()
@@ -311,6 +314,13 @@ if (NOT D6R_TRANSPORT_ONLY)
         add_executable(duel6r-public-authenticated-peer ${CMAKE_SOURCE_DIR}/tests/PublicAuthenticatedPeer.cpp)
         target_include_directories(duel6r-public-authenticated-peer PRIVATE ${CMAKE_SOURCE_DIR})
         target_link_libraries(duel6r-public-authenticated-peer PRIVATE duel6r-network-scaffold)
+        add_test(NAME authenticated-peer-half-close COMMAND duel6r-public-authenticated-peer --half-close-regression)
+        set_tests_properties(authenticated-peer-half-close PROPERTIES
+                LABELS "application;network;process;regression;sanity-network" TIMEOUT 15)
+        add_test(NAME authenticated-peer-half-close-deadline
+                COMMAND duel6r-public-authenticated-peer --half-close-deadline-regression)
+        set_tests_properties(authenticated-peer-half-close-deadline PROPERTIES
+                LABELS "application;network;process;regression;sanity-network" TIMEOUT 15)
         add_test(NAME duel6r-public-dedicated-process-tests
                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/PublicDedicatedProcessTests.py
                         $<TARGET_FILE:duel6r-public-dedicated-runtime-tests>
@@ -393,6 +403,10 @@ add_executable(duel6r-admission-compatibility-tests
         ${CMAKE_SOURCE_DIR}/tests/AdmissionCompatibilityTests.cpp)
 target_include_directories(duel6r-admission-compatibility-tests PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(duel6r-admission-compatibility-tests duel6r-network-scaffold)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(duel6r-admission-compatibility-tests PRIVATE D6R_TEST_OBSERVE_NATIVE_CLOSE)
+    target_link_options(duel6r-admission-compatibility-tests PRIVATE "-Wl,--wrap=close")
+endif ()
 if (MINGW)
     set_property(TARGET duel6r-admission-compatibility-tests APPEND_STRING PROPERTY LINK_FLAGS " -mconsole")
 endif ()

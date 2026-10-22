@@ -164,6 +164,9 @@ namespace Duel6::Network {
     // external code. Unlike the send seam, this does not bypass native polling.
     struct NativeWriteObservations {
         std::atomic<std::uint64_t> polls{0}, pollReady{0}, calls{0}, bytes{0}, wouldBlock{0}, zeroWrites{0};
+        // Complete framed writes, including the real encrypted path. Unlike
+        // send()/queue acceptance this observes successful writer completion.
+        std::atomic<std::uint64_t> applicationFramesWritten{0};
         std::atomic<int> lastError{0};
         std::atomic<TransportTimePoint> lastProgress{TransportTimePoint{}};
     };
@@ -235,13 +238,17 @@ namespace Duel6::Network {
         bool permitAdmissionAcceptance();
         void revokeAdmissionAcceptance();
 
-        // Idempotent. Accepted output is flushed in order for at most two seconds.
+        // Idempotent. Reject new output, flush accepted FIFO, half-close, and
+        // discard inbound traffic within one original two-second close window.
+        // Previously accepted input remains available to ordinary/sealed reads.
         void requestClose();
         void close();
 
     private:
         class Impl;
         explicit TcpConnection(std::unique_ptr<Impl> impl);
+        // Startup/attempt cancellation is abortive, unlike healthy close.
+        void abort();
         std::unique_ptr<Impl> impl;
 
         friend class TcpClient;
