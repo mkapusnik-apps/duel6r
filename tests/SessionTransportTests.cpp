@@ -2901,18 +2901,27 @@ int main() {
         {"stalls and liveness", stallsAndLiveness}, {"close and shutdown bounds", closeAndShutdownBounds}};
     int failures = 0;
     std::size_t executed = 0;
+    const bool list = std::getenv("D6R_TEST_LIST") != nullptr;
     const char *filter = std::getenv("D6R_TEST_FILTER");
     const bool exact = std::getenv("D6R_TEST_EXACT") != nullptr;
     for (const auto &test: tests) {
+        if (list) { std::cout << test.first << '\n'; continue; }
         if (filter && (exact ? std::string(test.first) != filter
                             : std::string(test.first).find(filter) == std::string::npos)) continue;
         ++executed;
-        try { test.second(); std::cout << "[PASS] " << test.first << '\n'; }
-        catch (const std::exception &error) { ++failures; std::cerr << "[FAIL] " << test.first << "\n  " << error.what() << '\n'; }
+        const auto began = std::chrono::steady_clock::now();
+        std::cout << "[RUN] " << test.first << std::endl;
+        bool passed = true;
+        try { test.second(); }
+        catch (const std::exception &error) { ++failures; passed = false; std::cerr << "  " << error.what() << std::endl; }
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - began).count();
+        std::cout << (passed ? "[PASS] " : "[FAIL] ") << test.first << " elapsed-ms=" << elapsed << std::endl;
     }
 #ifdef D6R_TRANSPORT_WINDOWS
     WSACleanup();
 #endif
+    if (list) return 0;
     std::cout << "Executed " << executed << " transport test(s), failures: " << failures << '\n';
     if (filter && executed == 0) { std::cerr << "Requested transport filter matched no cases\n"; return 2; }
     return failures == 0 ? 0 : 1;
