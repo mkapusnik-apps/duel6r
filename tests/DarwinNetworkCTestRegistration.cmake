@@ -3,8 +3,17 @@
 add_executable(duel6r-darwin-session-transport-tests tests/SessionTransportTests.cpp)
 target_include_directories(duel6r-darwin-session-transport-tests PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(duel6r-darwin-session-transport-tests PRIVATE duel6r-network-scaffold)
-add_test(NAME darwin-session-transport COMMAND duel6r-darwin-session-transport-tests)
-set_tests_properties(darwin-session-transport PROPERTIES TIMEOUT 180 LABELS "application;network;darwin;transport")
+# Discover the compiled platform registry: no duplicated list can silently omit
+# a new transport case. Independent budgets avoid summing healthy close windows
+# and the sustained liveness scenario into one nearly exhausted 180s timeout.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(transport_registration "${CMAKE_BINARY_DIR}/darwin-transport-tests.cmake")
+add_custom_command(TARGET duel6r-darwin-session-transport-tests POST_BUILD
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/RegisterTransportTests.py
+                $<TARGET_FILE:duel6r-darwin-session-transport-tests> ${transport_registration})
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES "${transport_registration}")
+set_property(SOURCE ${CMAKE_SOURCE_DIR}/tests/SessionTransportTests.cpp APPEND PROPERTY
+        OBJECT_DEPENDS ${CMAKE_SOURCE_DIR}/tests/RegisterTransportTests.py)
 
 foreach(suite IN ITEMS AdmissionCompatibility HostServiceSupervisor SessionLifecycle AuthoritativePlayerInput StateReplication NetworkResponsiveness)
     add_executable(duel6r-darwin-${suite}-tests tests/TestMain.cpp tests/${suite}Tests.cpp)

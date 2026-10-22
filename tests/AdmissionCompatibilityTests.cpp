@@ -352,10 +352,8 @@ namespace {
 
     // These deadline tests retain the real encrypted transport. A successful send
     // only enqueues writer work; sleeping cannot prove the peer has received it.
-    // After the host has received the initial request, non-application clock calls
-    // are made at guest inbound enqueue (under inputMutex), or terminal publication
-    // (under terminalMutex). A receipt acknowledgement therefore synchronizes the
-    // test's next timestamp/close/seal with the actual transport linearization point.
+    // Count only authenticated application publication, never clock reads: close
+    // bookkeeping also samples the clock without receiving an application frame.
     struct AdmissionReceiptClock {
         const std::thread::id applicationThread = std::this_thread::get_id();
         const Network::TransportTimePoint epoch = std::chrono::steady_clock::now();
@@ -366,9 +364,7 @@ namespace {
         Network::TransportTimePoint now() {
             if (std::this_thread::get_id() == applicationThread)
                 return epoch + std::chrono::milliseconds(mainMilliseconds.load());
-            const auto received = epoch + std::chrono::milliseconds(receiveMilliseconds.load());
-            if (observing.load()) ++receipts;
-            return received;
+            return epoch + std::chrono::milliseconds(receiveMilliseconds.load());
         }
 
         void awaitReceipt(unsigned expected) {
@@ -408,6 +404,55 @@ namespace {
         dependencies.secureSession = true;
         dependencies.enforceNetworkSessionPolicy = true;
         return dependencies;
+    }
+
+    // Thin adapters retain the real encrypted queues, conditional acceptance,
+    // seal and terminal state while exposing existing ingress hooks to fixtures.
+    class ReceiptConnection final : public Server::AdmissionRuntimeConnection {
+    public:
+        explicit ReceiptConnection(std::shared_ptr<Network::TcpConnection> tcp) : tcp(std::move(tcp)) {}
+        Network::SendResult send(std::vector<std::uint8_t> bytes) override { return tcp->send(std::move(bytes)); }
+        Network::SendResult sendSensitive(std::vector<std::uint8_t> bytes) override { return tcp->sendSensitive(std::move(bytes)); }
+        Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(std::vector<std::uint8_t> bytes,
+                Network::AdmissionAttemptGate &attempt, const std::function<bool()> &cancelled,
+                const Network::Trust::Clock &now, Network::TransportTimePoint deadline) override {
+            return tcp->enqueueAdmissionAcceptance(std::move(bytes), attempt, cancelled, now, deadline);
+        }
+        bool receive(Network::TransportFrame &frame) override { return tcp->receive(frame); }
+        Network::TransportInputSnapshot sealAndDrainInput(std::size_t count) override { return tcp->sealAndDrainInput(count); }
+        Network::ClientState state() const override { return tcp->state(); }
+        Network::TransportTimePoint acceptedAt() const override { return tcp->acceptedAt(); }
+        Network::TransportTimePoint terminalAt() const override { return tcp->terminalAt(); }
+        bool permitAdmissionAcceptance() override { return tcp->permitAdmissionAcceptance(); }
+        void revokeAdmissionAcceptance() override { tcp->revokeAdmissionAcceptance(); }
+        void markAdmissionSucceeded() override { tcp->markAdmissionSucceeded(); }
+        void requestClose() override { tcp->requestClose(); }
+    private:
+        std::shared_ptr<Network::TcpConnection> tcp;
+    };
+
+    class ReceiptClient final : public Server::AdmissionRuntimeClient {
+    public:
+        explicit ReceiptClient(std::shared_ptr<Network::TcpClient> tcp) : tcp(std::move(tcp)) {}
+        bool start(const Network::Endpoint &endpoint) override { return tcp->start(endpoint); }
+        bool waitForConnected(std::chrono::milliseconds timeout) override { return tcp->waitForConnected(timeout); }
+        Network::ClientState state() const override { return tcp->state(); }
+        Network::TransportFailure failure() const override { return tcp->failure(); }
+        std::shared_ptr<Server::AdmissionRuntimeConnection> connection() const override {
+            auto connected = tcp->connection();
+            return connected ? std::make_shared<ReceiptConnection>(std::move(connected)) : nullptr;
+        }
+        void cancel() override { tcp->cancel(); }
+        void close() override { tcp->close(); }
+    private:
+        std::shared_ptr<Network::TcpClient> tcp;
+    };
+
+    std::shared_ptr<Network::TcpClient> receiptClient(AdmissionReceiptClock &clock) {
+        auto dependencies = secureAdmissionTransport();
+        dependencies.now = [&] { return clock.now(); };
+        dependencies.inbound.beforeApplicationPublish = [&](auto) { ++clock.receipts; };
+        return std::make_shared<Network::TcpClient>(std::move(dependencies));
     }
 
     struct ReconnectLeaveBarrier {
@@ -2846,6 +2891,10 @@ void realSecureClosingIntake(unsigned scenario) {
     // Never wait for writer completion/terminal while publication holds its lock.
     schedule.unblock();
     D6R_REQUIRE(handledClosingReply);
+    // The queued-tail assertions are already qualified. Complete the peer half
+    // close rather than racing the unchanged two-second writer drain deadline
+    // against this fixture's two-second retirement wait plus server polling.
+    departing->connection->requestClose();
     D6R_REQUIRE(schedule.await([&] { return schedule.targetRetired; }));
     // Freeze only the finite intake/token batch, not the later canonical tick
     // that publishes its committed lifecycle outcome to the observer.
@@ -4501,6 +4550,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
         D6R_REQUIRE(listener.waitForReady(2s));
 
         AdmissionReceiptClock clock;
+        auto guestTransport = receiptClient(clock);
         std::atomic<bool> probeReceived{false};
         std::atomic<bool> releaseCompletion{false};
         std::atomic<bool> completionSent{false};
@@ -4606,6 +4656,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
         dependencies.now = [&] { return clock.now(); };
+        dependencies.clientFactory = [guestTransport] { return std::make_unique<ReceiptClient>(guestTransport); };
         dependencies.wait = [&](std::chrono::milliseconds amount) {
             if (probeReceived && !releaseCompletion.exchange(true)) {
                 const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
@@ -4639,6 +4690,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-038 initial replication completion obeys
 
         std::ostringstream output;
         Server::HeadlessServer guest(config, std::move(dependencies));
+        guest.runtimeDependencies.productionReplicationProtocol = true;
         const auto status = guest.run(output);
         host.join();
         listener.shutdown();
@@ -5012,6 +5064,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         D6R_REQUIRE(listener.waitForReady(2s));
 
         AdmissionReceiptClock clock;
+        auto guestTransport = receiptClient(clock);
         std::atomic<bool> probeReceived{false};
         std::atomic<bool> releaseFrames{false};
         std::atomic<bool> framesSent{false};
@@ -5074,11 +5127,20 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
                     send(R::serializeQualityResponse(*probe->qualitySequence, 100), 4ms);
                 }
                 if (scenario == Scenario::TerminalClose) {
-                    const auto terminalReceipt = clock.receipts.load() + 1;
-                    connection->close();
-                    clock.awaitReceipt(terminalReceipt);
-                    hostClosed = true;
+                    connection->requestClose();
+                    const auto terminalDeadline = std::chrono::steady_clock::now() + 2s;
+                    auto guestConnection = guestTransport->connection();
+                    D6R_REQUIRE(guestConnection);
+                    while (guestConnection->state() == Network::ClientState::Connected
+                           && std::chrono::steady_clock::now() < terminalDeadline)
+                        std::this_thread::sleep_for(1ms);
+                    D6R_REQUIRE(guestConnection->state() == Network::ClientState::Failed);
+                    D6R_REQUIRE(guestConnection->terminalAt() != Network::TransportTimePoint{});
+                    // Resume the application at observed guest terminal, not at
+                    // the end of the host's independent two-second close join.
                     framesSent = true;
+                    connection->close();
+                    hostClosed = true;
                     return;
                 }
                 framesSent = true;
@@ -5104,6 +5166,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         dependencies.manifestSource = std::make_shared<FixedManifestSource>(
                 Network::ManifestBuildResult{Network::ManifestStatus::Valid, hostedManifest});
         dependencies.now = [&] { return clock.now(); };
+        dependencies.clientFactory = [guestTransport] { return std::make_unique<ReceiptClient>(guestTransport); };
         dependencies.wait = [&](std::chrono::milliseconds amount) {
             if (probeReceived && !releaseFrames.exchange(true)) {
                 const auto sentDeadline = std::chrono::steady_clock::now() + 2s;
@@ -5155,6 +5218,7 @@ D6R_TEST_CASE("AC-002 AC-020 AC-021 REP-008 REP-038 production sealed admission 
         };
 
         Server::HeadlessServer guest(config, std::move(dependencies));
+        guest.runtimeDependencies.productionReplicationProtocol = true;
         const auto status = guest.run(output);
         host.join();
         listener.shutdown();
