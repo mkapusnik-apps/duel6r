@@ -109,7 +109,7 @@ jobs:
 
   native-windows-transport:
     name: Platform / Windows MSVC x64 transport
-    runs-on: self-hosted-windows
+    runs-on: windows-2025
     permissions:
       contents: read
       packages: read
@@ -119,21 +119,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Check Windows Docker availability
+      - name: Start Docker service
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-            throw 'Install Docker CLI and make it available to the runner account.'
-          }
-          $dockerOs = docker info --format '{{.OSType}}'
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Start the Windows Docker engine and grant the runner account access to it.'
-          }
-          if ($dockerOs -ne 'windows') {
-            throw 'Select Windows containers in Docker on the runner host before retrying.'
-          }
-          if (Test-Path -LiteralPath variable:\LASTEXITCODE) { exit $LASTEXITCODE }
+          Start-Service docker
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
