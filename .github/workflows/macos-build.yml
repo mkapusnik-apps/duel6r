@@ -29,7 +29,7 @@ jobs:
             runner: macos-14
             metadata: build-info.json
           - arch: x86_64
-            runner: macos-15-intel
+            runner: [selfhosted-macos, x64]
             metadata: build-info-x86_64.json
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -39,7 +39,28 @@ jobs:
           ref: ${{ inputs.source_sha }}
 
       - name: Install native build tools
+        if: matrix.arch == 'arm64'
         run: brew install cmake ninja pkg-config
+
+      - name: Check dedicated Intel build host
+        if: matrix.arch == 'x86_64'
+        shell: bash
+        run: |
+          sw_vers
+          uname -m
+          [[ "$(uname -m)" == x86_64 ]]
+          [[ "$(sw_vers -productVersion)" == 15.* ]]
+          xcode-select -p
+          xcrun --sdk macosx --show-sdk-path
+          xcrun --sdk macosx --show-sdk-version
+          xcrun --sdk macosx clang --version
+          for tool in brew cmake ctest ninja pkg-config git make perl patch curl tar unzip zip ditto codesign otool install_name_tool lipo; do
+            command -v "$tool"
+          done
+          brew list --versions cmake ninja pkg-config
+          cmake --version
+          ninja --version
+          pkg-config --version
 
       - name: Set up Python
         id: python
@@ -53,6 +74,11 @@ jobs:
         run: |
           "$D6R_PYTHON" --version
           "$D6R_PYTHON" -c "import platform, sys; print(sys.executable); print(platform.machine()); assert sys.version_info[:2] == (3, 13)"
+
+      - name: Clean dedicated Intel macOS build outputs
+        if: matrix.arch == 'x86_64'
+        shell: bash
+        run: rm -rf build/macos-build build/macos build/macos-deps build/macos-diagnostics
 
       - name: Prepare runtime dependencies for the target minimum macOS
         env:
