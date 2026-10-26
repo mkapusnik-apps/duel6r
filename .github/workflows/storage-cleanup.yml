@@ -129,7 +129,7 @@ jobs:
       actions: write
     steps:
       - name: Inventory and clean legacy artifacts
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           CLEANUP_MODE: ${{ inputs.legacy_artifacts }}
         with:
