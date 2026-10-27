@@ -152,8 +152,11 @@ namespace {
                                    [](const auto &participant) { return participant.ready; });
         }, 5s));
         host.runtime.startMatch();
+        // A runtime can enter Match after its menu update in frame(). Observe
+        // entry in both menus before opening a confirmation that entry clears.
         D6R_REQUIRE(pump([&] { return host.runtime.snapshot().journey == Client::NetworkJourney::Match
                 && guest.runtime.snapshot().journey == Client::NetworkJourney::Match
+                && host.lastStableJourney == Client::NetworkJourney::Match
                 && guest.lastStableJourney == Client::NetworkJourney::Match && arenaReady(); }, 10s));
         D6R_REQUIRE(guest.lastStableJourney == Client::NetworkJourney::Match);
         D6R_REQUIRE(arenaReady());
@@ -162,7 +165,10 @@ namespace {
             key(application, host, SDLK_ESCAPE);
             D6R_REQUIRE(host.confirmation == NetworkMenu::Confirmation::End);
             frame(); // Release the opening gesture before confirming, as in normal input.
+            D6R_REQUIRE(host.confirmation == NetworkMenu::Confirmation::End);
+            D6R_REQUIRE(host.confirmationInputArmed);
             key(application, host, SDLK_RETURN); // Confirm the real host End action.
+            D6R_REQUIRE(host.runtime.snapshot().journey == Client::NetworkJourney::Cancelling);
         } else host.runtime.supervisor->applicationExit(); // Ordinary exit is never intentional End.
 
         const auto expected = scenario == "host-end" ? Client::NetworkJourney::HostEnded : Client::NetworkJourney::Reconnecting;
