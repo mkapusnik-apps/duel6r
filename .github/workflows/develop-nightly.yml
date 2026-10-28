@@ -147,11 +147,7 @@ jobs:
           files: |
             release-assets/duel6r-nightly.zip
             release-assets/macos/duel6r-macos-arm64.zip
-            release-assets/macos/duel6r-macos-arm64.zip.sha256
-            release-assets/macos/build-info.json
             release-assets/macos/duel6r-macos-x86_64.zip
-            release-assets/macos/duel6r-macos-x86_64.zip.sha256
-            release-assets/macos/build-info-x86_64.json
           fail_on_unmatched_files: true
 
   directory:
