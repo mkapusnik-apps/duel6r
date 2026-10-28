@@ -1899,7 +1899,7 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
     }
 }
 
-D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest input at 60 Hz") {
+static void verifyFourPlayerInputTransport(std::chrono::milliseconds readinessDelay) {
     Test::RuntimeObservationReceipt hostReceipt{"input-host"}, guestReceipt{"input-guest"};
     auto &transportBudget = Network::Trust::processQueueBudget();
     const auto transportBudgetBaseline = transportBudget.used();
@@ -1917,28 +1917,43 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     std::atomic<bool> ready{false};
     std::atomic<bool> stopHost{false};
     std::atomic<bool> guestReadySent{false};
-    const auto fixtureDeadline = std::chrono::steady_clock::now() + 15s;
+    const auto fixtureStarted = std::chrono::steady_clock::now();
+    const auto startupDeadline = fixtureStarted + 15s;
+    // Host-thread-owned until join(): the measurement window starts once, at
+    // the first active input sample, not while admission/calibration/Ready runs.
+    std::optional<std::chrono::steady_clock::time_point> measurementDeadline;
     std::mutex evidenceMutex;
     std::vector<Server::Authoritative::Identity> hostPlayers;
     std::vector<Server::Authoritative::Identity> guestPlayers;
     std::map<Server::Authoritative::Identity, unsigned> samples;
     std::map<Server::Authoritative::Identity, unsigned> applications;
+    std::map<std::pair<Server::Authoritative::Identity, Network::Input::OutcomeCategory>, unsigned> outcomes;
     constexpr unsigned SustainedTicks = 180;
     hostConfig.localPlayers = 4;
 
     Server::AdmissionRuntimeDependencies hostDependencies;
     hostDependencies.observations = hostReceipt.data;
     hostDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
-    // Bound the fixture itself so a guest admission/drain failure is reported by the behavioral
-    // assertions below instead of stranding host.join() until the outer CTest timeout.
+    hostDependencies.outboundWriter = [&](auto &connection, auto payload) {
+        if (Network::Input::isPlayerInputFrame(payload)) {
+            const auto frame = Network::Input::deserializeFrame(payload);
+            if (frame && frame->outcome)
+                ++outcomes[{frame->outcome->playerId, frame->outcome->category}];
+        }
+        return connection.send(std::move(payload));
+    };
+    // Both phases remain bounded. Progress must never renew the measurement
+    // deadline; a drain failure still reaches the unchanged assertions below.
     hostDependencies.cancelled = [&] {
-        return stopHost.load() || std::chrono::steady_clock::now() >= fixtureDeadline;
+        return stopHost.load() || std::chrono::steady_clock::now()
+                >= measurementDeadline.value_or(startupDeadline);
     };
     hostDependencies.hostedServiceStatus = [&](Network::HostServiceStatusCode status) {
         if (status == Network::HostServiceStatusCode::Ready) ready = true;
         return true;
     };
     hostDependencies.localPlayerActions = [&](std::uint64_t playerId) {
+        if (!measurementDeadline) measurementDeadline = std::chrono::steady_clock::now() + 15s;
         std::lock_guard<std::mutex> lock(evidenceMutex);
         D6R_REQUIRE(std::find(hostPlayers.begin(), hostPlayers.end(), playerId) != hostPlayers.end());
         ++samples[playerId];
@@ -1946,6 +1961,8 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     };
     std::atomic<bool> hostReadySent{false};
     hostDependencies.hostReadinessChange = [&] {
+        if (std::chrono::steady_clock::now() < fixtureStarted + readinessDelay)
+            return std::optional<bool>{};
         return !guestReadySent.load() || hostReadySent.exchange(true)
                ? std::optional<bool>{} : std::optional<bool>(true);
     };
@@ -1979,9 +1996,11 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
 
     std::ostringstream hostOutput;
     int hostStatus = -1;
+    std::atomic<bool> hostExited{false};
     std::thread host([&] {
         Server::HeadlessServer server(hostConfig, std::move(hostDependencies));
         hostStatus = server.run(hostOutput);
+        hostExited = true;
     });
     for (unsigned attempt = 0; attempt < 400 && !ready; ++attempt) std::this_thread::sleep_for(5ms);
     D6R_REQUIRE(ready);
@@ -2000,6 +2019,9 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     std::string ownershipEvidence;
     Server::AdmissionRuntimeDependencies guestDependencies;
     guestDependencies.observations = guestReceipt.data;
+    // The paired fixture is done when its host exits. Do not spend an unrelated
+    // reconnect window trying to restore a deliberately stopped test host.
+    guestDependencies.cancelled = [&] { return hostExited.load(); };
     guestDependencies.manifestSource = std::make_shared<FixedManifestSource>(built);
     guestDependencies.localPlayerActions = [&](std::uint64_t playerId) {
         // The production guest must not sample or submit local control before the final
@@ -2065,10 +2087,16 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
     host.join();
 
     std::cout << "DIAGNOSTIC input-fixture;completion-condition=" << stopHost
-              << ";fixture-deadline-us=" << Server::RuntimeObservations::micros(fixtureDeadline) << '\n';
+              << ";startup-deadline-us=" << Server::RuntimeObservations::micros(startupDeadline)
+              << ";measurement-deadline-us="
+              << (measurementDeadline ? Server::RuntimeObservations::micros(*measurementDeadline) : -1) << '\n';
     for (const auto &entry : samples)
         std::cout << "DIAGNOSTIC input-count;player=" << entry.first << ";samples=" << entry.second
                   << ";applications=" << applications[entry.first] << ";required=" << SustainedTicks << '\n';
+    for (const auto &entry : outcomes)
+        std::cout << "DIAGNOSTIC input-outcome;player=" << entry.first.first
+                  << ";category=" << static_cast<unsigned>(entry.first.second)
+                  << ";count=" << entry.second << '\n';
 
     D6R_REQUIRE_EQ(0, hostStatus);
     D6R_REQUIRE_EQ(2, guestStatus);
@@ -2100,6 +2128,17 @@ D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest
                        + ";host-output=" + hostOutput.str());
     }
     D6R_REQUIRE_EQ(transportBudgetBaseline, transportBudget.used());
+}
+
+D6R_TEST_CASE("NIN production transport fairly drains four-player host and guest input at 60 Hz") {
+    verifyFourPlayerInputTransport(0ms);
+}
+
+D6R_TEST_CASE("NIN production input measurement retains its budget after delayed lobby readiness") {
+    // Guests sample each 20 Hz canonical update, so 180 samples require about
+    // nine seconds of active play even when every command is applied. A legal
+    // seven-second lobby wait must not leave only eight seconds to measure it.
+    verifyFourPlayerInputTransport(7s);
 }
 
 D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production server unsuccessfully without host-end claim") {
