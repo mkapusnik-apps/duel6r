@@ -4,7 +4,7 @@ Functional authority: [network-browser](../../screens/network-browser.md), [host
 
 Structural sources: [NET-10 results](../wireframes/NET-10/NET-10.svg), [NET-10-E empty](../wireframes/NET-10/NET-10-E.svg), and [NET-10-U failed refresh](../wireframes/NET-10/NET-10-U.svg).
 
-States retain NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, NET-10-unavailable, NET-10-dedicated-idle, and NET-10-dedicated-reserved. NET-10-dedicated-unsupported is retired for the four approved baseline clients; do not reuse it for ordinary full, stale, busy, closed, or security failure. Product owns its retirement in the functional inventory. No product screen is added. Visual impact is localized to dedicated eligibility and supporting copy; NET-10, NET-10-E, and NET-10-U SVGs remain byte-for-byte unchanged because they contain no platform warning or selector.
+States retain NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, NET-10-unavailable, NET-10-dedicated-idle, and NET-10-dedicated-reserved. NET-10-dedicated-unsupported is retired for the four approved baseline clients; do not reuse it for ordinary full, stale, busy, closed, or security failure. Product owns its retirement in the functional inventory. No product screen is added. Visual impact is copy-only: NET-10, NET-10-E, and NET-10-U remove the reachability sentence under UX-NET-10-046. Their geometry and all other copy remain unchanged.
 
 ## Presentation and allocation
 
@@ -14,7 +14,7 @@ The [unified presentation](../../design.md#unified-network-presentation) applies
 - **UX-NET-10-002** The table must retain its inset white body and fixed grey heading strip.
 - **UX-NET-10-003** Row selection must retain its selection fill/text, textual marker, and separate focus outline.
 - **UX-NET-10-004** The six headings must be Session / endpoint, Hosting, Players, Phase, Access, and Admission.
-- **UX-NET-10-005** Selected details must remain below the table and above paging with room for full endpoint/identity, eligibility, and reachability guidance.
+- **UX-NET-10-005** Selected details must remain below the table and above paging with room for full endpoint/identity and eligibility.
 - **UX-NET-10-006** Pagination must show both framed directions when either direction exists and hide both when neither exists.
 - **UX-NET-10-007** The current page label must not invent a total and must hide with unnecessary pagination.
 - **UX-NET-10-008** The footer must use the single-row geometry and action order defined below.
@@ -103,7 +103,9 @@ A generic Selected session label is permitted without retained metadata. A retry
 ## Ongoing context
 
 - **UX-NET-10-043** Known later-match details must show `Match in progress. Your players join next round if admitted.`; known final-round details must show `Final round in progress. You may not play in this match if admitted.`; unknown context must not promise immediate spawn.
-- Selected details must retain full endpoint, identity/mode, protection meaning, host confirmation, and reachability guidance.
+- Selected details must retain full endpoint, identity/mode, protection meaning, and host confirmation.
+- **UX-NET-10-046** The browser must omit `A listing does not guarantee reachability.` in every state without replacement text.
+- The existing `LAN-first.` text and its position must remain unchanged.
 - Context must wrap or use existing scrolling before it covers paging or the footer.
 - **UX-NET-10-044** The results representative must pair a selected protected ongoing Open session with a genuinely completed Closed session and mixed-hosting context.
 - **UX-NET-10-045** Started or Password must not imply Closed; joining must follow product-authorized Admission and existing freshness/capability checks.
@@ -131,4 +133,4 @@ Check single/multiple pages, refresh-driven pagination changes, hidden input exc
 
 Both selected hosting modes must retain immutable targets and protection-aware Password focus. All joining paths must use the same validated availability, freshness, identity, capability, and admission checks. Stills do not establish those behaviors, security, leases, or lifecycle authority.
 
-The [current coordinated matrix](../screenshots/README.md#unified-connection-current-capture-matrix) owns the affected results representative. Reuse NET-10-E/U at their original scope if presentation source is unchanged. Do not refresh empty/error, gameplay, or historical unsupported-platform images solely for client parity.
+The [current browser copy matrix](../screenshots/README.md#net-10-current-copy-removal-matrix) owns the affected NET-10 results, NET-10-E empty, and NET-10-U unavailable representatives at 1280 by 900. Each must show the sentence removal with retained `LAN-first.` text and unchanged surrounding presentation. Do not refresh gameplay or historical unsupported-platform images for this copy-only change.

@@ -23,7 +23,7 @@
     <text x="57" y="273">Directory unavailable. Direct connection and local play are still available.</text>
     <text x="61" y="528">Selected session</text>
     <text x="61" y="551">Refresh successfully before joining. Availability unconfirmed.</text>
-    <text x="61" y="597">LAN-first. A listing does not guarantee reachability.</text>
+    <text x="61" y="597">LAN-first.</text>
     <text x="179" y="641" text-anchor="middle">Join selected</text>
     <text x="770" y="207">Refresh</text>
     <text x="447" y="641" text-anchor="middle">Direct connect</text><text x="715" y="641" text-anchor="middle">Back</text>
