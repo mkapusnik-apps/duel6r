@@ -1,0 +1,27 @@
+services:
+  server:
+    image: ${D6R_SERVER_IMAGE:-ghcr.io/mkapusnik-apps/duel6r/dedicated-server:nightly}
+    platform: linux/amd64
+    init: true
+    read_only: true
+    tmpfs:
+      - /run/duel6r:uid=10001,gid=10001,mode=0700
+    ports:
+      - "${D6R_BIND_IP:-127.0.0.1}:${D6R_HOST_PORT:-26660}:26660/tcp"
+    command:
+      - --port=26660
+      - --name=${D6R_SERVER_NAME:-Duel 6 dedicated}
+      # Optional: uncomment both advertise arguments to publish in the directory.
+      # - --advertise-host=game.example.org
+      # - --advertise-port=26660
+      # Optional: also uncomment the protected-file mount below.
+      # - --password-file=/run/secrets/game-password
+    # environment:
+    #   D6R_DIRECTORY_URL: https://staging.duel.netusite.cz
+    # volumes:
+    #   - type: bind
+    #     source: /absolute/operator/path/game-password
+    #     target: /run/secrets/game-password
+    #     read_only: true
+    #     bind:
+    #       create_host_path: false

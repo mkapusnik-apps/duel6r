@@ -9,6 +9,10 @@ The canonical behavior specification is [`docs/features.md`](docs/features.md). 
 
 Networking remains experimental/prototype work; package availability does not establish accepted playable end-to-end support. See the [package operations guide](docs/network-package-operations.md) for package verification, runtime prerequisites, player-hosted deployment, local-data backup, offline same-release reinstallation, rollback, and outstanding execution-evidence boundaries. The experimental Apple Silicon network extension follows the [macOS contract](docs/macos.md), alongside existing Linux/Windows networking and the separate Raspberry Pi validation scope. Not every historical local-game platform is a network target. The [deployment specification](docs/network-deployments.md) defines acceptance; issue #41 remains the final release-validation gate.
 
+For the Linux amd64 dedicated game server image and a ready-to-configure Docker
+Compose example, see [dedicated container operations](docs/dedicated-container.md).
+This runtime image is separate from the build toolchains and directory backend.
+
 ## History
 
 The very first version of the game has been developed in **2002** by [Ondrej Danek](http://www.ondrej-danek.net/en/blog) as a sequel to **Duel 5** which was popular 2D deathmatch game published in a Czech computer magazine **Level**. Since then the game code has been continually improved and later open-sourced.
