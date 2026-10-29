@@ -3203,7 +3203,9 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Previous page").first);
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Next page").first);
     D6R_REQUIRE(rendered.find("A listing does not guarantee reachability.") == std::string::npos);
-    D6R_REQUIRE(textBounds("Page 1").second < textBounds("Loopback address;").first);
+    // Refresh left this page unselected, so paging clears the table without selected details.
+    D6R_REQUIRE(menu.selectedListing.empty());
+    D6R_REQUIRE(textBounds("Page 1").second < textBounds("  127.0.0.1:25007").first);
     // Composed UX-NET-10-008 centers the captions in the same y=68, h=32 footer row.
     for (const auto *caption: {"Join selected", "Direct connect", "Back"}) {
         const auto bounds = textBounds(caption);
