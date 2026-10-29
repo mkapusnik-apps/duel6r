@@ -98,7 +98,13 @@ jobs:
     runs-on: self-hosted
     permissions:
       contents: write
+      packages: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.sanity_sha }}
+          persist-credentials: false
+
       - name: Download nightly artifact
         uses: actions/download-artifact@v8
         with:
@@ -149,6 +155,26 @@ jobs:
             release-assets/macos/duel6r-macos-arm64.zip
             release-assets/macos/duel6r-macos-x86_64.zip
           fail_on_unmatched_files: true
+
+      - name: Log in to GHCR for the dedicated server image
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Package and publish the Linux amd64 dedicated server
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/dedicated-server
+          SOURCE_SHA: ${{ needs.source.outputs.sanity_sha }}
+        run: |
+          unzip -q release-assets/duel6r-nightly.zip -d dedicated-runtime
+          docker build --pull --platform linux/amd64 --file docker/dedicated/Dockerfile \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${SOURCE_SHA}" \
+            --tag "${IMAGE}:nightly-${SOURCE_SHA}" --tag "${IMAGE}:nightly" dedicated-runtime
+          docker push "${IMAGE}:nightly-${SOURCE_SHA}"
+          docker push "${IMAGE}:nightly"
 
   directory:
     name: Deploy staging directory
