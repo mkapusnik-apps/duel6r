@@ -81,6 +81,7 @@ namespace Duel6::Network::Replication {
         LiquidKind waterType = LiquidKind::None;
         std::int32_t waterLevel = -1; // Highest completely flooded tile row.
         bool waterRaising = false;
+        ArenaAnimationState animation;
     };
 
     struct PlayerState {
@@ -111,6 +112,9 @@ namespace Duel6::Network::Replication {
         std::int64_t temporaryMovementRemaining = 0;
         std::int64_t bonusDuration = 0; // Q16 seconds, same unit as remaining.
         std::int64_t reloadDuration = 0; // Q16 seconds, includes current modifiers.
+        HudIndicators hudIndicators{};
+        std::int64_t width = 0, height = 0; // Authoritative collision dimensions, Q16 world units.
+        std::int32_t roundKills = 0;
     };
 
     struct WorldEntityState {

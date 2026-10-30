@@ -15,6 +15,7 @@
 #include "source/server/AuthoritativeReplication.h"
 #include "tests/TestHarness.h"
 #include "source/PresentationClock.h"
+#include "source/ArenaAnimationClock.h"
 
 namespace {
     namespace R = Duel6::Network::Replication;
@@ -2165,7 +2166,16 @@ namespace {
         state.result.serialized.assign(64 * 1024, 'r');
         R::FullSnapshot snapshot{1, state};
         snapshot.authoritativeProducedAt = 1;
-        const auto payload = R::serializeReplicationSnapshot(snapshot);
+        auto payload = R::serializeReplicationSnapshot(snapshot);
+        // Keep the boundary fixture's encoded size stable when presentation
+        // fields grow. This leaves two partial reservations on the ninth client
+        // before the shared limit, independently of the protocol header size.
+        constexpr std::size_t EncodedBytes = 64 * 1024 - 256;
+        const auto overhead = payload.size() - snapshot.state.result.serialized.size();
+        D6R_REQUIRE(overhead < EncodedBytes);
+        snapshot.state.result.serialized.resize(EncodedBytes - overhead);
+        payload = R::serializeReplicationSnapshot(snapshot);
+        D6R_REQUIRE_EQ(EncodedBytes, payload.size());
         D6R_REQUIRE(payload.size() < Duel6::Network::MaxPayloadBytes);
         return payload;
     }
@@ -2187,6 +2197,11 @@ D6R_TEST_CASE("REP-PRES liquid clock and HUD durations survive full delta and re
         ++state.round->waterLevel;
         state.players.front().bonusDuration += 65536;
         state.players.front().reloadDuration += 32768;
+        state.players.front().hudIndicators[0] = {32768, 2 * 65536};
+        state.players.front().width = 32768; state.players.front().height = 65536;
+        ++state.players.front().roundKills;
+        state.round->animation.ticks += 90;
+        state.round->animation.waterResetStep = state.round->animation.ticks / 30;
         auto update = publisher.publish(state);
         D6R_REQUIRE(update);
         D6R_REQUIRE_EQ(1u, update->players.size());
@@ -2212,7 +2227,7 @@ D6R_TEST_CASE("REP-PRES liquid clock and HUD durations survive full delta and re
     D6R_REQUIRE(incremental.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
 }
 
-D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and protocol three is incompatible") {
+D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and earlier protocols are incompatible") {
     const auto state = activeState();
     const std::vector<std::function<void(R::CanonicalState &)>> corruptions = {
         [](auto &s) { s.round->worldTime = -1; },
@@ -2222,7 +2237,15 @@ D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and protocol t
         [](auto &s) { s.round->waterLevel = INT32_MAX; },
         [](auto &s) { s.round->waterRaising = true; },
         [](auto &s) { s.players.front().bonusDuration = -1; },
-        [](auto &s) { s.players.front().reloadDuration = INT64_MAX; }
+        [](auto &s) { s.players.front().reloadDuration = INT64_MAX; },
+        [](auto &s) { s.players.front().hudIndicators[0] = {2, 1}; },
+        [](auto &s) { s.players.front().hudIndicators[1] = {-1, 1}; },
+        [](auto &s) { s.players.front().hudIndicators[5] = {0, INT64_MAX}; },
+        [](auto &s) { s.players.front().width = -1; },
+        [](auto &s) { s.players.front().height = INT64_MAX; },
+        [](auto &s) { s.players.front().roundKills = -1; },
+        [](auto &s) { s.round->animation.waterResetStep = 1; },
+        [](auto &s) { s.round->animation.ticks = UINT64_MAX; }
     };
     for (const auto &corrupt: corruptions) {
         auto invalid = state;
@@ -2235,18 +2258,24 @@ D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and protocol t
     }
     auto bytes = R::serializeReplicationSnapshot({1, state});
     // Four-byte identifier followed by the little-endian uint16 version.
-    bytes[4] = 3; bytes[5] = 0;
-    D6R_REQUIRE(!R::deserializeReplicationFrame(bytes));
+    for (const unsigned version: {3, 4}) {
+        bytes[4] = version; bytes[5] = 0;
+        D6R_REQUIRE(!R::deserializeReplicationFrame(bytes));
+    }
 }
 
 D6R_TEST_CASE("REP-PRES accepted round clock rejects rollback in publisher full and delta paths") {
+    for (unsigned field = 0; field < 3; ++field) {
     auto state = activeState();
     state.round->worldTime = 2 * 65536;
+    state.round->animation = {180, 4};
     R::AuthoritativeStateReplicator publisher;
     D6R_REQUIRE(publisher.initialize(state));
     const auto initial = *publisher.fullSnapshot();
     auto rollback = state;
-    --rollback.round->worldTime;
+    if (field == 0) --rollback.round->worldTime;
+    if (field == 1) --rollback.round->animation.ticks;
+    if (field == 2) --rollback.round->animation.waterResetStep;
     ++rollback.phaseTime; // Increasing match time cannot legitimize world rollback.
     D6R_REQUIRE(!publisher.publish(rollback));
     D6R_REQUIRE_EQ(initial.version, publisher.version());
@@ -2256,16 +2285,19 @@ D6R_TEST_CASE("REP-PRES accepted round clock rejects rollback in publisher full 
     D6R_REQUIRE_EQ(state.round->worldTime, client.state()->round->worldTime);
     ++state.phaseTime;
     state.round->worldTime += 65536;
+    state.round->animation.ticks += 90;
     const auto forward = publisher.publish(state);
     D6R_REQUIRE(forward);
     auto invalid = *forward;
-    invalid.round->worldTime = rollback.round->worldTime;
+    invalid.round = rollback.round;
     D6R_REQUIRE(client.apply(invalid) == R::ApplyResult::ResynchronizationRequired);
     D6R_REQUIRE(client.state() == nullptr);
     D6R_REQUIRE(client.retainedState());
     D6R_REQUIRE_EQ(initial.state.round->worldTime, client.retainedState()->round->worldTime);
     D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
     D6R_REQUIRE_EQ(state.round->worldTime, client.state()->round->worldTime);
+    D6R_REQUIRE(client.state()->round->animation == state.round->animation);
+    }
 }
 
 D6R_TEST_CASE("REP-PRES clock bridges snapshots but freezes retained worlds and restores accepted age") {
@@ -2277,6 +2309,32 @@ D6R_TEST_CASE("REP-PRES clock bridges snapshots but freezes retained worlds and 
     D6R_REQUIRE_NEAR(9.0f, clock.update(9 * 65536, 0.0f, false), 0.0001f);
     clock.reset();
     D6R_REQUIRE_NEAR(0.0f, clock.update(0, 0.0f, true), 0.0001f);
+}
+
+D6R_TEST_CASE("Arena water cadence follows original 90Hz reset accumulator across rises and 60Hz authority") {
+    Duel6::ArenaAnimationClock clock;
+    float originalWait = 0;
+    std::uint64_t originalFrame = 0, originalWater = 0;
+    for (unsigned tick = 1; tick <= 900; ++tick) {
+        // Literal baseline algorithm, deliberately not derived from the new clock.
+        originalWait += 1.0f / 90;
+        if (originalWait > 0.328f) { originalWait = 0; ++originalFrame; ++originalWater; }
+        clock.update(1.0f / 90);
+        if (tick == 89) D6R_REQUIRE_EQ(2u, originalFrame);
+        if (tick == 89 || tick == 145 || tick == 300 || tick == 899) {
+            originalWater = 0; // generateWater rebuilt Face instances at frame zero.
+            clock.resetWater();
+        }
+        D6R_REQUIRE_EQ(originalFrame, Duel6::ArenaAnimationClock::frame(clock.state()));
+        D6R_REQUIRE_EQ(originalWater, Duel6::ArenaAnimationClock::waterFrame(clock.state()));
+    }
+    Duel6::ArenaAnimationClock authority;
+    for (unsigned tick = 1; tick <= 600; ++tick) {
+        authority.update(1.0 / 60);
+        D6R_REQUIRE_EQ(tick / 20, Duel6::ArenaAnimationClock::frame(authority.state()));
+        if (tick == 59) authority.resetWater();
+        if (tick == 60) D6R_REQUIRE_EQ(1u, Duel6::ArenaAnimationClock::waterFrame(authority.state()));
+    }
 }
 
 D6R_TEST_CASE("network projectile frames converge through full incremental and fresh current snapshots") {

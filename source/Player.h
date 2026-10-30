@@ -52,8 +52,8 @@
 #include "Defines.h"
 #include "Level.h"
 #include "collision/WorldCollision.h"
-#ifndef D6R_HEADLESS_CORE
 #include "PlayerIndicators.h"
+#ifndef D6R_HEADLESS_CORE
 #include "PlayerView.h"
 #endif
 
@@ -140,9 +140,7 @@ namespace Duel6 {
         World *world; // TODO: Remove
         Float32 bodyAlpha;
         clock_t roundStartTime;
-#ifndef D6R_HEADLESS_CORE
         PlayerIndicators indicators;
-#endif
         Uint32 controllerState;
         CollidingEntity collider;
         bool headless;
@@ -221,7 +219,6 @@ namespace Duel6 {
             return isKneeling() ? getSpritePosition() - Vector(0.0f, 0.15f) : getSpritePosition();
         }
 
-#ifndef D6R_HEADLESS_CORE
         PlayerIndicators &getIndicators() {
             return indicators;
         }
@@ -230,6 +227,7 @@ namespace Duel6 {
             return indicators;
         }
 
+#ifndef D6R_HEADLESS_CORE
         const PlayerView &getView() const {
             return view;
         }

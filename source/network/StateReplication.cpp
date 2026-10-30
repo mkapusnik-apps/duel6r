@@ -53,7 +53,9 @@ namespace Duel6::Network::Replication {
                    && left.presentationAlpha == right.presentationAlpha
                    && left.reloadRemaining == right.reloadRemaining && left.charge == right.charge
                    && left.temporaryMovementRemaining == right.temporaryMovementRemaining
-                   && left.bonusDuration == right.bonusDuration && left.reloadDuration == right.reloadDuration;
+                   && left.bonusDuration == right.bonusDuration && left.reloadDuration == right.reloadDuration
+                   && left.hudIndicators == right.hudIndicators && left.width == right.width
+                   && left.height == right.height && left.roundKills == right.roundKills;
         }
 
         bool entityEqual(const WorldEntityState &left, const WorldEntityState &right) {
@@ -383,6 +385,7 @@ namespace Duel6::Network::Replication {
                                  && left->rosterOrder == right->rosterOrder
                                  && left->worldTime == right->worldTime && left->waterType == right->waterType
                                  && left->waterLevel == right->waterLevel && left->waterRaising == right->waterRaising
+                                 && left->animation == right->animation
                                  && sameOutcome(left->outcome, right->outcome)));
         }
 
@@ -1275,6 +1278,7 @@ namespace Duel6::Network::Replication {
                                   && a->rosterOrder == b->rosterOrder
                                   && a->worldTime == b->worldTime && a->waterType == b->waterType
                                   && a->waterLevel == b->waterLevel && a->waterRaising == b->waterRaising
+                                  && a->animation == b->animation
                                   && sameOutcome(a->outcome, b->outcome)));
             };
             const auto sameEffect = [](const ContinuingEffectState &a, const ContinuingEffectState &b) {
@@ -1352,13 +1356,13 @@ namespace Duel6::Network::Replication {
 
         bool withinPayloadLimit(const CanonicalState &state, std::size_t eventCount = 0,
                                 std::size_t eventTextBytes = 0) {
-            std::size_t bytes = 526; // Includes explicit round presentation state.
+            std::size_t bytes = 542; // Includes explicit round presentation state.
             const auto add = [&bytes](std::size_t value) {
                 if (value > MaxReplicatedResultBytes || bytes > MaxReplicatedResultBytes - value) return false;
                 bytes += value;
                 return true;
             };
-            if (!add(state.participants.size() * 192) || !add(state.players.size() * 528)
+            if (!add(state.participants.size() * 192) || !add(state.players.size() * 644)
                 || !add(state.entities.size() * 256) || !add(state.score.players.size() * 192)
                 || !add(state.effects.size() * 160) || !add(eventCount * 160)
                 || !add(eventTextBytes) || !add(state.result.serialized.size())) return false;
@@ -1458,6 +1462,11 @@ namespace Duel6::Network::Replication {
             if (!uniqueNonzero(state.players, [](const auto &value) { return value.playerId; }, &playerIds)) return false;
             for (const auto &player: state.players) {
                 constexpr std::int64_t MaximumDuration = INT64_C(86400) * 65536;
+                for (const auto &indicator: player.hudIndicators)
+                    if (indicator.elapsed < 0 || indicator.total < 0 || indicator.total > MaximumDuration
+                        || indicator.elapsed > indicator.total) return false;
+                if (player.width < 0 || player.height < 0 || player.width > 4 * 65536 || player.height > 4 * 65536
+                    || player.roundKills < 0 || player.roundKills > D6_NETWORK_ROUND_PLAYER_HISTORY) return false;
                 if (player.bonusDuration < 0 || player.bonusDuration > MaximumDuration
                     || player.reloadDuration < 0 || player.reloadDuration > MaximumDuration) return false;
                 if (!participantIds.count(player.ownerParticipantId) || !rosterPositions.insert(player.rosterPosition).second
@@ -1488,6 +1497,8 @@ namespace Duel6::Network::Replication {
                         || entity.primaryValue % 2 != 0)) return false;
             }
             if (state.round) {
+                if (state.round->animation.ticks > (UINT64_C(1) << 48)
+                    || state.round->animation.waterResetStep > state.round->animation.ticks / 30) return false;
                 if (state.round->worldTime < 0 || state.round->worldTime > (INT64_C(1) << 48)
                     || static_cast<unsigned>(state.round->waterType) > static_cast<unsigned>(LiquidKind::Green)
                     || state.round->waterLevel < -1 || state.round->waterLevel >= 4 * 1024 * 1024
@@ -1676,7 +1687,10 @@ namespace Duel6::Network::Replication {
             || (current->matchId != 0 && state.matchId == current->matchId
                 && sameRound(current->round, state.round)
                 && (state.phaseTime < current->phaseTime
-                    || (state.round && current->round && state.round->worldTime < current->round->worldTime)))
+                    || (state.round && current->round
+                        && (state.round->worldTime < current->round->worldTime
+                            || state.round->animation.ticks < current->round->animation.ticks
+                            || state.round->animation.waterResetStep < current->round->animation.waterResetStep))))
             || containsReusedCreation(current->participants, state.participants,
                                       issuedParticipantIdentities,
                                       [](const auto &value) { return value.participantId; })
@@ -1785,7 +1799,9 @@ namespace Duel6::Network::Replication {
                 && sameRound(accepted->round, snapshot.state.round)
                 && (snapshot.state.phaseTime < accepted->phaseTime
                     || (snapshot.state.round && accepted->round
-                        && snapshot.state.round->worldTime < accepted->round->worldTime)))
+                        && (snapshot.state.round->worldTime < accepted->round->worldTime
+                            || snapshot.state.round->animation.ticks < accepted->round->animation.ticks
+                            || snapshot.state.round->animation.waterResetStep < accepted->round->animation.waterResetStep))))
             || (acceptedVersion && (snapshot.version < acceptedVersion
                 || (snapshot.version == acceptedVersion
                     && (!resynchronizing || !sameCanonicalState(*accepted, snapshot.state))))))
@@ -1894,7 +1910,10 @@ namespace Duel6::Network::Replication {
         if (accepted->matchId != 0 && candidate.matchId == accepted->matchId
             && sameRound(accepted->round, candidate.round)
             && (candidate.phaseTime < accepted->phaseTime
-                || (candidate.round && accepted->round && candidate.round->worldTime < accepted->round->worldTime)))
+                || (candidate.round && accepted->round
+                    && (candidate.round->worldTime < accepted->round->worldTime
+                        || candidate.round->animation.ticks < accepted->round->animation.ticks
+                        || candidate.round->animation.waterResetStep < accepted->round->animation.waterResetStep))))
             return rejectIncremental();
         if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities)
             || changesActiveMatchSettings(*accepted, candidate)

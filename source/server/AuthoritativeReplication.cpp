@@ -338,6 +338,7 @@ namespace Duel6::Server::Authoritative {
             state.round->waterType = world->waterType;
             state.round->waterLevel = world->waterLevel;
             state.round->waterRaising = world->waterRaising;
+            state.round->animation = world->animation;
             state.players.clear(); state.score.players.clear(); state.score.ranking.clear();
             for (const auto &source: world->players) {
                 const PlayerDefinition *owner = definition(roster, source.playerId);
@@ -357,6 +358,8 @@ namespace Duel6::Server::Authoritative {
                 player.activeBonus = source.timedBonus; player.bonusRemaining = source.bonusRemaining;
                 player.reloadRemaining = source.reload; player.charge = source.charge;
                 player.bonusDuration = source.bonusDuration; player.reloadDuration = source.reloadDuration;
+                player.hudIndicators = source.hudIndicators;
+                player.width = source.width; player.height = source.height; player.roundKills = source.roundKills;
                 player.temporaryMovementRemaining = source.temporarySlowdownRemaining;
                 player.visible = source.visible; player.invulnerable = source.invulnerable;
                 player.presentationAlpha = source.presentationAlpha;

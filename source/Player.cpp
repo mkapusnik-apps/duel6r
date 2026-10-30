@@ -126,12 +126,10 @@ namespace Duel6 {
         water.headUnderWater = Water::NONE;
         water.feetInWater = Water::NONE;
 
-#ifndef D6R_HEADLESS_CORE
         indicators.hideAll(false);
         indicators.getName().show(4.0f);
         indicators.getBonus().show(bonusDuration);
         indicators.getBullets().show(4.0f);
-#endif
 
 #ifdef D6R_HEADLESS_CORE
         roundStartTime = 0;
@@ -238,9 +236,7 @@ namespace Duel6 {
             return;
 
 
-#ifndef D6R_HEADLESS_CORE
         indicators.getReload().show(timeToReload + Indicator::FADE_DURATION);
-#endif
 
         if (isReloading())
             return;
@@ -252,9 +248,7 @@ namespace Duel6 {
         }
 
         if (getBonus() != BonusType::INFINITE_AMMO) {
-#ifndef D6R_HEADLESS_CORE
             indicators.getBullets().show();
-#endif
             ammo--;
         }
 #ifndef D6R_HEADLESS_CORE
@@ -307,10 +301,10 @@ namespace Duel6 {
         } else {
             timeToReload = remainingReloadTime;
         }
-#ifndef D6R_HEADLESS_CORE
         indicators.getReload().show(timeToReload + Indicator::FADE_DURATION);
         indicators.getBullets().show();
 
+#ifndef D6R_HEADLESS_CORE
         if (!headless) {
             world->getSpriteList().remove(gunSprite);
             gunSprite = weapon.makeSprite(world->getSpriteList());
@@ -401,9 +395,7 @@ namespace Duel6 {
         }
 
         if (controllerState & ButtonStatus) {
-#ifndef D6R_HEADLESS_CORE
             indicators.showAll(5.0f);
-#endif
         }
 
         if (isPickingGun()) {
@@ -525,9 +517,7 @@ namespace Duel6 {
         }
 
         // Move intervals
-#ifndef D6R_HEADLESS_CORE
         indicators.updateAll(elapsedTime);
-#endif
         if (isReloading()) {
             if (!weapon.isChargeable() || hasFlag(FlagShoot) || getChargeLevel() < 0.5) {
                 timeToReload = std::max(0.0f, getReloadTime() - elapsedTime);
@@ -770,13 +760,11 @@ namespace Duel6 {
         }
 
         if (air != oldAir) {
-#ifndef D6R_HEADLESS_CORE
             if (air == D6_MAX_AIR) {
                 indicators.getAir().hide();
             } else {
                 indicators.getAir().show();
             }
-#endif
         }
 
         if (outOfAir && hit(amount)) {
@@ -795,23 +783,16 @@ namespace Duel6 {
         }
         world->getBonusList().addPlayerGun(*this, collider);
         unsetFlag(FlagHasGun);
-#ifndef D6R_HEADLESS_CORE
         indicators.getReload().hide();
         indicators.getBullets().hide();
-#endif
     }
 
     Player &Player::addLife(Float32 change, bool showHpBar) {
         Float32 oldLife = life;
         life = std::max(0.0f, std::min(Float32(D6_MAX_LIFE), life + change));
-#ifndef D6R_HEADLESS_CORE
         if (showHpBar && oldLife != life) {
             indicators.getHealth().show();
         }
-#else
-        (void) oldLife;
-        (void) showHpBar;
-#endif
         return *this;
     }
 
@@ -918,9 +899,7 @@ namespace Duel6 {
         if (bonus != BonusType::NONE) {
             bonus->onApply(*this, *world, Int32(bonusDuration));
         }
-#ifndef D6R_HEADLESS_CORE
         indicators.getBonus().show(bonusDuration);
-#endif
         return *this;
     }
 

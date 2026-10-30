@@ -55,6 +55,7 @@ namespace Duel6 {
 
         void update(Float32 elapsedTime);
         void clear() { explosions.clear(); }
+        const std::list<Explosion> &values() const noexcept { return explosions; }
 
         void render(Renderer &renderer) const;
 

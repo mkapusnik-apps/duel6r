@@ -33,6 +33,7 @@
 
 #include "Format.h"
 #include "Level.h"
+#include "ArenaAnimationClock.h"
 #include "InfoMessageQueue.h"
 #ifndef D6R_HEADLESS_CORE
 #include "LevelRenderData.h"
@@ -58,6 +59,7 @@ namespace Duel6 {
 
     class World {
     private:
+        ArenaAnimationClock arenaAnimationClock;
         const GameSettings &gameSettings;
         std::vector<Player> &players;
         RandomSource &randomSource;
@@ -79,6 +81,7 @@ namespace Duel6 {
         std::function<void(const GameplayEvent &)> gameplayEventSink;
 
     public:
+        ArenaAnimationState getArenaAnimationState() const { return arenaAnimationClock.state(); }
         World(Game &game, const std::string &levelPath, bool mirror, RandomSource &randomSource);
 
         void update(Float32 elapsedTime);

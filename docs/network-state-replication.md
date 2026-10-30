@@ -92,9 +92,9 @@ This includes authoritative water type and surface, player hit and weapon-pick p
 
 ### Arena presentation wire fields
 
-Replication frame version 4 is paired with admission release ID `duel6r-network-r3`.
-An r2 peer is rejected during admission as a network-release mismatch; version-3
-replication frames are not decoded as version 4. The admission frame layout itself
+Replication frame version 5 is paired with admission release ID `duel6r-network-r4`.
+Earlier release IDs are rejected during admission as a network-release mismatch;
+earlier replication frames are not decoded as version 5. The admission frame layout itself
 is unchanged.
 
 After the round outcome, both full and incremental round records append signed
@@ -104,20 +104,33 @@ After the round outcome, both full and incremental round records append signed
 world rather than the match countdown; it stops in frozen phases. The liquid
 type comes from the authority even on a map initially without liquid. Rendering
 overlays accepted flooded rows on the loaded map without simulating a rise.
+Two unsigned 64-bit values follow: `animation.ticks` counts cosmetic 90 Hz reference
+ticks, and `animation.waterResetStep` records the frame step at the latest water
+regeneration. Static geometry uses `ticks / 30`; water uses
+`ticks / 30 - waterResetStep`. This preserves the original local accumulator's
+30-tick cadence and frame-zero regeneration without changing the 60 Hz server simulation.
 
 Player records append signed 64-bit `bonusDuration` and `reloadDuration`, both
 Q16 seconds. They are the totals corresponding to the existing remaining-time
 fields, including the current reload modifier. `life` remains unscaled; `air`
 and remaining times retain Q16 units. Rendering converts units once and clamps
 visible proportions, including the zero-total case.
+They are followed by six pairs of signed 64-bit Q16-second `elapsed` and `total`
+HUD indicator values, ordered reload, air, bonus, health, name, ammunition.
+Inactive indicators use zero pairs. Signed 64-bit Q16-world-unit `width` and
+`height`, then signed 32-bit `roundKills`, complete the player presentation fields.
 
 The fields use the existing little-endian framing and participate in snapshot
 equality and player delta comparison. Validation rejects unknown liquid types,
 negative world time or durations, world times above 2^48 Q16 units, durations
 above 86400 seconds, water rows below -1 or outside the maximum level-cell bound,
-and a raising surface with no liquid type. Conservative payload accounting includes
-14 additional round bytes and 16 additional bytes per player; existing frame and
-aggregate payload limits remain in force.
+and a raising surface with no liquid type. Reference ticks are capped at 2^48 and
+the water reset step cannot exceed `ticks / 30`. Within a round, world time,
+reference ticks and water reset step cannot move backwards. Indicator elapsed time
+must be nonnegative and no greater than its total, capped at 86400 seconds.
+Dimensions are bounded to 0–4 world units and round kills to the round player-history
+limit. Conservative payload accounting includes 30 additional round bytes and 132
+additional bytes per player; existing frame and aggregate payload limits remain in force.
 
 - **REP-031** A full snapshot must declare the complete set of current replicated entities at its state version.
 - **REP-032** An incremental update must identify each entity creation, update, and removal that applies after its baseline.

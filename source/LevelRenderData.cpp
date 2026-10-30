@@ -30,8 +30,8 @@
 #include "LevelRenderData.h"
 
 namespace Duel6 {
-    LevelRenderData::LevelRenderData(const Level &level, Renderer &renderer, Float32 animationSpeed)
-            : level(level), renderer(renderer), animationSpeed(animationSpeed), animWait(0) {}
+    LevelRenderData::LevelRenderData(const Level &level, Renderer &renderer)
+            : level(level), renderer(renderer) {}
 
     void LevelRenderData::generateFaces() {
         addWallFaces();
@@ -41,19 +41,24 @@ namespace Duel6 {
 
     void LevelRenderData::generateWater() {
         addWaterFaces();
-        water.setFrame(static_cast<std::uint64_t>(animWait / animationSpeed));
+        referenceClock.resetWater();
     }
 
     void LevelRenderData::update(Float32 elapsedTime) {
-        setAnimationTime(animWait + std::max(0.0f, elapsedTime));
+        referenceClock.update(elapsedTime);
+        setAnimationState(referenceClock.state());
     }
 
     void LevelRenderData::setAnimationTime(Float32 seconds) {
-        animWait = std::max(0.0f, seconds);
-        const auto frame = static_cast<std::uint64_t>(animWait / animationSpeed);
-        walls.setFrame(frame);
-        sprites.setFrame(frame);
-        water.setFrame(frame);
+        ArenaAnimationClock clock;
+        clock.update(seconds);
+        setAnimationState(clock.state());
+    }
+
+    void LevelRenderData::setAnimationState(const ArenaAnimationState &state) {
+        walls.setFrame(ArenaAnimationClock::frame(state));
+        sprites.setFrame(ArenaAnimationClock::frame(state));
+        water.setFrame(ArenaAnimationClock::waterFrame(state));
     }
 
     void LevelRenderData::setWaterSurface(const Block &block, Int32 top, bool raising) {

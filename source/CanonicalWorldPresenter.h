@@ -19,6 +19,7 @@
 
 namespace Duel6 {
     class AppService;
+    struct ArenaScene;
 
     class CanonicalWorldPresenter final {
     public:
@@ -53,7 +54,6 @@ namespace Duel6 {
         Network::Replication::Identity highestPresentedEvent = 0;
         Network::Replication::Identity presentedSession = 0;
         std::map<Network::Replication::Identity, Network::Replication::WorldEntityState> presentedEntities;
-        std::map<Network::Replication::Identity, Float32> playerStatusRemaining;
         std::string loadedLevel;
         std::string loadedBackground;
         std::vector<std::string> canonicalLevels;
@@ -71,15 +71,12 @@ namespace Duel6 {
                 Network::Replication::Identity identity) const;
         void presentEvent(const Network::Replication::CanonicalState &state,
                           const Network::Replication::PresentationEvent &event);
-        void renderEntity(const Network::Replication::WorldEntityState &entity) const;
-        void renderHeldWeapon(const Network::Replication::PlayerState &player,
-                              Float32 x, Float32 y) const;
-        void renderPlayerEffects(const Network::Replication::CanonicalState &state,
-                                 const Network::Replication::PlayerState &player,
-                                 Float32 x, Float32 y) const;
-        void renderPlayerStatus(const Network::Replication::CanonicalState &state,
-                                const Network::Replication::PlayerState &player,
-                                Float32 x, Float32 y) const;
+        void appendEntity(const Network::Replication::WorldEntityState &entity, ArenaScene &scene) const;
+        void appendHeldWeapon(const Network::Replication::PlayerState &player,
+                              Float32 x, Float32 y, ArenaScene &scene) const;
+        void appendPlayerHud(const Network::Replication::CanonicalState &state,
+                             const Network::Replication::PlayerState &player,
+                             Float32 x, Float32 y, ArenaScene &scene) const;
     };
 }
 
