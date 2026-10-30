@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <string>
 #include "Type.h"
+#include "MatchResultRules.h"
 #include "File.h"
 #include "json/JsonValue.h"
 
@@ -232,20 +233,8 @@ namespace Duel6 {
         }
 
         bool hasHigherScoreThan(const Person &person) const {
-            if (getTotalPoints() > person.getTotalPoints()) {
-                return true;
-            }
-            if (getTotalPoints() < person.getTotalPoints()) {
-                return false;
-            }
-            if (getWins() > person.getWins()) {
-                return true;
-            }
-            if (getWins() < person.getWins()) {
-                return false;
-            }
-
-            return getTotalDamage() > person.getTotalDamage();
+            return MatchResultRules::compareRankingValues(getTotalPoints(), getWins(), getTotalDamage(),
+                    person.getTotalPoints(), person.getWins(), person.getTotalDamage()) < 0;
         }
 
         Person &reset();

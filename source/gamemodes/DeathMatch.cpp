@@ -37,13 +37,16 @@ namespace Duel6 {
     }
 
     bool DeathMatch::checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) {
-        if (alivePlayers.size() == 1) {
+        std::vector<MatchResultRules::Survivor> survivors;
+        for (const auto *player: alivePlayers) survivors.push_back({player->getRosterSlot() + 1, 0, false});
+        const auto outcome = MatchResultRules::evaluateSurvivors(MatchResultRules::Mode::Deathmatch, survivors, true);
+        if (outcome.kind == MatchResultRules::OutcomeKind::Players) {
             for (Player *player : alivePlayers) {
                 world.getMessageQueue().add(*player, "You have won!");
                 player->getPerson().addWins(1);
             }
             return true;
-        } else if (alivePlayers.empty()) {
+        } else if (outcome.kind == MatchResultRules::OutcomeKind::NoWinner) {
             for (const Player &player : world.getPlayers()) {
                 world.getMessageQueue().add(player, "End of round - no winner");
             }

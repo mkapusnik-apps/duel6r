@@ -1,4 +1,5 @@
 #include "StateReplication.h"
+#include "../MatchResultRules.h"
 
 #include <algorithm>
 #include <limits>
@@ -55,7 +56,8 @@ namespace Duel6::Network::Replication {
                    && left.temporaryMovementRemaining == right.temporaryMovementRemaining
                    && left.bonusDuration == right.bonusDuration && left.reloadDuration == right.reloadDuration
                    && left.hudIndicators == right.hudIndicators && left.width == right.width
-                   && left.height == right.height && left.roundKills == right.roundKills;
+                   && left.height == right.height && left.roundKills == right.roundKills
+                   && left.animation == right.animation;
         }
 
         bool entityEqual(const WorldEntityState &left, const WorldEntityState &right) {
@@ -695,11 +697,7 @@ namespace Duel6::Network::Replication {
             return std::nullopt;
         }
 
-        struct CanonicalResultStatistics {
-            std::uint64_t roundsPlayed = 0, shots = 0, hits = 0, kills = 0, deaths = 0, assists = 0;
-            std::uint64_t wins = 0, penalties = 0, survivalTicks = 0, damage = 0, assistedDamage = 0;
-            std::int64_t totalPoints = 0;
-        };
+        using CanonicalResultStatistics = RetainedResultStatistics;
 
         std::optional<CanonicalResultStatistics> resultStatistics(const ParsedJsonValue &value) {
             if (!exactMembers(value, {"\"roundsPlayed\"", "\"shots\"", "\"hits\"", "\"kills\"",
@@ -1056,12 +1054,10 @@ namespace Duel6::Network::Replication {
         }
 
         bool resultRanksAhead(const CanonicalResultRowLabel &left, const CanonicalResultRowLabel &right) {
-            if (left.cumulative.totalPoints != right.cumulative.totalPoints)
-                return left.cumulative.totalPoints > right.cumulative.totalPoints;
-            if (left.cumulative.wins != right.cumulative.wins)
-                return left.cumulative.wins > right.cumulative.wins;
-            if (left.cumulative.damage != right.cumulative.damage)
-                return left.cumulative.damage > right.cumulative.damage;
+            const int order = MatchResultRules::compareRanking(
+                {left.cumulative.totalPoints, left.cumulative.wins, left.cumulative.damage},
+                {right.cumulative.totalPoints, right.cumulative.wins, right.cumulative.damage});
+            if (order != 0) return order < 0;
             return left.rosterOrder < right.rosterOrder;
         }
 
@@ -1283,7 +1279,7 @@ namespace Duel6::Network::Replication {
             };
             const auto sameEffect = [](const ContinuingEffectState &a, const ContinuingEffectState &b) {
                 return a.effectId == b.effectId && a.type == b.type && a.playerId == b.playerId
-                       && a.entityId == b.entityId && a.remaining == b.remaining;
+                       && a.entityId == b.entityId && a.remaining == b.remaining && a.visual == b.visual;
             };
             return left.sessionId == right.sessionId && left.matchId == right.matchId
                    && left.hostParticipantId == right.hostParticipantId && left.phase == right.phase
@@ -1362,9 +1358,9 @@ namespace Duel6::Network::Replication {
                 bytes += value;
                 return true;
             };
-            if (!add(state.participants.size() * 192) || !add(state.players.size() * 644)
+            if (!add(state.participants.size() * 192) || !add(state.players.size() * 650)
                 || !add(state.entities.size() * 256) || !add(state.score.players.size() * 192)
-                || !add(state.effects.size() * 160) || !add(eventCount * 160)
+                || !add(state.effects.size() * 256) || !add(eventCount * 160)
                 || !add(eventTextBytes) || !add(state.result.serialized.size())) return false;
             for (const auto &participant: state.participants) if (!add(participant.ownedPlayerIds.size() * 8)) return false;
             for (const auto &player: state.players)
@@ -1396,6 +1392,30 @@ namespace Duel6::Network::Replication {
         for (const auto &round: labels->rounds)
             if (!append(round.number, round.outcome)) return std::nullopt;
         return rows;
+    }
+
+    std::optional<RetainedResultView> retainedResultView(const ResultState &result) {
+        if (!result.available || result.serialized.size() > MaxReplicatedResultBytes) return std::nullopt;
+        const auto parsed = canonicalResultLabels(result.serialized);
+        if (!parsed || !validResultRosterSemantics(*parsed)) return std::nullopt;
+        RetainedResultView view;
+        view.state = parsed->state; view.mode = parsed->mode; view.levelPlan = parsed->levelPlan;
+        view.teamCount = parsed->teamCount; view.roundLimit = parsed->roundLimit;
+        view.completedRounds = parsed->completedRounds; view.friendlyFire = parsed->friendlyFire;
+        view.assistance = parsed->assistance; view.quickLiquid = parsed->quickLiquid;
+        view.burnableTrees = parsed->burnableTrees; view.seed = parsed->seed;
+        const auto outcome = [](const auto &value) {
+            return RoundOutcomeState{value.winnerPlayerIds, value.winningTeam, value.noWinner};
+        };
+        view.outcome = outcome(parsed->finalOutcome);
+        for (const auto &player: parsed->rows)
+            view.players.push_back({player.playerId, player.participantId, player.rank, player.displayName,
+                    player.team, player.departed, player.cumulative, player.rounds});
+        for (const auto &round: parsed->rounds)
+            view.rounds.push_back({round.number, round.level, round.mirrored, outcome(round.outcome), round.rosterOrder});
+        for (const auto &team: parsed->teams)
+            view.teams.push_back({team.rank, team.team, team.totalPoints, team.rankedPlayerIds});
+        return view;
     }
 
     Identity StableIdentitySource::issue(IdentityCategory category) {
@@ -1462,6 +1482,9 @@ namespace Duel6::Network::Replication {
             if (!uniqueNonzero(state.players, [](const auto &value) { return value.playerId; }, &playerIds)) return false;
             for (const auto &player: state.players) {
                 constexpr std::int64_t MaximumDuration = INT64_C(86400) * 65536;
+                if (!validPlayerAnimation(player.animation)) return false;
+                if (player.animation.weaponVisible && ((player.lifeState != LifeState::Alive && player.lifeState != LifeState::Departed)
+                    || player.heldWeapon.empty() || player.animation.pose == PlayerPose::Pick)) return false;
                 for (const auto &indicator: player.hudIndicators)
                     if (indicator.elapsed < 0 || indicator.total < 0 || indicator.total > MaximumDuration
                         || indicator.elapsed > indicator.total) return false;
@@ -1624,6 +1647,29 @@ namespace Duel6::Network::Replication {
                 || !uniqueNonzero(state.messages.currentPlayerIndicators, [](Identity value) { return value; })) return false;
             if (!uniqueNonzero(state.effects, [](const auto &value) { return value.effectId; })) return false;
             for (const auto &effect: state.effects) {
+                // Texture layers are semantic, not an arbitrary client texture
+                // index. Bound each current visual to the shipped effect family.
+                unsigned maximumFrame = 0;
+                if (effect.type == "tree-burning") maximumFrame = 48;
+                else if (effect.type.compare(0, 13, "water-splash:") == 0) {
+                    if (effect.type != "water-splash:blue" && effect.type != "water-splash:red"
+                        && effect.type != "water-splash:green") return false;
+                    maximumFrame = 9;
+                } else if (effect.type.compare(0, 12, "weapon-boom:") == 0) {
+                    const auto weapon = effect.type.substr(12);
+                    if (weapon == "bazooka" || weapon == "triton" || weapon == "double-laser") maximumFrame = 35;
+                    else if (weapon == "pistol" || weapon == "uzi" || weapon == "shotgun" || weapon == "plasma"
+                        || weapon == "slime" || weapon == "lightning" || weapon == "kiss-of-death") maximumFrame = 1;
+                    else if (weapon != "bow" && weapon != "stopper-gun" && weapon != "sling"
+                        && weapon != "shit-thrower" && weapon != "machine-gun" && weapon != "spray"
+                        && weapon != "laser") return false;
+                }
+                if (effect.visual.frame > maximumFrame) return false;
+                if (effect.visual.blend > 2 || effect.visual.frame > 255
+                    || effect.visual.ageTicks > (UINT64_C(1) << 48)
+                    || std::any_of(effect.visual.geometry.begin(), effect.visual.geometry.end(), [](auto value) {
+                        return value < -INT64_C(1073741824) || value > INT64_C(1073741824);
+                    }) || effect.visual.geometry[3] < 0 || effect.visual.geometry[4] < 0) return false;
                 if (!validText(effect.type) || effect.remaining < 0
                     || (effect.playerId && !playerIds.count(effect.playerId))
                     || (effect.entityId && std::none_of(state.entities.begin(), state.entities.end(), [&](const auto &entity) {

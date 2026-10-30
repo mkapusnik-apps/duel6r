@@ -33,6 +33,7 @@
 namespace Duel6 {
     SpriteList::Iterator SpriteList::add(Animation animation, Texture texture) {
         sprites.emplace_back(animation, texture);
+        sprites.back().stableId = nextStableId++;
         return std::prev(sprites.end());
     }
 

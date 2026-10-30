@@ -42,6 +42,7 @@
 #include "tests/TestHarness.h"
 #include "tests/CanonicalMotionTrace.h"
 #include "source/Player.h"
+#include "source/Game.h"
 
 namespace {
 std::atomic<std::int64_t> allocationFailureCountdown{-1};
@@ -93,6 +94,11 @@ struct CanonicalPlayersMember {
 
 template struct CanonicalRuntimeMemberAccess<CanonicalDependenciesMember, &CanonicalMatchRuntime::dependencies>;
 template struct CanonicalRuntimeMemberAccess<CanonicalPlayersMember, &CanonicalMatchRuntime::canonicalPlayersById>;
+struct CanonicalGameMember {
+    using Type = std::unique_ptr<Duel6::Game> CanonicalMatchRuntime::*;
+    friend Type canonicalRuntimeMember(CanonicalGameMember);
+};
+template struct CanonicalRuntimeMemberAccess<CanonicalGameMember, &CanonicalMatchRuntime::game>;
 
 struct MatchOutcomeMember {
     using Type = void (AuthoritativeMatch::*)(std::vector<Identity>, Team, bool);
@@ -1097,10 +1103,63 @@ D6R_TEST_CASE("Shared arena headless HUD and reference clock export current age 
     const auto retained = controller.currentSnapshot()->state;
     D6R_REQUIRE(frozen.round->animation == retained.round->animation);
     D6R_REQUIRE(frozen.players.front().hudIndicators == retained.players.front().hudIndicators);
+    D6R_REQUIRE(frozen.players.front().animation == retained.players.front().animation);
     R::ReplicatedState fresh;
     D6R_REQUIRE(fresh.apply(*controller.currentSnapshot()) == R::ApplyResult::Applied);
     D6R_REQUIRE(fresh.takePresentationEvents().empty());
     D6R_REQUIRE(fresh.state()->players.front().hudIndicators == retained.players.front().hudIndicators);
+    D6R_REQUIRE(fresh.state()->players.front().animation == retained.players.front().animation);
+}
+
+D6R_TEST_CASE("Shared arena authority restores pick firing hit and death cursors without changing gameplay locks") {
+    ProductionCanonicalFixture fixture(2);
+    auto &controller = fixture.controller;
+    auto *player = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(101);
+    const auto tick = [&] {
+        D6R_REQUIRE(controller.advanceOneTick());
+        D6R_REQUIRE(controller.captureReplication());
+        const auto snapshot = *controller.currentSnapshot();
+        auto decoded = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(snapshot));
+        D6R_REQUIRE(decoded && decoded->snapshot);
+        R::ReplicatedState recovered;
+        D6R_REQUIRE(recovered.apply(*decoded->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE(recovered.takePresentationEvents().empty());
+        const auto actual = player->getAnimationState();
+        D6R_REQUIRE(actual == snapshot.state.players.front().animation);
+        D6R_REQUIRE(actual == recovered.state()->players.front().animation);
+        return actual;
+    };
+    player->pickWeapon(player->getWeapon(), 100, 0);
+    auto state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Pick);
+    D6R_REQUIRE(!state.weaponVisible);
+    for (unsigned i = 1; i < 32; ++i) state = tick();
+    D6R_REQUIRE(!player->isPickingGun()); // Existing 0.5-second authority lock, not cosmetic completion.
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Pick && state.bodyFrame > 0);
+    D6R_REQUIRE(!state.weaponVisible);
+    for (unsigned i = 0; i < 45; ++i) state = tick();
+    D6R_REQUIRE(state.pose != Duel6::PlayerPose::Pick);
+    D6R_REQUIRE(state.weaponVisible);
+    player->setBonus(Duel6::BonusType::NONE, 0);
+    D6R_REQUIRE(!player->hit(1));
+    // Crouch supplies a stable hit pose regardless of the arena's spawn height.
+    D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit({controller.match()->currentTick(),
+            fixture.sequence++, 1, 101, ActionKind::PlayerInput, 0, Crouch, 0}));
+    state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::HitDuck);
+    for (unsigned i = 0; i < 35; ++i) state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Duck);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit({controller.match()->currentTick(),
+            fixture.sequence++, 1, 101, ActionKind::PlayerInput, 0, Shoot, 0}));
+    state = tick();
+    D6R_REQUIRE(state.weaponFrame < 12);
+    D6R_REQUIRE(player->hit(1000));
+    D6R_REQUIRE(!player->isAlive() && !player->isDying()); // Cosmetic death never changes headless flags.
+    state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Dying && !state.weaponVisible);
+    const auto firstFrame = state.bodyFrame;
+    for (unsigned i = 0; i < 12; ++i) state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Dying && state.bodyFrame > firstFrame);
 }
 
 D6R_TEST_CASE("NET-ADM inactive waiting versus cancelled membership changes canonical digest without advancing world") {
@@ -1120,6 +1179,65 @@ D6R_TEST_CASE("NET-ADM inactive waiting versus cancelled membership changes cano
     D6R_REQUIRE_EQ(before.worldTick, after.worldTick);
     D6R_REQUIRE_EQ(before.waterLevel, after.waterLevel);
     D6R_REQUIRE(before.stateDigest != after.stateDigest);
+}
+
+D6R_TEST_CASE("Shared arena actual splash burn and colored rings preserve current geometry across recovery freeze and expiry") {
+    ProductionCanonicalFixture fixture(2);
+    auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
+    auto &world = game.getRound().getWorld();
+    auto &player = game.getPlayers().front();
+    Duel6::Water::BLUE->onEnter(player, Duel6::Vector(3, 4), world);
+    world.getExplosionList().add(Duel6::Vector(4, 5), 0.2f, 0.5f, Duel6::Color::RED);
+    D6R_REQUIRE(!world.getFireList().values().empty());
+    const auto treePosition = world.getFireList().values().front().getCentre();
+    world.getFireList().check(treePosition, 0.1f);
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    const auto snapshot = [&] {
+        D6R_REQUIRE(fixture.controller.captureReplication());
+        const auto wire = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*fixture.controller.currentSnapshot()));
+        D6R_REQUIRE(wire && wire->snapshot);
+        R::ReplicatedState recovered;
+        D6R_REQUIRE(recovered.apply(*wire->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE(recovered.takePresentationEvents().empty());
+        return *recovered.state();
+    };
+    const auto first = snapshot();
+    for (const auto &type: {"water-splash:blue", "tree-burning", "explosion-ring"})
+        D6R_REQUIRE(std::any_of(first.effects.begin(), first.effects.end(), [&](const auto &e) { return e.type == type; }));
+    for (unsigned tick = 0; tick < 30; ++tick) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    const auto later = snapshot();
+    for (const auto &sprite: world.getSpriteList().values()) if (!sprite.getEffectType().empty()) {
+        const auto effect = std::find_if(later.effects.begin(), later.effects.end(), [&](const auto &e) { return e.type == sprite.getEffectType(); });
+        D6R_REQUIRE(effect != later.effects.end());
+        D6R_REQUIRE(effect->visual == sprite.visualState());
+        D6R_REQUIRE(effect->visual.ageTicks > 0);
+    }
+    D6R_REQUIRE(std::none_of(later.effects.begin(), later.effects.end(), [](const auto &e) { return e.type == "explosion-ring"; }));
+    establishTestOutcome(*fixture.controller.match(), {}, Team::None, true);
+    for (unsigned tick = 0; tick < RoundEndActiveTicks; ++tick) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    const auto frozen = snapshot();
+    D6R_REQUIRE(std::any_of(frozen.effects.begin(), frozen.effects.end(), [](const auto &e) { return e.type == "tree-burning"; }));
+    for (unsigned tick = 0; tick < 30; ++tick) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    const auto held = snapshot();
+    D6R_REQUIRE_EQ(frozen.round->animation.ticks, held.round->animation.ticks);
+    // Arrival indicators use the session timer, not the frozen world's cosmetic
+    // clock. Compare the actual continuing world effects, including removals.
+    const auto worldEffect = [](const auto &effect) { return effect.entityId != 0; };
+    D6R_REQUIRE_EQ(std::count_if(frozen.effects.begin(), frozen.effects.end(), worldEffect),
+                   std::count_if(held.effects.begin(), held.effects.end(), worldEffect));
+    for (const auto &effect: frozen.effects) if (worldEffect(effect)) {
+        const auto current = std::find_if(held.effects.begin(), held.effects.end(), [&](const auto &value) {
+            return value.effectId == effect.effectId;
+        });
+        D6R_REQUIRE(current != held.effects.end());
+        D6R_REQUIRE_EQ(effect.remaining, current->remaining);
+        D6R_REQUIRE(effect.visual == current->visual);
+    }
+    // Exercise the actual final burn callback independently of the frozen match.
+    for (unsigned step = 0; step < 150; ++step) world.getSpriteList().update(1.0f / 90);
+    D6R_REQUIRE_EQ(1, world.getFireList().values().front().getSprite()->visualState().frame);
+    D6R_REQUIRE(std::none_of(world.getSpriteList().values().begin(), world.getSpriteList().values().end(),
+        [](const auto &sprite) { return sprite.getEffectType() == "tree-burning"; }));
 }
 
 D6R_TEST_CASE("NET-ADM real first-round arrival preserves existing world and mode state") {

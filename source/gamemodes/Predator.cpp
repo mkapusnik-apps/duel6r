@@ -48,7 +48,11 @@ namespace Duel6 {
     }
 
     bool Predator::checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) {
-        if (alivePlayers.empty()) {
+        std::vector<MatchResultRules::Survivor> survivors;
+        for (const auto *player: alivePlayers) survivors.push_back({player->getRosterSlot() + 1, 0, player == predator});
+        const auto outcome = MatchResultRules::evaluateSurvivors(MatchResultRules::Mode::Predator, survivors, true);
+        if (outcome.kind == MatchResultRules::OutcomeKind::Pending) return false;
+        if (outcome.kind == MatchResultRules::OutcomeKind::NoWinner) {
             for (const Player &player : world.getPlayers()) {
                 world.getMessageQueue().add(player, "End of round - no winner");
             }

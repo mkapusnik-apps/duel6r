@@ -263,22 +263,19 @@ def assert_end_of_game_notice(data, label, font_path):
 
 
 def assert_final_round_counter(data, label, font_path):
-    text = "Rounds:   1|  1"
+    text = "Rounds: 1 | 1"
     text_width = len(text) * 16
     text_height = 32
-    surface_left = WIDTH // 2 - (text_width + 16) // 2
-    surface_top = 2
+    panel_width = min(1184, WIDTH - 32)
+    surface_left = (WIDTH + panel_width) // 2 - 16 - (text_width + 16)
+    surface_top = 22
     surface_right = surface_left + text_width + 16
-    surface_bottom = surface_top + text_height + 4
+    surface_bottom = surface_top + text_height
     text_left = surface_left + 8
-    text_top = surface_top + 2
+    text_top = surface_top
 
-    # The 15-player/four-team panel is taller than the available middle region
-    # and intersects this backing. The counter must be redrawn above that panel,
-    # leaving its opaque backing and every glyph intact.
+    # UX-FINAL-007/009: right-aligned inside the title, with opaque side padding.
     padding = (
-        (surface_left, surface_top, surface_right, text_top),
-        (surface_left, text_top + text_height, surface_right, surface_bottom),
         (surface_left, text_top, text_left, text_top + text_height),
         (text_left + text_width, text_top, surface_right, text_top + text_height),
     )
@@ -307,6 +304,44 @@ def assert_final_round_counter(data, label, font_path):
     if similarity < 0.42:
         fail(f"{label}: final round counter text is missing or illegible: similarity={similarity:.3f}")
     return similarity, (surface_left, surface_top, surface_right, surface_bottom)
+
+
+def assert_shared_final_body(data, label, players, teams):
+    # UX-FINAL-005/006/018/019: final-only client-pixel shell. Active Tab
+    # and non-final summaries deliberately retain the legacy oracle below.
+    panel_width = min(1184, WIDTH - 32)
+    left = (WIDTH - panel_width) // 2 + 16
+    right = (WIDTH + panel_width) // 2 - 16
+    header = fraction(region_pixels(data, left, 24, left + 100, 52),
+                      lambda rgb: rgb[2] > 200 and rgb[0] < 60 and rgb[1] < 60)
+    if header < 0.45:
+        fail(f"{label}: shared final SCORE title surface missing: {header:.3f}")
+    row_y = 210  # body y=146, fixed section/column-heading allocation=64
+    groups = []
+    for group in range(teams or 1):
+        count = players
+        if group:
+            assert_team_separators(data, label, left, right - left - 8, [row_y + 3])
+            row_y += 8
+        if teams:
+            swatch = region_pixels(data, left + 9, row_y + 6, left + 15, row_y + 12)
+            colors = parent_team_fractions(swatch)
+            color = max(colors, key=colors.get)
+            if colors[color] < 0.9 or color in groups:
+                fail(f"{label}: final team swatch missing or repeated at {row_y}: {colors}")
+            groups.append(color)
+            team = ("Alpha", "Bravo", "Charlie", "Delta").index(color)
+            count = 1 + sum(player % teams == team for player in range(players))
+        for row in range(count):
+            values = region_pixels(data, left + 24 if teams else left, row_y,
+                                   left + 320, row_y + 16)
+            white = fraction(values, lambda rgb: min(rgb) > 190)
+            if white < 0.005:
+                fail(f"{label}: compact final identity row missing at {row_y}")
+            row_y += 18
+    if row_y > HEIGHT - 188:
+        fail(f"{label}: fixture rows exceed the final body viewport")
+    return groups, header, 16
 
 
 def assert_score_overlay(data, label, players, teams, team_separators=True):
@@ -417,19 +452,14 @@ def main():
             data, with_score, args.label, args.players, args.teams)
         print(f"{args.label}: SCORE overlay header absent: glyph-similarity={similarity:.3f}")
     elif args.score or args.final_score:
-        groups, header, panel_top = assert_score_overlay(
-            data, args.label, args.players, args.teams,
-            team_separators=True)
+        groups, header, panel_top = (assert_shared_final_body(
+            data, args.label, args.players, args.teams) if args.final_score else assert_score_overlay(
+            data, args.label, args.players, args.teams, team_separators=True))
         notice = ""
         if args.final_score:
             similarity, bounds = assert_end_of_game_notice(data, args.label, args.font)
             counter_similarity, counter_bounds = assert_final_round_counter(data, args.label, args.font)
-            if not args.teams:
-                counter_gap = panel_top - counter_bounds[3]
-                if counter_gap < 16:
-                    fail(f"{args.label}: fitted Deathmatch counter-to-panel gap is {counter_gap}px, expected >=16px")
-            else:
-                counter_gap = None
+            counter_gap = None  # The counter is inside the shared title strip.
             notice = (f" notice={bounds} text-similarity={similarity:.3f}"
                       f" counter={counter_bounds} counter-height=32"
                       f" counter-similarity={counter_similarity:.3f}"

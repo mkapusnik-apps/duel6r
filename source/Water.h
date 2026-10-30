@@ -35,6 +35,7 @@
 #include "TextureManager.h"
 #endif
 #include "math/Vector.h"
+#include "renderer/RendererTypes.h"
 
 namespace Duel6 {
     class Player;
@@ -56,6 +57,7 @@ namespace Duel6 {
         virtual ~Water() = default;
 
         virtual std::string getName() const = 0;
+        virtual Texture getSplashTexture() const { return Texture(); }
 
         virtual void onEnter(Player &player, const Vector &location, World &world) const = 0;
 

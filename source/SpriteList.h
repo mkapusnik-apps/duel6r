@@ -38,6 +38,7 @@ namespace Duel6 {
 
     private:
         std::list<Sprite> sprites;
+        std::uint64_t nextStableId = 1;
 
     public:
         Iterator add(Animation animation, Texture texture);

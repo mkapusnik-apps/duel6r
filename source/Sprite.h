@@ -31,6 +31,8 @@
 #include <functional>
 #include <vector>
 #include "Type.h"
+#include "ArenaState.h"
+#include <string>
 #include "AnimationLooping.h"
 #include "Orientation.h"
 #ifndef D6R_HEADLESS_CORE
@@ -69,9 +71,19 @@ namespace Duel6 {
         Float32 zRotation;
         Vector rotationCentre;
         std::function<FinishCallback> onFinished;
+        std::uint64_t stableId = 0;
+        std::string effectType;
+        Int32 restoredTextureFrame = -1;
+        std::uint64_t updateTicks = 0;
 
     public:
         Sprite(Animation animation, Texture texture);
+        Sprite &setEffectType(std::string value) { effectType = std::move(value); return *this; }
+        const std::string &getEffectType() const { return effectType; }
+        std::uint64_t getStableId() const { return stableId; }
+        EffectVisualState visualState() const;
+        Sprite &restoreVisual(const EffectVisualState &state);
+        std::uint64_t remainingReferenceTicks() const;
 
         Sprite setOnFinished(std::function<FinishCallback> callback);
 

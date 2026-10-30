@@ -80,5 +80,51 @@ class ScoreClosureTests(unittest.TestCase):
                 self.frame((0, 0, 0)), self.frame((0, 0, 255)), "bad-reference", 2, 0)
 
 
+class SharedFinalTests(unittest.TestCase):
+    def frame(self, players=15, teams=4):
+        frame = bytearray(images.WIDTH * images.HEIGHT * 3)
+        def fill(x, y, width, height, color):
+            for row in range(y, y + height):
+                offset = (row * images.WIDTH + x) * 3
+                frame[offset:offset + width * 3] = bytes(color) * width
+        fill(50, 18, 1180, 40, (0, 0, 255))
+        y = 210
+        # Uneven groups are deliberately ranked differently from roster order.
+        order = [0, 3, 1, 2] if teams == 4 else list(range(teams or 1))
+        colors = ((255, 0, 0), (0, 255, 0), (255, 255, 0), (255, 0, 255))
+        for index, team in enumerate(order):
+            if index:
+                fill(64, y + 3, 1144, 2, (255, 255, 255))
+                y += 8
+            count = players
+            if teams:
+                fill(72, y + 5, 8, 8, colors[team])
+                count = 1 + sum(player % teams == team for player in range(players))
+            for _ in range(count):
+                fill(88, y + 4, 30, 8, (255, 255, 255))
+                y += 18
+        return frame
+
+    def test_compact_final_and_uneven_ranked_teams(self):
+        for players, teams in ((2, 0), (15, 0), (6, 3), (15, 4)):
+            images.assert_shared_final_body(self.frame(players, teams), "final", players, teams)
+
+    def test_missing_row_is_rejected(self):
+        frame = self.frame(15, 0)
+        for y in range(210, 226):
+            offset = (y * images.WIDTH + 64) * 3
+            frame[offset:offset + 320 * 3] = bytes(320 * 3)
+        with self.assertRaisesRegex(AssertionError, "identity row missing"):
+            images.assert_shared_final_body(frame, "missing", 15, 0)
+
+    def test_missing_separator_is_rejected(self):
+        frame = self.frame()
+        for y in range(303, 305):
+            offset = (y * images.WIDTH + 64) * 3
+            frame[offset:offset + 1144 * 3] = bytes(1144 * 3)
+        with self.assertRaisesRegex(AssertionError, "separator"):
+            images.assert_shared_final_body(frame, "missing", 15, 4)
+
+
 if __name__ == "__main__":
     unittest.main()

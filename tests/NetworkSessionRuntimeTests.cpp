@@ -68,6 +68,9 @@
 #include "source/server/DedicatedService.h"
 #endif
 #include "source/math/Camera.h"
+#include "source/gamemodes/DeathMatch.h"
+#include "source/gamemodes/Predator.h"
+#include "source/gamemodes/TeamDeathMatch.h"
 #include <cmath>
 
 namespace {
@@ -2012,6 +2015,21 @@ D6R_TEST_CASE("UX-NET round progress uses current authoritative round during act
     auto state = canonical(91,Network::Replication::Phase::FinalSummary);
     state.currentRoundNumber = 2; state.completedRounds = 1; state.settings.roundLimit = 3;
     state.round = Network::Replication::RoundState{}; state.result.available = true;
+    Server::Authoritative::SessionResult retained;
+    retained.config.hostParticipantId = 1; retained.config.seed = 1; retained.config.roundLimit = 1;
+    retained.config.fixedLevel = "levels/duel_01.json";
+    retained.config.playableLevels = {retained.config.fixedLevel}; retained.config.enabledWeapons = {"pistol"};
+    retained.completedRounds = 1; retained.finalNoWinner = true;
+    Server::Authoritative::PlayerResultRow participant;
+    participant.playerId = 101; participant.participantId = 1; participant.displayName = "Retained";
+    participant.statistics.roundsPlayed = 1; participant.rounds = {participant.statistics};
+    retained.players = {participant};
+    Server::Authoritative::RoundResult completedRound;
+    completedRound.roundNumber = 1; completedRound.level = retained.config.fixedLevel;
+    completedRound.rosterOrder = {101}; completedRound.noWinner = true;
+    retained.rounds = {completedRound};
+    state.result.serialized = *Server::Authoritative::serializeSessionResult(retained);
+    state.result.state = "Completed";
     for (auto phase: {Network::Replication::Phase::FinalSummary, Network::Replication::Phase::Lobby,
                      Network::Replication::Phase::ActiveRound}) {
         state.phase = phase; menu.runtime.current.canonical = state;
@@ -2019,7 +2037,10 @@ D6R_TEST_CASE("UX-NET round progress uses current authoritative round during act
             : phase == Network::Replication::Phase::Lobby ? Client::NetworkJourney::Lobby : Client::NetworkJourney::Match;
         menu.scoreOverlay = phase == Network::Replication::Phase::ActiveRound;
         f.draw();
-        D6R_REQUIRE(f.text("Last completed round 1: Pending"));
+        if (phase == Network::Replication::Phase::FinalSummary) {
+            D6R_REQUIRE(f.text("Last completed round: 1 / No winner"));
+            D6R_REQUIRE(f.text("Rounds: 1 | 1"));
+        } else D6R_REQUIRE(f.text("Last completed round 1: Pending"));
         D6R_REQUIRE(!f.text("Rounds: 2|3"));
     }
     state.phase = Network::Replication::Phase::RoundSummary; state.settings.roundLimit = 0;
@@ -4198,6 +4219,35 @@ namespace {
     }
 }
 
+D6R_TEST_CASE("Shared arena texture-free default body timing matches every shipped semantic clip") {
+    const auto artwork = animation::Animation::loadAseImage("textures/man/man.ase");
+    const PlayerAnimations animations(artwork);
+    for (unsigned value = 0; value <= static_cast<unsigned>(PlayerPose::Pick); ++value) {
+        const auto pose = static_cast<PlayerPose>(value);
+        const auto actual = animations.forPose(pose), timing = defaultPlayerAnimation(pose);
+        unsigned offset = 0;
+        for (; actual[offset] != -1; offset += 2) {
+            D6R_REQUIRE(timing[offset] != -1);
+            D6R_REQUIRE_EQ(actual[offset + 1], timing[offset + 1]);
+            D6R_REQUIRE(validPlayerAnimation({pose, static_cast<std::uint16_t>(offset), 12, false}));
+        }
+        D6R_REQUIRE_EQ(-1, timing[offset]);
+        D6R_REQUIRE(!validPlayerAnimation({pose, static_cast<std::uint16_t>(offset), 12, false}));
+        for (const auto looping: {AnimationLooping::RepeatForever, AnimationLooping::OnceAndStop}) {
+            for (const float speed: {1.0f, 2.7f, 5.3f}) {
+                Sprite local(actual, Texture()), canonical(timing, Texture());
+                local.setLooping(looping).setSpeed(speed);
+                canonical.setLooping(looping).setSpeed(speed);
+                for (unsigned tick = 0; tick < 1800; ++tick) {
+                    local.update(1.0f / 90); canonical.update(1.0f / 90);
+                    D6R_REQUIRE_EQ(local.getFrame(), canonical.getFrame());
+                    D6R_REQUIRE_EQ(local.isFinished(), canonical.isFinished());
+                }
+            }
+        }
+    }
+}
+
 D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility from Predator") {
     char name[] = "duel6r-pr83-weapon-tests";
     char *arguments[] = {name};
@@ -4214,6 +4264,7 @@ D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility 
     CanonicalWorldPresenter presenter(*application.service, application.gameResources);
     Network::Replication::PlayerState player;
     player.heldWeapon = "pistol";
+    player.animation.weaponVisible = true;
     for (const bool predator : {false, true}) {
         for (const bool invisible : {false, true}) {
             player.presentationAlpha = invisible ? 51 : predator ? 25 : 255;
@@ -4236,6 +4287,27 @@ D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility 
     draws.clear();
     renderAdaptedScene(application, [&](auto &scene) { presenter.appendHeldWeapon(player, 0, 0, scene); });
     D6R_REQUIRE(draws.empty());
+    player.lifeState = Network::Replication::LifeState::Alive;
+    player.animation.weaponVisible = false;
+    renderAdaptedScene(application, [&](auto &scene) { presenter.appendHeldWeapon(player, 0, 0, scene); });
+    D6R_REQUIRE(draws.empty());
+    player.animation.weaponVisible = true;
+    for (std::uint16_t frame = 0; frame <= 12; frame += 2) {
+        player.animation.weaponFrame = frame;
+        SpriteList offline;
+        const auto reference = presenter.weaponFor("pistol")->makeSprite(offline);
+        reference->setFrame(frame);
+        draws.clear();
+        reference->render(*video.renderer);
+        const auto expected = static_cast<Test::RecordingRenderer &>(*video.renderer).quads.back();
+        draws.clear();
+        renderAdaptedScene(application, [&](auto &scene) { presenter.appendHeldWeapon(player, 0, 0, scene); });
+        D6R_REQUIRE_EQ(1u, draws.size());
+        D6R_REQUIRE(draws.front().material.getTexture() == expected.material.getTexture());
+        const auto &actual = static_cast<Test::RecordingRenderer &>(*video.renderer).quads.back();
+        for (unsigned corner = 0; corner < 4; ++corner)
+            D6R_REQUIRE_EQ(expected.uv[corner].z, actual.uv[corner].z);
+    }
 }
 
 D6R_TEST_CASE("Shared arena transparent Predator invisibility and overlaps match local raster and depth passes") {
@@ -4250,6 +4322,7 @@ D6R_TEST_CASE("Shared arena transparent Predator invisibility and overlaps match
         ArenaScene scene{{walls, geometrySprites, water, Texture(), 0}};
         Network::Replication::PlayerState actor;
         actor.heldWeapon = "pistol";
+        actor.animation.weaponVisible = true;
         actor.presentationAlpha = scenario == 1 ? 51 : 25; // standing Predator / invisibility
         if (scenario == 1) { actor.activeBonus = "invisibility"; actor.bonusRemaining = 65536; }
         Sprite body(presenter.animationFor(actor), presenter.skinFor(actor).getTexture());
@@ -4343,6 +4416,7 @@ D6R_TEST_CASE("network restoration all default weapons retain offline sprite att
         std::replace(key.begin(), key.end(), ' ', '-');
         Network::Replication::PlayerState actor;
         actor.heldWeapon = key;
+        actor.animation.weaponVisible = true;
         const auto visual = weapon.getNetworkProjectileVisual();
         D6R_REQUIRE_NEAR(anchors[index].x, visual.collisionRect.getCentre().x, .00001f);
         D6R_REQUIRE_NEAR(anchors[index].y, visual.collisionRect.getCentre().y, .00001f);
@@ -4512,6 +4586,7 @@ D6R_TEST_CASE("PR83 capture complete presenter draws translucent body and weapon
     player.playerId = 101; player.ownerParticipantId = 1; player.life = 100;
     player.positionX = 2 * 65536; player.positionY = 2 * 65536;
     player.heldWeapon = "pistol"; player.visible = true;
+    player.animation.weaponVisible = true;
     state.players = {player};
     presenter.setCanonicalLevels(state.settings.levels);
     presenter.update(0, &state, {});
@@ -5080,6 +5155,129 @@ D6R_TEST_CASE("PR83 real runtime End from naturally completed final summary drai
     D6R_REQUIRE(host.supervisor->snapshot().cleanupComplete);
 }
 
+D6R_TEST_CASE("Shared final and retained overlays render the arena and restore effect frames before client pixel actions") {
+    ReviewMenuFixture fixture;
+    auto &menu = fixture.menu;
+    namespace R = Network::Replication;
+    auto state = canonical(91, R::Phase::FinalSummary);
+    state.matchId = 5; state.round = R::RoundState{7, 1, "levels/duel_01.json"};
+    state.settings.levels = {state.round->level};
+    menu.worldPresenter.setCanonicalLevels(state.settings.levels);
+    static const AnimationEntry animation[] = {0, 50, 1, 50, -1, 0};
+    const auto texture = fixture.application.gameResources.getBurningTexture();
+    Sprite original(animation, texture);
+    original.setPosition(Vector(3.25f, 4.5f), 0.78f).setSize(Vector(1.6f, 1.6f))
+        .setZRotation(0.25f, Vector(0.5f, 0.5f)).setOrientation(Orientation::Right)
+        .setBlendFunc(BlendFunc::SrcColor).setFrame(2);
+    R::ContinuingEffectState effect{17, "tree-burning", 0, 0, 30};
+    effect.visual = original.visualState();
+    state.effects = {effect};
+    menu.runtime.current.canonical = state;
+    menu.runtime.current.host = false;
+    menu.worldPresenter.update(0, &state, {}, true);
+    Test::RecordingRenderer expected;
+    original.render(expected);
+    D6R_REQUIRE_EQ(1u, expected.quads.size());
+    for (const auto journey: {Client::NetworkJourney::Summary, Client::NetworkJourney::Reconnecting,
+                             Client::NetworkJourney::HostEnded}) {
+        menu.runtime.current.journey = journey;
+        fixture.recorder.buffers.clear(); fixture.draw();
+        D6R_REQUIRE(!fixture.recorder.buffers.empty()); // Real retained arena, never the menu canvas.
+        const auto drawn = std::find_if(fixture.recorder.quads.begin(), fixture.recorder.quads.end(),
+            [&](const auto &quad) { return quad.material.getTexture() == texture; });
+        D6R_REQUIRE(drawn != fixture.recorder.quads.end());
+        D6R_REQUIRE(drawn->blend == expected.quads.front().blend);
+        for (unsigned i = 0; i < 4; ++i) {
+            D6R_REQUIRE_NEAR(expected.quads.front().vertices[i].x, drawn->vertices[i].x, 0.0001f);
+            D6R_REQUIRE_NEAR(expected.quads.front().vertices[i].y, drawn->vertices[i].y, 0.0001f);
+            D6R_REQUIRE_NEAR(expected.quads.front().uv[i].z, drawn->uv[i].z, 0.0001f);
+        }
+        D6R_REQUIRE(fixture.text("End of Game"));
+        D6R_REQUIRE(!fixture.text("Match is running"));
+    }
+    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+        fixture.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        menu.runtime.current.journey = Client::NetworkJourney::Summary;
+        menu.confirmation = NetworkMenu::Confirmation::None;
+        const auto plan = menu.finalSummaryPlan(menu.runtime.snapshot());
+        D6R_REQUIRE_EQ(1u, plan.actions.size());
+        const auto action = plan.actions.front().bounds;
+        menu.mouseButtonEvent(MouseButtonEvent(action.x + 5, size.second - action.y - 5,
+            SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+        D6R_REQUIRE(menu.confirmation != NetworkMenu::Confirmation::None);
+        fixture.recorder.buffers.clear(); fixture.draw();
+        D6R_REQUIRE(!fixture.recorder.buffers.empty());
+        D6R_REQUIRE(fixture.text("End of Game"));
+    }
+}
+
+D6R_TEST_CASE("Local shared final retains established outcomes across later deaths and isolates completed navigation") {
+    char name[] = "duel6r-local-final-integration";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto controls = PlayerControls::keyboardControls("QA", application.input,
+        SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    std::vector<Person> people;
+    people.reserve(15);
+    for (unsigned i = 0; i < 15; ++i)
+        people.emplace_back("Final player " + std::to_string(i) + std::string(100, 'x'), nullptr);
+    application.video->screen = ScreenParameters(850, 700, 24, 24, 0, false);
+    application.gameSettings.setMaxRounds(1);
+    std::vector<std::unique_ptr<GameMode>> modes;
+    modes.push_back(std::make_unique<DeathMatch>());
+    modes.push_back(std::make_unique<Predator>());
+    modes.push_back(std::make_unique<TeamDeathMatch>(4, false));
+    for (auto &mode: modes) {
+        std::vector<Game::PlayerDefinition> definitions;
+        for (auto &person: people) {
+            person.reset();
+            definitions.emplace_back(person, PlayerSkinColors(Color::WHITE),
+                application.menu->defaultPlayerSounds, *controls);
+        }
+        auto &game = *application.game;
+        game.playedRounds = 0;
+        game.start(definitions, {"levels/duel_01.json"}, {}, *mode);
+        auto &round = game.getRound();
+        const auto *predator = dynamic_cast<Predator *>(mode.get());
+        const auto *teams = dynamic_cast<TeamDeathMatch *>(mode.get());
+        for (auto &player: game.getPlayers()) {
+            const bool survive = predator ? &player != predator->getPredator()
+                : teams ? player.getRosterSlot() % 4 == 1 : player.getRosterSlot() == 1;
+            player.setBonus(BonusType::NONE, 0);
+            if (!survive) D6R_REQUIRE(player.hit(1000));
+        }
+        round.checkWinner();
+        D6R_REQUIRE(round.hasWinner());
+        const auto established = round.getEstablishedOutcome();
+        D6R_REQUIRE(!established.winners.empty());
+        people.front().addKills(100); // Cumulative leader is NOT the last-round winner.
+        const auto before = game.getWorldRenderer().finalSummaryPlan();
+        D6R_REQUIRE(before.bounds.vertical > 0);
+        for (auto &player: game.getPlayers()) if (player.isAlive()) D6R_REQUIRE(player.hit(1000));
+        round.update(1.0f / 90);
+        D6R_REQUIRE(round.getEstablishedOutcome().winners == established.winners);
+        application.keyEvent(game, KeyPressEvent(SDLK_PAGEDOWN, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE_EQ(0, game.getFinalScroll().vertical);
+        round.gameOverWait = 0;
+        const auto completed = game.getWorldRenderer().finalSummaryPlan();
+        D6R_REQUIRE(std::any_of(completed.commands.begin(), completed.commands.end(), [](const auto &command) {
+            return command.text == "End of Game";
+        }));
+        application.keyEvent(game, KeyPressEvent(SDLK_PAGEDOWN, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE(game.getFinalScroll().vertical > 0);
+        const auto scroll = game.getFinalScroll();
+        game.mouseWheelEvent(MouseWheelEvent(0, 0, 0, -2));
+        D6R_REQUIRE_EQ(scroll.vertical, game.getFinalScroll().vertical);
+        application.console.toggle();
+        application.keyEvent(game, KeyPressEvent(SDLK_PAGEDOWN, SysEvent::ButtonState::PRESSED, 0));
+        D6R_REQUIRE_EQ(scroll.vertical, game.getFinalScroll().vertical);
+        application.console.toggle();
+        game.mouseWheelEvent(MouseWheelEvent(completed.layout.body.x + 5,
+            application.video->getScreen().getClientHeight() - completed.layout.body.y - 5, 0, -2));
+        D6R_REQUIRE(game.getFinalScroll().vertical >= scroll.vertical);
+    }
+}
+
 D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll every long historical winner") {
     namespace A = Server::Authoritative;
     namespace R = Network::Replication;
@@ -5127,6 +5325,12 @@ D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll 
     state.round = R::RoundState{3, 1, round.level, false, round.rosterOrder, state.score.winner};
     state.result = {true, true, "Completed", *serialized};
     D6R_REQUIRE(R::retainedOutcomeRows(state.result).has_value());
+    const auto projected = R::retainedResultView(state.result);
+    D6R_REQUIRE(projected && projected->players.size() == result.players.size());
+    for (std::size_t i = 0; i < result.players.size(); ++i) {
+        D6R_REQUIRE_EQ(result.players[i].playerId, projected->players[i].playerId);
+        D6R_REQUIRE_EQ(result.players[i].displayName, projected->players[i].displayName);
+    }
     for (const bool retained : {false, true}) {
         state.phase = retained ? R::Phase::Lobby : R::Phase::FinalSummary;
         menu.runtime.current.journey = retained ? Client::NetworkJourney::Lobby : Client::NetworkJourney::Summary;
@@ -5134,9 +5338,11 @@ D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll 
         std::set<std::string> visible;
         bool matchHeading = false, lastRoundHeading = false;
         menu.summaryScroll = 0;
+        menu.finalScroll = {};
         menu.focus = retained ? 2 : 1; // Guest result-table focus, with no local slots in this historical fixture.
         for (unsigned page = 0; page < 40; ++page) {
             menu.summaryHorizontal = 0;
+            menu.finalScroll.horizontal = 0;
             for (unsigned horizontal = 0; horizontal < 5; ++horizontal) {
                 recorder.draws.clear();
                 if (retained) menu.drawResult(state, true);
@@ -5149,7 +5355,7 @@ D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll 
                     const bool match = text.find("Match outcome:") == 0;
                     const bool last = text.find("Last completed round") == 0;
                     if (match || last) {
-                        D6R_REQUIRE(draw.right <= 818); // Inside the fixed 850-unit menu canvas.
+                        D6R_REQUIRE(draw.right <= (retained ? 818 : application.video->getScreen().getClientWidth() - 16));
                         matchHeading = matchHeading || match; lastRoundHeading = lastRoundHeading || last;
                     }
                     visible.insert(text);
@@ -5172,7 +5378,7 @@ D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll 
             }
             D6R_REQUIRE(std::any_of(visible.begin(), visible.end(), [&](const auto &text) {
                 return text.find(std::to_string(row.playerId)) != std::string::npos
-                       && text.find(std::string(8, static_cast<char>('A' + index))) != std::string::npos;
+                       && (!retained || text.find(std::string(8, static_cast<char>('A' + index))) != std::string::npos);
             }));
         }
     }

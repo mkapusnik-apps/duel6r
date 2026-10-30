@@ -252,27 +252,17 @@ namespace Duel6 {
         player.removeBody();
         world.emitGameplayEvent({"explosion", {}, 0, player.getRosterSlot(),
                                  player.getRosterSlot(), "player", 1});
-#ifndef D6R_HEADLESS_CORE
-        if (!player.isHeadless())
-            world.getExplosionList().add(player.getCentre(), 0.5f, 1.2f, getPlayerExplosionColor());
-#else
-        (void) world;
-#endif
+        world.getExplosionList().add(player.getCentre(), 0.5f, 1.2f, getPlayerExplosionColor());
     }
 
     void LegacyShot::addPlayerBlood(const Player &player, const Vector &point, World &world) {
-#ifndef D6R_HEADLESS_CORE
-        if (player.isHeadless()) return;
         Rectangle rect = player.getCollisionRect();
+        const auto offset = player.isHeadless() ? world.getExplosionList().bloodOffset()
+                                               : Math::random(40, "blood-position");
         world.getExplosionList().add(
-                Vector(rect.left.x + (0.3f + (Math::random(40, "blood-position")) * 0.01f) * rect.getSize().x,
+                Vector(rect.left.x + (0.3f + offset * 0.01f) * rect.getSize().x,
                        point.y), 0.2f, 0.5f,
                 Color::RED);
-#else
-        (void) player;
-        (void) point;
-        (void) world;
-#endif
     }
 
     ShotHit LegacyShot::getShotHit() {
@@ -287,6 +277,10 @@ namespace Duel6 {
 
     SpriteList::Iterator LegacyShot::makeBoomSprite(SpriteList &spriteList) {
         auto sprite = spriteList.add(getBoomAnimation(), textures.boom);
+        auto type = getWeapon().getName();
+        std::replace(type.begin(), type.end(), ' ', '-');
+        for (auto &character: type) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        sprite->setEffectType("weapon-boom:" + type);
         sprite->setPosition(getCentre() - Vector(0.5f, 0.5f), 0.6f)
                 .setSpeed(0.5f)
                 .setLooping(AnimationLooping::OnceAndRemove)

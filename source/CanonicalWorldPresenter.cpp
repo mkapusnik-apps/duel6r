@@ -137,24 +137,11 @@ namespace Duel6 {
             return value;
         }
 
-        Size animationFrame(Animation animation, std::uint64_t phaseTick) {
-            std::uint64_t duration = 0;
-            for (Size frame = 0; animation[frame] != -1; frame += 2)
-                duration += static_cast<std::uint64_t>(std::max(animation[frame + 1], 1));
-            if (duration == 0) return 0;
-            const std::uint64_t elapsed = (phaseTick * 1000u / 60u) % duration;
-            std::uint64_t boundary = 0;
-            for (Size frame = 0; animation[frame] != -1; frame += 2) {
-                boundary += static_cast<std::uint64_t>(std::max(animation[frame + 1], 1));
-                if (elapsed < boundary) return frame;
-            }
-            return 0;
-        }
     }
 
     CanonicalWorldPresenter::CanonicalWorldPresenter(AppService &value, GameResources &gameResources)
             : service(value), resources(gameResources), renderer(value.getVideo().getRenderer()), font(value.getFont()),
-              animations(gameResources.getPlayerAnimation()), explosions(gameResources, 4.0f),
+              animations(gameResources.getPlayerAnimation()),
               playerHitSound(value.getSound().loadSample("sound/player/hit.wav")),
               playerDeathSound(value.getSound().loadSample("sound/player/death.wav")),
               bonusSound(value.getSound().loadSample("sound/player/pick-bonus.wav")),
@@ -203,7 +190,6 @@ namespace Duel6 {
         loadedRound = round.roundId;
         loadedMirror = round.mirrored;
         worldClock.reset();
-        explosions.clear();
         presentedEntities.clear();
         return true;
     }
@@ -212,7 +198,6 @@ namespace Duel6 {
             Float32 elapsedTime, const Network::Replication::CanonicalState *state,
             const std::vector<Network::Replication::PresentationEvent> &events, bool retainingWorld) {
         const bool advancing = state && !retainingWorld && Network::Replication::acceptsGameplayInput(*state);
-        const Float32 animationDelta = advancing ? elapsedTime : 0.0f;
         if (state && state->round && loadRound(*state) && levelRenderData) {
             const auto &round = *state->round;
             const Water *type = round.waterType == LiquidKind::Blue ? Water::BLUE
@@ -232,7 +217,6 @@ namespace Duel6 {
                                                         * D6_UPDATE_FREQUENCY);
             levelRenderData->setAnimationState(animation);
         }
-        explosions.update(animationDelta);
         if (!state) return;
         if (presentedSession != state->sessionId) {
             presentedSession = state->sessionId;
@@ -270,12 +254,6 @@ namespace Duel6 {
             const Network::Replication::CanonicalState &state,
             const Network::Replication::PresentationEvent &event) {
         const auto *entity = entityFor(state, event.entityId);
-        const auto player = std::find_if(state.players.begin(), state.players.end(), [&](const auto &value) {
-            return value.playerId == (event.targetPlayerId ? event.targetPlayerId : event.playerId);
-        });
-        const Vector centre = entity ? Vector(worldValue(entity->positionX), worldValue(entity->positionY))
-                : player != state.players.end() ? Vector(worldValue(player->positionX), worldValue(player->positionY))
-                                                : Vector::ZERO;
         if (event.type == "round-start") resources.getRoundStartSound().play();
         else if (event.type == "round-ended" || event.type == "round-outcome"
                  || event.type == "result-transition")
@@ -289,12 +267,8 @@ namespace Duel6 {
             if (weapon) weapon->playNetworkShotSound();
         } else if (event.type == "shot-hit" || event.type == "player-life-changed") {
             playerHitSound.play();
-            explosions.add(centre, 0.1f, 0.35f, Color::RED);
         } else if (event.type == "player-died") {
             playerDeathSound.play();
-            explosions.add(centre, 0.2f, 0.8f, Color::RED);
-        } else if (event.type == "player-killed") {
-            explosions.add(centre, 0.12f, 0.48f, Color::BLUE);
         } else if (event.type == "bonus-picked" || event.type == "weapon-picked") bonusSound.play();
         else if (event.type == "bonus-expired" || event.type == "temporary-slowdown-expired"
                  || event.type == "reload-completed" || event.type == "weapon-charge-ready"
@@ -311,15 +285,8 @@ namespace Duel6 {
             const Weapon *weapon = entity ? weaponFor(entity->type)
                     : source == state.players.end() ? nullptr : weaponFor(source->heldWeapon);
             if (weapon) weapon->playNetworkExplosionSound();
-            explosions.add(centre, 0.3f, 1.2f, Color(255, 176, 64));
-        } else if (event.type == "tree-burned") {
-            explosions.add(centre, 0.15f, 0.55f, Color(255, 96, 32));
         } else if (event.type == "environmental-damage") {
             playerHitSound.play();
-        } else if (event.type == "player-spawned") {
-            explosions.add(centre, 0.1f, 0.45f, Color::WHITE);
-        } else if (event.type == "elevator-velocity-changed") {
-            explosions.add(centre, 0.04f, 0.2f, Color(235, 235, 235));
         }
     }
 
@@ -331,13 +298,7 @@ namespace Duel6 {
 
     Animation CanonicalWorldPresenter::animationFor(
             const Network::Replication::PlayerState &player) const {
-        if (player.lifeState != Network::Replication::LifeState::Alive)
-            return animations.getDeadLying().get();
-        if (player.crouching) return animations.getDuck().get();
-        if (std::abs(player.velocityY) > 4096)
-            return player.velocityY > 0 ? animations.getJump().get() : animations.getFall().get();
-        if (std::abs(player.velocityX) > 1024) return animations.getWalk().get();
-        return animations.getStand().get();
+        return animations.forPose(player.animation.pose);
     }
 
     Texture CanonicalWorldPresenter::backgroundTexture() const {
@@ -412,7 +373,7 @@ namespace Duel6 {
                     const auto found = resources.getFireTextures().find(type);
                     if (found != resources.getFireTextures().end()) {
                         static const AnimationEntry intact[] = {0, 328, -1, 0}, burned[] = {1, 328, -1, 0};
-                        Sprite sprite(entity.active ? intact : burned, found->second);
+                        Sprite sprite(entity.primaryValue == 1 ? burned : intact, found->second);
                         sprite.setPosition(Vector(centre.x, centre.y), 0.75f);
                         scene.sprites.push_back(std::move(sprite));
                     }
@@ -425,13 +386,14 @@ namespace Duel6 {
 
     void CanonicalWorldPresenter::appendHeldWeapon(
             const Network::Replication::PlayerState &player, Float32 x, Float32 y, ArenaScene &scene) const {
-        if (player.lifeState != Network::Replication::LifeState::Alive || player.heldWeapon.empty()) return;
+        if (player.lifeState != Network::Replication::LifeState::Alive || player.heldWeapon.empty()
+            || !player.animation.weaponVisible) return;
         const Weapon *weapon = weaponFor(player.heldWeapon);
         if (!weapon || !weapon->getNetworkWeaponTexture()) return;
         const bool invisible = player.activeBonus == "invisibility" && player.bonusRemaining > 0;
         SpriteList sprites;
         auto held = weapon->makeSprite(sprites);
-        held->setFrame(12).setPosition(Vector(x, y - (player.crouching ? 0.15f : 0.0f)), 0.5f)
+        held->setFrame(player.animation.weaponFrame).setPosition(Vector(x, y - (player.crouching ? 0.15f : 0.0f)), 0.5f)
                 .setOrientation(player.facingLeft ? Orientation::Left : Orientation::Right)
                 .setAlpha(invisible ? 0.2f : 1.0f);
         scene.sprites.push_back(*held);
@@ -519,14 +481,36 @@ namespace Duel6 {
             const Animation animation = animationFor(visualState);
             Sprite sprite(animation, skin.getTexture());
             sprite.setPosition(Vector(px, py), 0.5f)
-                    .setFrame(animationFrame(animation, static_cast<std::uint64_t>(worldClock.value() * 60)))
+                    .setFrame(player.animation.bodyFrame)
                     .setOrientation(visualState.facingLeft ? Orientation::Left : Orientation::Right)
                     .setAlpha(static_cast<Float32>(player.presentationAlpha) / 255.0f);
             dynamic.sprites.push_back(std::move(sprite));
             appendHeldWeapon(visualState, px, py, dynamic);
             appendPlayerHud(state, player, px, py, dynamic);
         }
-        dynamic.explosions.assign(explosions.values().begin(), explosions.values().end());
+        for (const auto &effect: state.effects) {
+            if (effect.type == "explosion-ring") {
+                const auto &v = effect.visual;
+                dynamic.explosions.push_back({Vector(worldValue(v.geometry[0]), worldValue(v.geometry[1])),
+                    worldValue(v.geometry[3]), worldValue(v.geometry[4]),
+                    Color(v.color[0], v.color[1], v.color[2], v.color[3])});
+                continue;
+            }
+            Texture texture{};
+            if (effect.type.compare(0, 12, "weapon-boom:") == 0) {
+                if (const auto *weapon = weaponFor(effect.type.substr(12))) texture = weapon->getNetworkExplosionTexture();
+            } else if (effect.type == "tree-burning") texture = resources.getBurningTexture();
+            else if (effect.type.compare(0, 13, "water-splash:") == 0) {
+                for (const Water *water: {Water::BLUE, Water::RED, Water::GREEN})
+                    if (effect.type == "water-splash:" + water->getName()) texture = water->getSplashTexture();
+            }
+            if (texture) {
+                static const AnimationEntry still[] = {0, 1, -1, 0};
+                Sprite sprite(still, texture);
+                sprite.restoreVisual(effect.visual);
+                dynamic.sprites.push_back(std::move(sprite));
+            }
+        }
         ArenaRenderer::render(renderer, font, dynamic);
         // Sprite effects may restore depth testing after their own no-depth
         // draw. Leave the renderer in the orthographic UI state expected by

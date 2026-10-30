@@ -2,6 +2,7 @@
 
 #include <SDL2/SDL.h>
 #include <algorithm>
+#include <iomanip>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
@@ -261,121 +262,128 @@ namespace Duel6 {
             return lines;
         }
 
+        FinalSummaryPresentation::Model finalResultModel(const Network::Replication::CanonicalState &state, bool host) {
+            namespace F = FinalSummaryPresentation;
+            namespace R = Network::Replication;
+            F::Model model;
+            model.scope = host ? F::Scope::NetworkHost : F::Scope::NetworkGuest;
+            const auto result = R::retainedResultView(state.result);
+            if (!result) return model;
+            model.completedRounds = result->completedRounds; model.roundLimit = result->roundLimit;
+            model.lastRoundNumber = result->completedRounds;
+            static const char *teams[] = {"", "Alpha", "Bravo", "Charlie", "Delta"};
+            const auto teamName = [&](unsigned team) { return std::string(team <= 4 ? teams[team] : ""); };
+            const auto playerFor = [&](R::Identity id) -> const R::RetainedResultPlayer * {
+                const auto found = std::find_if(result->players.begin(), result->players.end(),
+                        [id](const auto &p) { return p.playerId == id; });
+                return found == result->players.end() ? nullptr : &*found;
+            };
+            const auto identity = [&](const R::RetainedResultPlayer &player) {
+                return F::Identity{player.displayName, std::to_string(player.playerId),
+                                   teamName(player.team), player.departed};
+            };
+            const auto outcome = [&](const R::RoundOutcomeState &source) {
+                F::Outcome value; value.noWinner = source.noWinner;
+                value.winningTeam = teamName(source.winningTeam);
+                for (const auto id: source.winnerPlayerIds)
+                    if (const auto *player = playerFor(id)) value.winners.push_back(identity(*player));
+                return value;
+            };
+            model.matchOutcome = outcome(result->outcome);
+            if (!result->rounds.empty()) model.lastRoundOutcome = outcome(result->rounds.back().outcome);
+            model.cumulative.title = "CUMULATIVE RANKING";
+            model.cumulative.columns = {{"Player / identity / owner / team / state"}, {"Rank", true},
+                {"K", true}, {"A", true}, {"D", true}, {"K/D", true}, {"PTS", true}, {"R", true},
+                {"Sh", true}, {"Hi", true}, {"W", true}, {"P", true}, {"Survival ticks", true},
+                {"Damage", true}, {"Assist dmg", true}};
+            const auto playerRow = [&](const R::RetainedResultPlayer &player,
+                                       const R::RetainedResultStatistics &s, bool nested) {
+                std::ostringstream ratio;
+                ratio << std::fixed << std::setprecision(2) << (s.deaths ? double(s.kills) / double(s.deaths) : double(s.kills));
+                std::string label = player.displayName + " / Player " + std::to_string(player.playerId)
+                        + " / Participant " + std::to_string(player.participantId);
+                if (player.team) label += " / " + teamName(player.team);
+                if (player.departed) label += " / Departed";
+                return F::Row{{label, std::to_string(player.rank), std::to_string(s.kills), std::to_string(s.assists),
+                    std::to_string(s.deaths), ratio.str(), std::to_string(s.totalPoints), std::to_string(s.roundsPlayed),
+                    std::to_string(s.shots), std::to_string(s.hits), std::to_string(s.wins), std::to_string(s.penalties),
+                    std::to_string(s.survivalTicks), std::to_string(s.damage), std::to_string(s.assistedDamage)}, nested};
+            };
+            if (result->teams.empty()) {
+                for (const auto &player: result->players) if (player.cumulative.roundsPlayed)
+                    model.cumulative.rows.push_back(playerRow(player, player.cumulative, false));
+            } else {
+                static const Color colors[] = {Color::WHITE, Color(255,0,0), Color(0,255,0), Color(255,255,0), Color(255,0,255)};
+                for (const auto &team: result->teams) {
+                    F::Row row; row.cells.resize(model.cumulative.columns.size());
+                    row.cells[0] = teamName(team.team); row.cells[1] = std::to_string(team.rank);
+                    row.cells[6] = std::to_string(team.totalPoints); row.teamColor = colors[team.team];
+                    row.teamSeparatorBefore = !model.cumulative.rows.empty();
+                    model.cumulative.rows.push_back(std::move(row));
+                    for (const auto id: team.rankedPlayerIds)
+                        if (const auto *player = playerFor(id); player && player->cumulative.roundsPlayed)
+                            model.cumulative.rows.push_back(playerRow(*player, player->cumulative, true));
+                }
+            }
+            F::Table settings{"MATCH SETTINGS", {{"Setting"}, {"Value"}}, {}};
+            settings.rows = {{{"Mode", result->mode}}, {{"Teams", std::to_string(result->teamCount)}},
+                {{"Friendly fire", onOff(result->friendlyFire)}}, {{"Assistance", onOff(result->assistance)}},
+                {{"Quick Liquid", onOff(result->quickLiquid)}}, {{"Burnable Trees", onOff(result->burnableTrees)}},
+                {{"Level plan", result->levelPlan}}, {{"Round limit", std::to_string(result->roundLimit)}},
+                {{"Seed", std::to_string(result->seed)}}, {{"Optional scripts", "Disabled"}}};
+            model.settings.push_back(std::move(settings));
+            for (const auto &round: result->rounds) {
+                const std::string title = "ROUND " + std::to_string(round.number);
+                F::Table details{title, {{"Field"}, {"Value"}}, {}};
+                details.rows.push_back({{"Level", levelDisplayName(round.level)}});
+                details.rows.push_back({{"Orientation", round.mirrored ? "Mirrored" : "Normal"}});
+                const auto selected = outcome(round.outcome);
+                if (selected.noWinner) details.rows.push_back({{"Outcome", "No winner"}});
+                if (!selected.winningTeam.empty()) details.rows.push_back({{"Winning team", selected.winningTeam}});
+                for (const auto &winner: selected.winners)
+                    details.rows.push_back({{"Winner", winner.name + " / Player " + winner.player
+                            + (winner.departed ? " / Departed" : "")}});
+                for (const auto id: round.rosterOrder) if (const auto *player = playerFor(id))
+                    details.rows.push_back({{"Roster", player->displayName + " / Player " + std::to_string(id)}});
+                model.rounds.push_back(std::move(details));
+                F::Table statistics{title + " PLAYER RESULTS", model.cumulative.columns, {}};
+                for (const auto &player: result->players)
+                    if (round.number <= player.rounds.size() && player.rounds[round.number - 1].roundsPlayed)
+                        statistics.rows.push_back(playerRow(player, player.rounds[round.number - 1], false));
+                model.rounds.push_back(std::move(statistics));
+            }
+            return model;
+        }
+
         std::vector<std::string> resultLines(const Network::Replication::CanonicalState &state) {
             std::vector<std::string> lines;
             if (!state.result.available || state.result.serialized.empty()) return lines;
-            try {
-                const std::vector<Uint8> bytes(state.result.serialized.begin(), state.result.serialized.end());
-                const Json::Value root = Json::Parser().parse(bytes);
-                const auto serializedPlayers = root.get("players");
-                std::map<Network::Replication::Identity, std::string> resultPlayerNames;
-                for (Size index = 0; index < serializedPlayers.getLength(); ++index) {
-                    const auto player = serializedPlayers.get(index);
-                    resultPlayerNames.emplace(
-                            static_cast<Network::Replication::Identity>(player.get("playerId").asDouble()),
-                            player.get("displayName").asString());
-                }
-                const auto resultPlayerName = [&](Network::Replication::Identity id) {
-                    const auto found = resultPlayerNames.find(id);
-                    return found == resultPlayerNames.end() ? std::string("Departed player") : found->second;
-                };
-                lines.push_back("OUTCOME WINNERS");
-                const auto outcomes = Network::Replication::retainedOutcomeRows(state.result);
-                if (!outcomes) return {"Authoritative result details are unavailable."};
-                for (const auto &row: *outcomes) {
-                    const std::string scope = row.roundNumber ? "Round " + std::to_string(row.roundNumber) : "Match";
-                    if (!row.playerId) lines.push_back(scope + " • No winner");
-                    else lines.push_back(scope + " • " + row.displayName + " / Player " + std::to_string(row.playerId)
-                            + (row.team ? " / Team " + std::to_string(row.team) : "")
-                            + (row.departed ? " / Departed" : " / Retained"));
-                }
-                lines.push_back("MATCH SETTINGS");
-                std::ostringstream settings;
-                settings << root.get("mode").asString();
-                const int teams = root.get("teamCount").asInt();
-                if (teams) settings << " • " << teams << " teams • Friendly fire "
-                                    << onOff(root.get("friendlyFire").asBoolean());
-                settings << " • Rounds " << root.get("roundLimit").asInt()
-                         << " • Seed " << static_cast<std::uint64_t>(root.get("seed").asDouble());
-                lines.push_back(settings.str());
-                lines.push_back("Assistance " + onOff(root.get("assistance").asBoolean())
-                                + " • Quick Liquid " + onOff(root.get("quickLiquid").asBoolean())
-                                + " • Burnable Trees " + onOff(root.get("burnableTrees").asBoolean()));
-                lines.push_back("Level plan: " + root.get("levelPlan").asString()
-                                + " • Completed rounds: " + std::to_string(root.get("completedRounds").asInt()));
-                lines.push_back("ROUND RESULTS");
-                const auto rounds = root.get("rounds");
-                for (Size index = 0; index < rounds.getLength(); ++index) {
-                    const auto round = rounds.get(index);
-                    std::string winner = round.get("noWinner").asBoolean() ? "No winner" : round.get("winningTeam").asString();
-                    if (winner.empty()) {
-                        winner.clear(); const auto winnerIds = round.get("winnerPlayerIds");
-                        for (Size winnerIndex = 0; winnerIndex < winnerIds.getLength(); ++winnerIndex) {
-                            const auto id = static_cast<Network::Replication::Identity>(winnerIds.get(winnerIndex).asDouble());
-                            if (!winner.empty()) winner += ", ";
-                            winner += resultPlayerName(id);
-                        }
-                    }
-                    std::string roster; const auto rosterIds = round.get("rosterOrder");
-                    for (Size rosterIndex = 0; rosterIndex < rosterIds.getLength(); ++rosterIndex) {
-                        const auto id = static_cast<Network::Replication::Identity>(rosterIds.get(rosterIndex).asDouble());
-                        if (!roster.empty()) roster += ", ";
-                        roster += resultPlayerName(id);
-                    }
-                    lines.push_back("Round " + std::to_string(round.get("roundNumber").asInt()) + " • "
-                                    + levelDisplayName(round.get("level").asString()) + " • "
-                                    + round.get("orientation").asString() + " • " + winner
-                                    + " • Roster: " + roster);
-                }
-                lines.push_back("CUMULATIVE PLAYER RESULTS");
-                lines.push_back("Rank  Player / owner / team / state     R  Sh  Hi  K  D  A  W  P  Survival  Damage  Assist dmg  Points");
-                const auto players = serializedPlayers;
-                for (Size index = 0; index < players.getLength(); ++index) {
-                    const auto player = players.get(index); const auto stats = player.get("cumulative");
-                    const auto ownerId = static_cast<Network::Replication::Identity>(player.get("participantId").asDouble());
-                    std::ostringstream row;
-                    row << player.get("rank").asInt() << "  " << player.get("displayName").asString()
-                        << " / " << participantLabel(state, ownerId);
-                    const std::string team = player.get("team").asString();
-                    if (team != "None") row << " / " << team;
-                    if (player.get("departed").asBoolean()) row << " / Departed";
-                    row << "  " << stats.get("roundsPlayed").asInt() << "  " << stats.get("shots").asInt()
-                        << "  " << stats.get("hits").asInt() << "  " << stats.get("kills").asInt()
-                        << "  " << stats.get("deaths").asInt() << "  " << stats.get("assists").asInt()
-                        << "  " << stats.get("wins").asInt() << "  " << stats.get("penalties").asInt()
-                        << "  " << stats.get("survivalTicks").asInt() << "  " << stats.get("damage").asInt()
-                        << "  " << stats.get("assistedDamage").asInt() << "  " << stats.get("totalPoints").asInt();
-                    lines.push_back(row.str());
-                    const auto perRound = player.get("rounds");
-                    for (Size roundIndex = 0; roundIndex < perRound.getLength(); ++roundIndex) {
-                        const auto value = perRound.get(roundIndex); std::ostringstream roundRow;
-                        roundRow << "    Round " << (roundIndex + 1)
-                                 << "  R " << value.get("roundsPlayed").asInt()
-                                 << "  Sh " << value.get("shots").asInt() << "  Hi " << value.get("hits").asInt()
-                                 << "  K " << value.get("kills").asInt() << "  D " << value.get("deaths").asInt()
-                                 << "  A " << value.get("assists").asInt() << "  W " << value.get("wins").asInt()
-                                 << "  P " << value.get("penalties").asInt()
-                                 << "  Survival " << value.get("survivalTicks").asInt()
-                                 << "  Damage " << value.get("damage").asInt()
-                                 << "  Assist dmg " << value.get("assistedDamage").asInt()
-                                 << "  Points " << value.get("totalPoints").asInt();
-                        lines.push_back(roundRow.str());
-                    }
-                }
-                const auto teamsResult = root.get("teams");
-                if (teamsResult.getLength()) {
-                    lines.push_back("TEAM TOTALS");
-                    for (Size index = 0; index < teamsResult.getLength(); ++index) {
-                        const auto team = teamsResult.get(index);
-                        lines.push_back("Rank " + std::to_string(team.get("rank").asInt()) + " • "
-                                        + team.get("team").asString() + " • "
-                                        + std::to_string(team.get("totalPoints").asInt()) + " points");
-                    }
-                }
-            } catch (...) {
-                lines.clear();
-                lines.push_back("Authoritative result details are unavailable.");
+            const auto outcomes = Network::Replication::retainedOutcomeRows(state.result);
+            if (!outcomes) return {"Authoritative result details are unavailable."};
+            lines.push_back("OUTCOME WINNERS");
+            for (const auto &row: *outcomes) {
+                const auto scope = row.roundNumber ? "Round " + std::to_string(row.roundNumber) : "Match";
+                lines.push_back(scope + (row.playerId ? " • " + row.displayName + " / Player " + std::to_string(row.playerId)
+                    + (row.team ? " / Team " + std::to_string(row.team) : "")
+                    + (row.departed ? " / Departed" : " / Retained") : " • No winner"));
             }
+            // The lobby's compact retained-result view uses the same bounded,
+            // integer-preserving projection as the full final overlay.
+            const auto model = finalResultModel(state, false);
+            const auto append = [&](const FinalSummaryPresentation::Table &table) {
+                lines.push_back(table.title);
+                std::string headings;
+                for (const auto &column: table.columns) headings += column.heading + "  ";
+                lines.push_back(std::move(headings));
+                for (const auto &row: table.rows) {
+                    std::string text = row.nested ? "    " : "";
+                    for (const auto &cell: row.cells) text += cell + "  ";
+                    lines.push_back(std::move(text));
+                }
+            };
+            append(model.cumulative);
+            for (const auto &table: model.settings) append(table);
+            for (const auto &table: model.rounds) append(table);
             return lines;
         }
 
@@ -557,6 +565,7 @@ namespace Duel6 {
             if (player.controlDescription.empty() && player.controls)
                 player.controlDescription = player.controls->getDescription();
         setupScreen = SetupScreen::Entry; focus = 0; setupScroll = 0; summaryScroll = 0; summaryHorizontal = 0;
+        finalScroll = {}; finalSession = 0; finalMatch = 0;
         rankingScroll = 0;
         confirmation = Confirmation::None; scoreOverlay = false;
         lastJourney = Client::NetworkJourney::Inactive;
@@ -942,6 +951,18 @@ namespace Duel6 {
             }
             return;
         }
+        if (snap.journey == Client::NetworkJourney::Summary && snap.canonical) {
+            const auto plan = finalSummaryPlan(snap);
+            const int x = event.getX(), y = height - event.getY();
+            if (const auto action = FinalSummaryPresentation::hitAction(plan, x, y)) {
+                focus = *action == FinalSummaryPresentation::Action::EndSession ? 1 : 0;
+                activate(); return;
+            }
+            if (plan.layout.horizontalBack.contains(x, y)) moveFinalSummary(snap, 0, -8);
+            else if (plan.layout.horizontalForward.contains(x, y)) moveFinalSummary(snap, 0, 8);
+            if (plan.layout.body.contains(x, y)) focus = snap.host ? 2 : 1;
+            return;
+        }
         const Float32 scale = canvasScale(width, height);
         const Int32 tx = (width - Int32(CanvasWidth * scale)) / 2;
         const Int32 ty = (height - Int32(CanvasHeight * scale)) / 2;
@@ -1119,22 +1140,6 @@ namespace Duel6 {
             } else if (pointerInside(x, y, 645, 54, 175, 24)) {
                 focus = readyIndex + 1; activate(); return;
             }
-        } else if (snap.journey == Client::NetworkJourney::Summary) {
-            const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, false) : ResultScrollBounds{};
-            if (pointerInside(x, y, 50, 124, 32, 22)) {
-                summaryHorizontal = std::clamp(summaryHorizontal - 8, 0,
-                                               static_cast<int>(bounds.horizontal));
-                focus = snap.host ? 2 : 1; return;
-            }
-            if (pointerInside(x, y, 574, 124, 32, 22)) {
-                summaryHorizontal = std::min<int>(static_cast<int>(bounds.horizontal), summaryHorizontal + 8);
-                focus = snap.host ? 2 : 1; return;
-            }
-            if (pointerInside(x, y, 32, 120, 786, 330)) {
-                focus = snap.host ? 2 : 1; return;
-            }
-            if (snap.host && pointerInside(x, y, 275, 72, 300, 32)) { focus = 0; activate(); return; }
-            if (pointerInside(x, y, 275, 30, 300, 32)) { focus = snap.host ? 1 : 0; activate(); return; }
         } else if (snap.journey == Client::NetworkJourney::Failure) {
             if (snap.selectedSessionChanged) {
                 if (pointerInside(x, y, 576, 270, 220, 34)) { focus = 0; activate(); }
@@ -1187,6 +1192,10 @@ namespace Duel6 {
             return;
         }
         if (confirmation != Confirmation::None) return;
+        if (snap.journey == Client::NetworkJourney::Summary && snap.canonical) {
+            moveFinalSummary(snap, -event.getAmountY(), event.getAmountX() * 8);
+            return;
+        }
         if (snap.journey == Client::NetworkJourney::Match && !scoreOverlay) {
             const auto maximum = snap.canonical ? rankingMaximumScroll(
                     *snap.canonical, service.getVideo().getScreen().getClientWidth(), service.getVideo().getScreen().getClientHeight(),
@@ -1648,6 +1657,10 @@ namespace Duel6 {
              || (snap.journey == Client::NetworkJourney::Lobby && snap.canonical && snap.canonical->result.available))
             && (event.getCode() == SDLK_PAGEUP || event.getCode() == SDLK_PAGEDOWN)) {
             consumeKey();
+            if (snap.journey == Client::NetworkJourney::Summary) {
+                moveFinalSummary(snap, event.getCode() == SDLK_PAGEDOWN ? 8 : -8, 0);
+                return;
+            }
             const bool retained = retainedResult(snap);
             const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, retained) : ResultScrollBounds{};
             summaryScroll = std::clamp(summaryScroll + (event.getCode() == SDLK_PAGEDOWN ? 8 : -8),
@@ -1668,6 +1681,10 @@ namespace Duel6 {
              || (snap.journey == Client::NetworkJourney::Lobby && snap.canonical && snap.canonical->result.available))
             && (event.getCode() == SDLK_LEFT || event.getCode() == SDLK_RIGHT)) {
             consumeKey();
+            if (snap.journey == Client::NetworkJourney::Summary) {
+                moveFinalSummary(snap, 0, event.getCode() == SDLK_RIGHT ? 8 : -8);
+                return;
+            }
             const bool retained = retainedResult(snap);
             const auto bounds = snap.canonical ? resultScrollBounds(*snap.canonical, retained) : ResultScrollBounds{};
             summaryHorizontal = std::clamp(summaryHorizontal + (event.getCode() == SDLK_RIGHT ? 8 : -8),
@@ -1771,6 +1788,12 @@ namespace Duel6 {
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();
         const auto currentSnapshot = runtime.snapshot();
+        if (currentSnapshot.canonical && currentSnapshot.canonical->result.available
+            && (finalSession != currentSnapshot.canonical->sessionId || finalMatch != currentSnapshot.canonical->matchId)) {
+            finalScroll = {};
+            finalSession = currentSnapshot.canonical->sessionId;
+            finalMatch = currentSnapshot.canonical->matchId;
+        }
         clearConfirmedPassword();
         if (confirmation == Confirmation::None && currentSnapshot.journey == Client::NetworkJourney::Lobby
             && currentSnapshot.host && currentSnapshot.canonical
@@ -1872,6 +1895,10 @@ namespace Duel6 {
                 if (uiDown && !controllerDown) selectBrowserRow(1);
                 if (uiLeft && !controllerLeft) moveFocus(-1);
                 if (uiRight && !controllerRight) moveFocus(1);
+            } else if (resultFocused && currentSnapshot.canonical
+                       && currentSnapshot.journey == Client::NetworkJourney::Summary) {
+                moveFinalSummary(currentSnapshot, (uiDown && !controllerDown ? 1 : 0) - (uiUp && !controllerUp ? 1 : 0),
+                                 (uiRight && !controllerRight ? 8 : 0) - (uiLeft && !controllerLeft ? 8 : 0));
             } else if (resultFocused && currentSnapshot.canonical) {
                 const bool retained = retainedResult(currentSnapshot);
                 const auto bounds = resultScrollBounds(*currentSnapshot.canonical, retained);
@@ -2559,18 +2586,28 @@ namespace Duel6 {
     }
 
     void NetworkMenu::drawSummary(const Client::NetworkRuntimeSnapshot &snap) const {
-        const auto &state = *snap.canonical;
-        drawText(50, 516, "SESSION ONLY • Completed • Not saved to local statistics or Elo");
-        drawText(50, 494, "Match outcome: " + outcomeHeading(state.score.winner));
-        if (state.round) drawText(50, 472, "Last completed round " + std::to_string(state.completedRounds)
-                                            + ": " + outcomeHeading(state.round->outcome));
-        drawResult(state, false);
-        if (snap.host) {
-            drawAction(72, "Return to lobby", focus == 0); drawAction(30, "End session", focus == 1);
-        } else {
-            drawText(50, 70, "Waiting for host to return to lobby or end session");
-            drawAction(30, "Leave", focus == 0);
-        }
+        const auto width = service.getVideo().getScreen().getClientWidth();
+        const auto height = service.getVideo().getScreen().getClientHeight();
+        worldPresenter.render(*snap.canonical, snap.presentation, snap.presentedPlayers, width, height);
+        renderer.setViewMatrix(Matrix::IDENTITY);
+        renderer.setProjectionMatrix(Matrix::orthographic(0, width, 0, height, -1, 1));
+        FinalSummaryPresentation::render(renderer, font, finalSummaryPlan(snap));
+    }
+
+    FinalSummaryPresentation::Plan NetworkMenu::finalSummaryPlan(const Client::NetworkRuntimeSnapshot &snap) const {
+        using namespace FinalSummaryPresentation;
+        auto model = snap.canonical ? finalResultModel(*snap.canonical, snap.host) : Model{};
+        const bool enabled = snap.journey == Client::NetworkJourney::Summary && confirmation == Confirmation::None;
+        if (snap.host) model.actions = {{Action::ReturnToLobby, enabled, enabled && focus == 0},
+                                       {Action::EndSession, enabled, enabled && focus == 1}};
+        else model.actions = {{Action::Leave, enabled, enabled && focus == 0}};
+        model.navigationFocused = enabled && focus == (snap.host ? 2 : 1);
+        return compose(model, service.getVideo().getScreen().getClientWidth(),
+                       service.getVideo().getScreen().getClientHeight(), finalScroll);
+    }
+
+    void NetworkMenu::moveFinalSummary(const Client::NetworkRuntimeSnapshot &snap, int rows, int columns) {
+        FinalSummaryPresentation::move(finalScroll, finalSummaryPlan(snap).bounds, rows, columns);
     }
 
     void NetworkMenu::drawRetainedContext(
@@ -2580,6 +2617,10 @@ namespace Duel6 {
             && (snap.canonical->phase == Network::Replication::Phase::ActiveRound
                 || snap.canonical->phase == Network::Replication::Phase::RoundSummary)) {
             drawMatch(snap, width, height, false, "Last confirmed state", false);
+            return;
+        }
+        if (snap.canonical && snap.canonical->phase == Network::Replication::Phase::FinalSummary) {
+            drawSummary(snap);
             return;
         }
         drawMenuCanvas(width, height);
@@ -2724,6 +2765,11 @@ namespace Duel6 {
         }
         if (snap.journey == Client::NetworkJourney::Match && snap.canonical) {
             drawMatch(snap, width, height); return;
+        }
+        if (snap.journey == Client::NetworkJourney::Summary && snap.canonical) {
+            drawSummary(snap);
+            if (confirmation != Confirmation::None) drawConfirmation();
+            return;
         }
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Entry) {
             if (renderMainMenu) renderMainMenu();

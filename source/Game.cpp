@@ -103,6 +103,13 @@ namespace Duel6 {
         if (event.getCode() == SDLK_TAB && (!getRound().hasWinner())) {
             displayScoreTab = !displayScoreTab;
         }
+        if (event.isPressed() && worldRenderer && getRound().hasWinner() && getRound().isLast()) {
+            using namespace FinalSummaryPresentation;
+            const auto input = event.getCode() == SDLK_PAGEUP ? LocalInput::PageUp
+                    : event.getCode() == SDLK_PAGEDOWN ? LocalInput::PageDown : LocalInput::Other;
+            if (navigateLocal(finalScroll, worldRenderer->finalSummaryPlan(),
+                    {input, isOver(), appService->getConsole().isActive(), event.withShift()})) return;
+        }
 
         if (!getRound().isLast()) {
             if (event.getCode() == SDLK_F1 && (getRound().hasWinner() || event.withShift())) {
@@ -124,7 +131,13 @@ namespace Duel6 {
 
     void Game::mouseMotionEvent(const MouseMotionEvent &event) {}
 
-    void Game::mouseWheelEvent(const MouseWheelEvent &event) {}
+    void Game::mouseWheelEvent(const MouseWheelEvent &event) {
+        if (!worldRenderer || !getRound().hasWinner() || !getRound().isLast()) return;
+        FinalSummaryPresentation::navigateLocal(finalScroll, worldRenderer->finalSummaryPlan(),
+                {FinalSummaryPresentation::LocalInput::Wheel, isOver(), appService->getConsole().isActive(),
+                 (SDL_GetModState() & KMOD_SHIFT) != 0, event.getX(),
+                 appService->getVideo().getScreen().getClientHeight() - event.getY(), event.getAmountY()});
+    }
 
     void Game::joyDeviceAddedEvent(const JoyDeviceAddedEvent &event) {}
 
@@ -221,6 +234,7 @@ namespace Duel6 {
 #ifndef D6R_HEADLESS_CORE
     void Game::startRound() {
         currentRound = playedRounds;
+        finalScroll = {};
         displayScoreTab = false;
 
         bool shuffle = settings.getLevelSelectionMode() == LevelSelectionMode::Shuffle;

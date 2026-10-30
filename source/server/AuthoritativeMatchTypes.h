@@ -158,6 +158,7 @@ namespace Duel6::Server::Authoritative {
         std::int64_t bonusDuration = 0;
         std::int64_t reloadDuration = 0;
         HudIndicators hudIndicators{};
+        PlayerAnimationState animation;
         std::int64_t width = 0, height = 0;
         std::int32_t roundKills = 0;
     };
@@ -194,6 +195,7 @@ namespace Duel6::Server::Authoritative {
         std::int64_t positionX = 0;
         std::int64_t positionY = 0;
         Tick remainingTicks = 0;
+        EffectVisualState visual;
     };
 
     struct CanonicalStateCheckpoint {

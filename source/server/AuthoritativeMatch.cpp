@@ -1,4 +1,5 @@
 #include "AuthoritativeMatch.h"
+#include "../MatchResultRules.h"
 
 #include <algorithm>
 #include <limits>
@@ -31,12 +32,10 @@ namespace Duel6::Server::Authoritative {
         }
 
         bool playerRanking(const PlayerResultRow &left, const PlayerResultRow &right) {
-            if (left.statistics.totalPoints() != right.statistics.totalPoints())
-                return left.statistics.totalPoints() > right.statistics.totalPoints();
-            if (left.statistics.wins != right.statistics.wins)
-                return left.statistics.wins > right.statistics.wins;
-            if (left.statistics.damage != right.statistics.damage)
-                return left.statistics.damage > right.statistics.damage;
+            const int order = MatchResultRules::compareRanking(
+                    {left.statistics.totalPoints(), left.statistics.wins, left.statistics.damage},
+                    {right.statistics.totalPoints(), right.statistics.wins, right.statistics.damage});
+            if (order != 0) return order < 0;
             return left.rosterOrder < right.rosterOrder;
         }
     }
@@ -670,7 +669,6 @@ namespace Duel6::Server::Authoritative {
         if (currentPhase != MatchPhase::ActiveRound) return;
         std::vector<PlayerState *> alive;
         for (auto &player: players) if (player.alive && !player.departed) alive.push_back(&player);
-        if (alive.empty()) { establishRoundOutcome({}, Team::None, true); return; }
         std::size_t members = 0;
         std::set<Team> teams;
         bool predatorMember = false, nonPredatorMember = false;
@@ -682,28 +680,15 @@ namespace Duel6::Server::Authoritative {
         }
         const bool opposition = config.mode == Mode::Deathmatch ? members >= 2
             : config.mode == Mode::Predator ? predatorMember && nonPredatorMember : teams.size() >= 2;
-        if (!opposition) return;
-        if (config.mode == Mode::Deathmatch && alive.size() == 1) {
-            establishRoundOutcome({alive.front()->definition.playerId}, Team::None, false);
-        } else if (config.mode == Mode::Predator) {
-            const bool predatorAlive = std::any_of(alive.begin(), alive.end(), [this](const auto *player) {
-                return player->definition.playerId == predatorPlayer;
-            });
-            if (!predatorAlive) {
-                std::vector<Identity> winners;
-                for (const auto *player: alive) winners.push_back(player->definition.playerId);
-                establishRoundOutcome(std::move(winners), Team::None, false);
-            } else if (alive.size() == 1) {
-                establishRoundOutcome({predatorPlayer}, Team::None, false);
-            }
-        } else if (config.mode == Mode::TeamDeathmatch) {
-            const Team team = alive.front()->team;
-            if (std::all_of(alive.begin(), alive.end(), [team](const auto *player) { return player->team == team; })) {
-                std::vector<Identity> winners;
-                for (const auto *player: alive) winners.push_back(player->definition.playerId);
-                establishRoundOutcome(std::move(winners), team, false);
-            }
-        }
+        std::vector<MatchResultRules::Survivor> survivors;
+        for (const auto *player: alive) survivors.push_back({player->definition.playerId,
+                static_cast<std::uint8_t>(player->team), player->definition.playerId == predatorPlayer});
+        auto outcome = MatchResultRules::evaluateSurvivors(config.mode == Mode::Deathmatch
+                ? MatchResultRules::Mode::Deathmatch : config.mode == Mode::Predator
+                ? MatchResultRules::Mode::Predator : MatchResultRules::Mode::TeamDeathmatch, survivors, opposition);
+        if (outcome.kind != MatchResultRules::OutcomeKind::Pending)
+            establishRoundOutcome(std::move(outcome.winners), static_cast<Team>(outcome.team),
+                                  outcome.kind == MatchResultRules::OutcomeKind::NoWinner);
     }
 
     void AuthoritativeMatch::establishRoundOutcome(std::vector<Identity> winners, Team winningTeam,
@@ -915,7 +900,8 @@ namespace Duel6::Server::Authoritative {
                 candidate.teams.push_back(std::move(team));
             }
             std::stable_sort(candidate.teams.begin(), candidate.teams.end(), [](const auto &left, const auto &right) {
-                if (left.totalPoints != right.totalPoints) return left.totalPoints > right.totalPoints;
+                const int order = MatchResultRules::compareTeamPoints(left.totalPoints, right.totalPoints);
+                if (order != 0) return order < 0;
                 return static_cast<std::uint8_t>(left.team) < static_cast<std::uint8_t>(right.team);
             });
         }

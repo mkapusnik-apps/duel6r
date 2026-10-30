@@ -28,9 +28,11 @@
 #include "Explosion.h"
 
 namespace Duel6 {
+#ifndef D6R_HEADLESS_CORE
     ExplosionList::ExplosionList(const GameResources &resources, Float32 speed)
             : textures(resources.getExplosionTextures()), speed(speed) {
     }
+#endif
 
     ExplosionList::ExplosionList(Texture textures, Float32 speed)
             : textures(textures), speed(speed) {
@@ -40,6 +42,7 @@ namespace Duel6 {
         auto explIter = explosions.begin();
         while (explIter != explosions.end()) {
             explIter->now += speed * elapsedTime;
+            ++explIter->ageTicks;
             if (explIter->now > explIter->max) {
                 explIter = explosions.erase(explIter);
             } else {
@@ -48,6 +51,7 @@ namespace Duel6 {
         }
     }
 
+#ifndef D6R_HEADLESS_CORE
     void ExplosionList::render(Renderer &renderer) const {
         renderer.enableDepthTest(false);
 
@@ -61,6 +65,7 @@ namespace Duel6 {
 
         renderer.enableDepthTest(true);
     }
+#endif
 
     void ExplosionList::add(const Vector &centre, Float32 startSize, Float32 maxSize, const Color &color) {
         Explosion explosion;
@@ -68,6 +73,15 @@ namespace Duel6 {
         explosion.now = startSize;
         explosion.max = maxSize;
         explosion.color = color;
+        explosion.stableId = nextStableId++;
         explosions.push_back(explosion);
+    }
+
+    unsigned ExplosionList::bloodOffset() {
+        // Cosmetic-only stream. Never consume the authoritative gameplay RNG.
+        cosmeticRandom ^= cosmeticRandom << 13;
+        cosmeticRandom ^= cosmeticRandom >> 7;
+        cosmeticRandom ^= cosmeticRandom << 17;
+        return static_cast<unsigned>(cosmeticRandom % 40);
     }
 }

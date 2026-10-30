@@ -113,6 +113,7 @@ namespace Duel6::Network::Replication {
         std::int64_t bonusDuration = 0; // Q16 seconds, same unit as remaining.
         std::int64_t reloadDuration = 0; // Q16 seconds, includes current modifiers.
         HudIndicators hudIndicators{};
+        PlayerAnimationState animation;
         std::int64_t width = 0, height = 0; // Authoritative collision dimensions, Q16 world units.
         std::int32_t roundKills = 0;
     };
@@ -170,6 +171,7 @@ namespace Duel6::Network::Replication {
         Identity playerId = 0;
         Identity entityId = 0;
         std::int64_t remaining = 0;
+        EffectVisualState visual;
     };
 
     struct PresentationEvent {
@@ -226,6 +228,45 @@ namespace Duel6::Network::Replication {
     // Read-only projection using the bounded canonical result parser, preserving
     // exact 64-bit identities (the general UI JSON reader uses floating point).
     std::optional<std::vector<RetainedOutcomeRow>> retainedOutcomeRows(const ResultState &result);
+
+    struct RetainedResultStatistics {
+        std::uint64_t roundsPlayed = 0, shots = 0, hits = 0, kills = 0, deaths = 0, assists = 0;
+        std::uint64_t wins = 0, penalties = 0, survivalTicks = 0, damage = 0, assistedDamage = 0;
+        std::int64_t totalPoints = 0;
+    };
+    struct RetainedResultPlayer {
+        Identity playerId = 0, participantId = 0;
+        std::size_t rank = 0;
+        std::string displayName;
+        std::uint8_t team = 0;
+        bool departed = false;
+        RetainedResultStatistics cumulative;
+        std::vector<RetainedResultStatistics> rounds;
+    };
+    struct RetainedResultRound {
+        std::uint8_t number = 0;
+        std::string level;
+        bool mirrored = false;
+        RoundOutcomeState outcome;
+        std::vector<Identity> rosterOrder;
+    };
+    struct RetainedResultTeam {
+        std::size_t rank = 0;
+        std::uint8_t team = 0;
+        std::int64_t totalPoints = 0;
+        std::vector<Identity> rankedPlayerIds;
+    };
+    struct RetainedResultView {
+        std::string state, mode, levelPlan;
+        std::uint8_t teamCount = 0, roundLimit = 0, completedRounds = 0;
+        bool friendlyFire = false, assistance = false, quickLiquid = false, burnableTrees = true;
+        std::uint64_t seed = 0;
+        RoundOutcomeState outcome;
+        std::vector<RetainedResultPlayer> players;
+        std::vector<RetainedResultRound> rounds;
+        std::vector<RetainedResultTeam> teams;
+    };
+    std::optional<RetainedResultView> retainedResultView(const ResultState &result);
 
     struct FullSnapshot {
         StateVersion version = 0;

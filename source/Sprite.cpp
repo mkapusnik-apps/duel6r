@@ -26,6 +26,7 @@
 */
 
 #include "Sprite.h"
+#include <cmath>
 #ifndef D6R_HEADLESS_CORE
 #include "Video.h"
 #endif
@@ -35,6 +36,7 @@ namespace Duel6 {
         this->animation = animation;
         this->texture = texture;
         frame = 0;
+        z = 0;
         delay = 0;
         speed = 1;
         looping = AnimationLooping::RepeatForever;
@@ -128,6 +130,7 @@ namespace Duel6 {
     }
 
     void Sprite::update(float elapsedTime) {
+        ++updateTicks;
         delay += elapsedTime * speed * 1000;
         if (delay >= animation[frame + 1]) {
             frame += 2;
@@ -155,6 +158,40 @@ namespace Duel6 {
         }
     }
 
+    EffectVisualState Sprite::visualState() const {
+        EffectVisualState value;
+        const Float32 fields[] = {position.x, position.y, z, size.x, size.y, zRotation, rotationCentre.x, rotationCentre.y};
+        for (Size index = 0; index < value.geometry.size(); ++index)
+            value.geometry[index] = static_cast<std::int64_t>(std::llround(fields[index] * 65536.0));
+        value.frame = static_cast<std::uint16_t>(animation[frame]);
+        value.ageTicks = updateTicks;
+        value.alpha = static_cast<std::uint8_t>(alpha * 255);
+        value.blend = blendFunc == BlendFunc::SrcAlpha ? 1 : blendFunc == BlendFunc::SrcColor ? 2 : 0;
+        value.facingLeft = orientation == Orientation::Left;
+        value.noDepth = noDepth;
+        return value;
+    }
+
+    Sprite &Sprite::restoreVisual(const EffectVisualState &value) {
+        const auto f = [&](Size index) { return static_cast<Float32>(value.geometry[index]) / 65536.0f; };
+        position = Vector(f(0), f(1)); z = f(2); size = Vector(f(3), f(4));
+        zRotation = f(5); rotationCentre = Vector(f(6), f(7));
+        alpha = static_cast<Float32>(value.alpha) / 255.0f;
+        blendFunc = value.blend == 1 ? BlendFunc::SrcAlpha : value.blend == 2 ? BlendFunc::SrcColor : BlendFunc::None;
+        orientation = value.facingLeft ? Orientation::Left : Orientation::Right;
+        noDepth = value.noDepth; restoredTextureFrame = value.frame;
+        return *this;
+    }
+
+    std::uint64_t Sprite::remainingReferenceTicks() const {
+        if (finished || speed <= 0) return 0;
+        const double step = 1000.0 * speed / 90.0;
+        std::uint64_t ticks = static_cast<std::uint64_t>(std::max(1.0, std::ceil((animation[frame + 1] - delay) / step)));
+        for (Size offset = frame + 2; animation[offset] != -1; offset += 2)
+            ticks += static_cast<std::uint64_t>(std::max(1.0, std::ceil(animation[offset + 1] / step)));
+        return ticks;
+    }
+
 #ifndef D6R_HEADLESS_CORE
     void Sprite::render(Renderer &renderer) const {
         if (!visible) {
@@ -168,7 +205,7 @@ namespace Duel6 {
             renderer.setBlendFunc(blendFunc);
         }
 
-        Int32 textureIndex = animation[frame];
+        Int32 textureIndex = restoredTextureFrame >= 0 ? restoredTextureFrame : animation[frame];
         Material material(texture, Color(255, 255, 255, Uint8(255 * alpha)), !isTransparent());
 
         bool rotated = zRotation != 0.0;

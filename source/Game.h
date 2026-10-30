@@ -123,6 +123,7 @@ namespace Duel6 {
         std::vector<PlayerSkin> skins;
         std::unique_ptr<PlayerAnimations> playerAnimations;
         bool displayScoreTab = false;
+        FinalSummaryPresentation::Scroll finalScroll;
 #endif
 
     public:
@@ -241,6 +242,7 @@ namespace Duel6 {
         const WorldRenderer &getWorldRenderer() const {
             return *worldRenderer;
         }
+        FinalSummaryPresentation::Scroll getFinalScroll() const { return finalScroll; }
 #endif
 
         GameMode &getMode() {

@@ -32,8 +32,8 @@
 
 namespace Duel6 {
     namespace {
-#ifndef D6R_HEADLESS_CORE
         AnimationEntry splashAnimation[] = {0, 82, 1, 82, 2, 82, 3, 82, 4, 82, 5, 82, 6, 82, 7, 82, 8, 82, 9, 82, -1, 0};
+#ifndef D6R_HEADLESS_CORE
 
         class WaterBase : public Water {
         private:
@@ -72,6 +72,7 @@ namespace Duel6 {
             }
 
             virtual Float32 getAirHit() const = 0;
+            Texture getSplashTexture() const override { return textures; }
         };
 
         class BlueWater : public WaterBase {
@@ -122,7 +123,11 @@ namespace Duel6 {
             HeadlessWater(std::string name, Float32 airHit) : name(std::move(name)), airHit(airHit) {}
 
             std::string getName() const override { return name; }
-            void onEnter(Player &, const Vector &, World &) const override {}
+            void onEnter(Player &, const Vector &location, World &world) const override {
+                world.getSpriteList().add(splashAnimation, Texture())->setEffectType("water-splash:" + name)
+                    .setPosition(location - Vector(0.5f, 0.0f), 0.5f)
+                    .setLooping(AnimationLooping::OnceAndRemove);
+            }
             void onUnder(Player &player, Float32 elapsedTime) const override {
                 if (!player.hasSnorkel()) player.airHit(airHit * elapsedTime);
             }

@@ -357,6 +357,7 @@ set(D6R_SOURCES
         source/World.cpp
         source/World.h
         source/WorldRenderer.cpp
+        source/FinalSummaryPresentation.cpp
         source/WorldRenderer.h
 
         source/aseprite/animation.h
@@ -649,6 +650,7 @@ target_compile_definitions(duel6r-directory-origin PRIVATE
         D6R_DIRECTORY_DEFAULT_URL="${D6R_DIRECTORY_DEFAULT_URL}")
 
 set(D6R_CANONICAL_GAMEPLAY_SOURCES
+        source/Explosion.cpp
         source/Block.cpp
         source/Bonus.cpp
         source/BonusList.cpp
@@ -667,6 +669,7 @@ set(D6R_CANONICAL_GAMEPLAY_SOURCES
         source/Person.cpp
         source/Player.cpp
         source/PlayerEventListener.cpp
+        source/PlayerAnimations.cpp
         source/Round.cpp
         source/ShotList.cpp
         source/Sprite.cpp
