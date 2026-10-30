@@ -517,6 +517,7 @@ namespace Duel6::Server::Authoritative {
         result.worldTick = worldTick;
         result.waterLevel = world.getLevel().getWaterLevel();
         result.waterRaising = world.getLevel().isRaisingWater();
+        result.animation = world.getArenaAnimationState();
         if (!fixedValue(world.getTime(), result.worldTime)) return {};
         const Water *liquid = world.getLevel().getRisingWaterType();
         result.waterType = liquid == Water::BLUE ? LiquidKind::Blue
@@ -603,6 +604,16 @@ namespace Duel6::Server::Authoritative {
             result.players.back().temporarySlowdownRemaining = slowdownRemaining;
             if (!fixedValue(players[index].getBonusDuration(), result.players.back().bonusDuration)
                 || !fixedValue(players[index].getReloadInterval(), result.players.back().reloadDuration)) return {};
+            auto &exported = result.players.back();
+            const auto indicators = players[index].getIndicators().values();
+            for (std::size_t indicator = 0; indicator < indicators.size(); ++indicator) {
+                if (!indicators[indicator]->isVisible()) continue;
+                if (!fixedValue(indicators[indicator]->getElapsed(), exported.hudIndicators[indicator].elapsed)
+                    || !fixedValue(indicators[indicator]->getTotal(), exported.hudIndicators[indicator].total)) return {};
+            }
+            if (!fixedValue(players[index].getDimensions().x, exported.width)
+                || !fixedValue(players[index].getDimensions().y, exported.height)) return {};
+            exported.roundKills = players[index].getRoundKills();
             digestValue(digest, definition.playerId);
             digestValue(digest, definition.rosterOrder);
             digestValue(digest, result.players.back().spawnIdentity);

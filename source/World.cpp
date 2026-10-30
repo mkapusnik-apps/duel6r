@@ -55,7 +55,7 @@ namespace Duel6 {
         if (!game.isHeadless()) {
             game.log("...Preparing faces");
             levelRenderData = std::make_unique<LevelRenderData>(
-                    level, game.getAppService().getVideo().getRenderer(), D6_ANM_SPEED);
+                    level, game.getAppService().getVideo().getRenderer());
             levelRenderData->generateFaces();
             game.log(Format("...Walls   : {0}") << levelRenderData->getWalls().getFaces().size());
             game.log(Format("...Sprites : {0}") << levelRenderData->getSprites().getFaces().size());
@@ -81,6 +81,7 @@ namespace Duel6 {
 
     void World::update(Float32 elapsedTime) {
         time += elapsedTime;
+        arenaAnimationClock.update(elapsedTime);
 
         spriteList.update(elapsedTime);
 #ifndef D6R_HEADLESS_CORE
@@ -102,6 +103,7 @@ namespace Duel6 {
     }
 
     void World::raiseWater() {
+        arenaAnimationClock.resetWater();
         const Int32 previousLevel = level.getWaterLevel();
         level.raiseWater();
         if (previousLevel != level.getWaterLevel())

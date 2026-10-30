@@ -188,6 +188,7 @@ namespace Duel6::Network::Replication {
             w.vector(round->rosterOrder, writeIdentity); writeOutcome(w, round->outcome);
             w.integer(round->worldTime); w.integer(static_cast<std::uint8_t>(round->waterType));
             w.integer(round->waterLevel); w.boolean(round->waterRaising);
+            w.integer(round->animation.ticks); w.integer(round->animation.waterResetStep);
         }
         std::optional<RoundState> readRound(Reader &r) {
             if (!r.boolean()) return std::nullopt;
@@ -195,7 +196,8 @@ namespace Duel6::Network::Replication {
             v.level = r.string(); v.mirrored = r.boolean();
             v.rosterOrder = r.vector<Identity>(MaxReplicatedPlayers, readIdentity); v.outcome = readOutcome(r);
             v.worldTime = r.integer<std::int64_t>(); v.waterType = static_cast<LiquidKind>(r.integer<std::uint8_t>());
-            v.waterLevel = r.integer<std::int32_t>(); v.waterRaising = r.boolean(); return v;
+            v.waterLevel = r.integer<std::int32_t>(); v.waterRaising = r.boolean();
+            v.animation.ticks = r.integer<std::uint64_t>(); v.animation.waterResetStep = r.integer<std::uint64_t>(); return v;
         }
         void writePlayer(Writer &w, const PlayerState &v) {
             w.integer(v.playerId); w.integer(v.ownerParticipantId); w.integer(v.rosterPosition); w.string(v.displayName);
@@ -206,6 +208,8 @@ namespace Duel6::Network::Replication {
             w.integer(v.presentationAlpha);
             w.integer(v.reloadRemaining); w.integer(v.charge); w.integer(v.temporaryMovementRemaining);
             w.integer(v.bonusDuration); w.integer(v.reloadDuration);
+            for (const auto &indicator: v.hudIndicators) { w.integer(indicator.elapsed); w.integer(indicator.total); }
+            w.integer(v.width); w.integer(v.height); w.integer(v.roundKills);
         }
         PlayerState readPlayer(Reader &r) {
             PlayerState v; v.playerId = r.integer<Identity>(); v.ownerParticipantId = r.integer<Identity>();
@@ -219,7 +223,12 @@ namespace Duel6::Network::Replication {
             v.visible = r.boolean(); v.presentationAlpha = r.integer<std::uint8_t>();
             v.reloadRemaining = r.integer<std::int64_t>(); v.charge = r.integer<std::int64_t>();
             v.temporaryMovementRemaining = r.integer<std::int64_t>();
-            v.bonusDuration = r.integer<std::int64_t>(); v.reloadDuration = r.integer<std::int64_t>(); return v;
+            v.bonusDuration = r.integer<std::int64_t>(); v.reloadDuration = r.integer<std::int64_t>();
+            for (auto &indicator: v.hudIndicators) {
+                indicator.elapsed = r.integer<std::int64_t>(); indicator.total = r.integer<std::int64_t>();
+            }
+            v.width = r.integer<std::int64_t>(); v.height = r.integer<std::int64_t>();
+            v.roundKills = r.integer<std::int32_t>(); return v;
         }
         void writeEntity(Writer &w, const WorldEntityState &v) {
             w.integer(v.entityId); w.integer(static_cast<std::uint8_t>(v.kind)); w.integer(v.ownerPlayerId); w.string(v.type);

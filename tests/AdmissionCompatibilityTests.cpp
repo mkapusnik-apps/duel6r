@@ -689,7 +689,7 @@ namespace {
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
     D6R_REQUIRE_EQ(3u, Network::AdmissionProtocolVersion);
-    D6R_REQUIRE_EQ("duel6r-network-r3", std::string(Network::NetworkReleaseId));
+    D6R_REQUIRE_EQ("duel6r-network-r4", std::string(Network::NetworkReleaseId));
     const std::vector<std::string> exact{
         "d6r.compatibility-admission.v1", "d6r.gameplay-manifest.v1", "d6r.session-identity.v1"};
     D6R_REQUIRE(std::equal(exact.begin(), exact.end(), Network::RequiredAdmissionCapabilities.begin()));
@@ -715,6 +715,8 @@ D6R_TEST_CASE("AC-005 AC-006 AC-007 exact compatibility checks are case and whit
     request = requestFor(host); request.networkReleaseId = "DUEL6R-network-r1";
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);
     request.networkReleaseId = "duel6r-network-r2";
+    D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);
+    request.networkReleaseId = "duel6r-network-r3";
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);
     request.networkReleaseId = std::string(Network::NetworkReleaseId) + " ";
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);

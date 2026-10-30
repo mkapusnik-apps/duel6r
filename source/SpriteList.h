@@ -53,6 +53,7 @@ namespace Duel6 {
         void update(Float32 elapsedTime);
 
         void render(Renderer &renderer) const;
+        const std::list<Sprite> &values() const noexcept { return sprites; }
 
     private:
         void renderTransparent(Renderer &renderer, bool transparent) const;

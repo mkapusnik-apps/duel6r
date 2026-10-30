@@ -1067,6 +1067,42 @@ D6R_TEST_CASE("NET-ADM admission during active and frozen non-final delay stays 
     }
 }
 
+D6R_TEST_CASE("Shared arena headless HUD and reference clock export current age and freeze without events") {
+    ProductionCanonicalResourceRoot resources;
+    auto requested = ProductionCanonicalFixture::canonicalConfig(2, resources.path());
+    const auto players = roster(1);
+    const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
+    D6R_REQUIRE(content.valid());
+    AuthoritativeHostedMatchController controller(1, CanonicalMatchRuntime::createDependencies(requested, players, content));
+    D6R_REQUIRE(controller.initializeReplication({{1, true, R::ConnectionState::Connected, true, {101}}}, players, requested));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+    const auto initial = controller.currentSnapshot()->state;
+    D6R_REQUIRE_EQ(std::size_t(1), initial.players.size());
+    D6R_REQUIRE(initial.players.front().width > 0 && initial.players.front().height > 0);
+    D6R_REQUIRE_EQ(INT64_C(4) * 65536, initial.players.front().hudIndicators[4].total);
+    D6R_REQUIRE_EQ(INT64_C(4) * 65536, initial.players.front().hudIndicators[5].total);
+    for (unsigned tick = 0; tick < 60; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+    D6R_REQUIRE(controller.captureReplication());
+    const auto advancing = controller.currentSnapshot()->state;
+    D6R_REQUIRE_EQ(UINT64_C(90), advancing.round->animation.ticks);
+    D6R_REQUIRE_NEAR(65536, advancing.players.front().hudIndicators[4].elapsed, 2);
+    D6R_REQUIRE(advancing.players.front().hudIndicators == controller.match()->canonicalWorldSnapshot()->players.front().hudIndicators);
+    establishTestOutcome(*controller.match(), {}, Team::None, true);
+    for (unsigned tick = 0; tick < RoundEndActiveTicks; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+    D6R_REQUIRE(controller.captureReplication());
+    const auto frozen = controller.currentSnapshot()->state;
+    for (unsigned tick = 0; tick < 10; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+    D6R_REQUIRE(controller.captureReplication());
+    const auto retained = controller.currentSnapshot()->state;
+    D6R_REQUIRE(frozen.round->animation == retained.round->animation);
+    D6R_REQUIRE(frozen.players.front().hudIndicators == retained.players.front().hudIndicators);
+    R::ReplicatedState fresh;
+    D6R_REQUIRE(fresh.apply(*controller.currentSnapshot()) == R::ApplyResult::Applied);
+    D6R_REQUIRE(fresh.takePresentationEvents().empty());
+    D6R_REQUIRE(fresh.state()->players.front().hudIndicators == retained.players.front().hudIndicators);
+}
+
 D6R_TEST_CASE("NET-ADM inactive waiting versus cancelled membership changes canonical digest without advancing world") {
     ProductionCanonicalResourceRoot resources;
     auto requested = ProductionCanonicalFixture::canonicalConfig(2, resources.path());

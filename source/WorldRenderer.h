@@ -62,15 +62,9 @@ namespace Duel6 {
 
         void setView(int x, int y, int width, int height) const;
 
-        void view(const Player &player) const;
+        void view() const;
 
         void sharedArena() const;
-
-        void walls(const FaceList &walls) const;
-
-        void water(const FaceList &water) const;
-
-        void sprites(const FaceList &sprites) const;
 
         void background(Texture texture) const;
 
@@ -94,25 +88,6 @@ namespace Duel6 {
         Int32 finalRoundCounter() const;
 
         void fpsCounter() const;
-
-        void youAreHere() const;
-
-        void roundKills(const Player &player, Float32 xOfs, Float32 yOfs) const;
-
-        void playerStatus(const Player &player) const;
-
-        Float32 playerIndicator(const Player &player, const Indicator &indicator, const Color &color, Float32 value,
-                                Float32 xOfs, Float32 yOfs) const;
-
-        void playerName(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const;
-
-        void bulletIndicator(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const;
-
-        void bonusIndicator(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const;
-
-        void invulRings(const std::vector<Player> &players) const;
-
-        void invulRing(const Player &player) const;
 
         void screenCurtain(const Color &color) const;
 

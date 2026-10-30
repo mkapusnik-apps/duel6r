@@ -157,6 +157,9 @@ namespace Duel6::Server::Authoritative {
         bool waiting = false;
         std::int64_t bonusDuration = 0;
         std::int64_t reloadDuration = 0;
+        HudIndicators hudIndicators{};
+        std::int64_t width = 0, height = 0;
+        std::int32_t roundKills = 0;
     };
 
     struct CanonicalEntitySnapshot {
@@ -218,6 +221,7 @@ namespace Duel6::Server::Authoritative {
         std::size_t dynamicEntityCount = 0;
         std::int64_t worldTime = 0;
         LiquidKind waterType = LiquidKind::None;
+        ArenaAnimationState animation;
     };
 
     struct PlayerResultRow {

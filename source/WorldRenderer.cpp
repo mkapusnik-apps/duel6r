@@ -35,6 +35,7 @@
 #include "gamemodes/DeathMatch.h"
 #include "gamemodes/TeamDeathMatch.h"
 #include "ArenaPresentation.h"
+#include "ArenaScene.h"
 
 namespace Duel6 {
     WorldRenderer::WorldRenderer(Duel6::AppService &appService, const Duel6::Game &game)
@@ -53,21 +54,6 @@ namespace Duel6 {
 #else
         renderer.setViewport(x, y, width, height);
 #endif
-    }
-
-    void WorldRenderer::walls(const FaceList &walls) const {
-        walls.render(game.getResources().getBlockTextures(), false);
-    }
-
-    void WorldRenderer::water(const FaceList &water) const {
-        const World &world = game.getRound().getWorld();
-        const auto &geometry = world.getLevelRenderData();
-        ArenaPresentation::water(renderer, {geometry.getWalls(), geometry.getSprites(), water,
-                game.getResources().getBlockTextures(), world.getTime()});
-    }
-
-    void WorldRenderer::sprites(const FaceList &sprites) const {
-        sprites.render(game.getResources().getBlockTextures(), true);
     }
 
     void WorldRenderer::background(Texture texture) const {
@@ -272,209 +258,6 @@ namespace Duel6 {
         font.print(x, y, Color::WHITE, fpsCount);
     }
 
-    void WorldRenderer::youAreHere() const {
-        Float32 remainingTime = game.getRound().getRemainingYouAreHere();
-        if (remainingTime <= 0) return;
-
-        renderer.enableDepthTest(false);
-
-        Float32 radius = 0.5f + 0.5f * std::abs(D6_YOU_ARE_HERE_DURATION / 2 - remainingTime);
-        for (const Player &player : game.getPlayers()) {
-            Vector playerCentre = player.getCentre();
-            playerCentre.z = 0.5;
-            Vector lastPoint;
-            Vector segments[72];
-            for (Int32 u = 0; u < 37; u++) {
-                Float32 spike = (u % 2 == 0) ? 0.95f : 1.05f;
-                Vector pos = playerCentre + spike * radius * Vector::direction(u * 10);
-                if (u > 0) {
-                    segments[2 * (u - 1)] = lastPoint;
-                    segments[2 * (u - 1) + 1] = pos;
-                }
-                lastPoint = pos;
-            }
-            renderer.lines(segments, 72, 3.0f, Color::YELLOW);
-        }
-
-        renderer.enableDepthTest(true);
-    }
-
-    Float32
-    WorldRenderer::playerIndicator(const Player &player, const Indicator &indicator, const Color &color, Float32 value,
-                                   Float32 xOfs, Float32 yOfs) const {
-        Float32 width = value * 0.98f;
-        Float32 X = xOfs - 0.5f;
-        Float32 Y = yOfs;
-
-        Uint8 alpha = Uint8(255 * indicator.getAlpha());
-
-        renderer.enableDepthWrite(false);
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(X, Y - 0.1f, 0.5f), Vector(1.0f, 0.1f), Color::BLACK.withAlpha(alpha));
-        renderer.quadXY(Vector(X + 0.01f, Y - 0.08f, 0.5f), Vector(width, 0.07f), color.withAlpha(alpha));
-        renderer.setBlendFunc(BlendFunc::None);
-        renderer.enableDepthWrite(true);
-
-        return 0.1f;
-    }
-
-    void WorldRenderer::playerName(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const {
-        const std::string &name = player.getPerson().getName();
-
-        Float32 width = 0.15f * name.size();
-        Float32 X = xOfs - width / 2;
-        Float32 Y = yOfs;
-
-        Uint8 alpha = Uint8(255 * indicator.getAlpha());
-
-        renderer.enableDepthWrite(false);
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(X, Y, 0.5f), Vector(width, 0.3f), Color::BLUE.withAlpha(alpha));
-        renderer.setBlendFunc(BlendFunc::None);
-
-        font.print(X, Y, 0.5f, Color::YELLOW.withAlpha(alpha), name, 0.3f);
-
-        renderer.enableDepthWrite(true);
-    }
-
-    void
-    WorldRenderer::bulletIndicator(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const {
-        std::string bulletCount = Format("{0}") << player.getAmmo();
-
-        Float32 width = 0.15f * bulletCount.size();
-        Float32 X = xOfs - width / 2;
-        Float32 Y = yOfs;
-
-        Uint8 alpha = Uint8(255 * indicator.getAlpha());
-
-        renderer.enableDepthWrite(false);
-
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(X, Y, 0.5f), Vector(width, 0.3f), Color::YELLOW.withAlpha(alpha));
-        renderer.setBlendFunc(BlendFunc::None);
-
-        font.print(X, Y, 0.5f, Color::BLUE.withAlpha(alpha), bulletCount, 0.3f);
-
-        renderer.enableDepthWrite(true);
-    }
-
-    void
-    WorldRenderer::bonusIndicator(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const {
-        Uint8 alpha = Uint8(255 * indicator.getAlpha());
-        auto bonusType = player.getBonus();
-        Material material = Material::makeColoredTexture(game.getResources().getBonusTextures(),
-                                                         Color::WHITE.withAlpha(alpha));
-
-        Float32 size = 0.3f;
-        Float32 X = xOfs - size / 2;
-        Float32 Y = yOfs;
-
-        renderer.enableDepthWrite(false);
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(X, Y, 0.5f), Vector(size, size),
-                        Vector(0.3f, 0.7f, Float32(bonusType->getTextureIndex())), Vector(0.4f, -0.4f), material);
-        renderer.setBlendFunc(BlendFunc::None);
-        renderer.enableDepthWrite(true);
-    }
-
-    void WorldRenderer::playerStatus(const Player &player) const {
-        const auto &indicators = player.getIndicators();
-
-        if (player.isAlive()) {
-            Rectangle rect = player.getCollisionRect();
-            Float32 xOfs = rect.getCentre().x;
-            Float32 yOfs = rect.right.y + 0.15f;
-
-            const auto &reload = indicators.getReload();
-            if (reload.isVisible()) {
-                Float32 interval = player.getReloadInterval();
-                Float32 value = 1.0f - std::min(interval, player.getReloadTime()) / interval;
-                yOfs += playerIndicator(player, reload, Color::GREEN, value, xOfs, yOfs);
-            }
-
-            const auto &air = indicators.getAir();
-            if (air.isVisible()) {
-                yOfs += playerIndicator(player, air, Color::BLUE, player.getAir() / D6_MAX_AIR, xOfs, yOfs);
-            }
-
-            const auto &bonus = indicators.getBonus();
-            if (bonus.isVisible()) {
-                yOfs += playerIndicator(player, bonus, Color::MAGENTA,
-                                        player.getBonusRemainingTime() / player.getBonusDuration(), xOfs, yOfs);
-            }
-
-            const auto &health = indicators.getHealth();
-            if (health.isVisible()) {
-                yOfs += playerIndicator(player, health, Color::RED, player.getLife() / D6_MAX_LIFE, xOfs, yOfs);
-            }
-
-            const auto &name = indicators.getName();
-            const auto &bullets = indicators.getBullets();
-
-            Float32 space = 0.08f;
-            Float32 nameWidth = name.isVisible() ? space + player.getPerson().getName().size() * 0.15f : 0;
-            std::string bulletString = Format("{0}") << player.getAmmo();
-            Float32 bulletWidth = bullets.isVisible() ? space + bulletString.size() * 0.15f : 0;
-            Float32 bonusWidth = bonus.isVisible() ? space + 0.3f : 0;
-            Float32 totalWidth = nameWidth + bulletWidth + bonusWidth;
-            Float32 halfWidth = totalWidth / 2;
-            Float32 xStart = xOfs - halfWidth;
-
-            if (name.isVisible()) {
-                Float32 nameX = xStart + nameWidth / 2;
-                playerName(player, name, nameX, yOfs);
-            }
-
-            if (bullets.isVisible()) {
-                Float32 bulletX = xStart + nameWidth + bulletWidth / 2;
-                bulletIndicator(player, bullets, bulletX, yOfs);
-            }
-
-            if (bonus.isVisible() && player.getBonus() != BonusType::NONE) {
-                Float32 bonusX = xStart + nameWidth + bulletWidth + bonusWidth / 2;
-                bonusIndicator(player, bonus, bonusX, yOfs);
-            }
-
-            if (name.isVisible() || bullets.isVisible() || bonus.isVisible()) {
-                yOfs += 0.4f;
-            }
-
-            roundKills(player, xOfs, yOfs);
-        }
-    }
-
-    void WorldRenderer::roundKills(const Player &player, Float32 xOfs, Float32 yOfs) const {
-        Float32 width = (2 * player.getRoundKills() - 1) * 0.1f;
-        Float32 X = xOfs + 0.05f - width / 2;
-        Float32 Y = yOfs + 0.1f;
-
-        for (Int32 i = 0; i < player.getRoundKills(); i++, X += 0.2f) {
-            renderer.point(Vector(X, Y, 0.5f), 5.0f, Color::BLUE);
-        }
-    }
-
-    void WorldRenderer::invulRing(const Player &player) const {
-        Vector playerCentre = player.getCentre();
-        Float32 radius = player.getDimensions().length() / 2.0f;
-        Int32 p = Int32(player.getBonusRemainingTime() * 30) % 360;
-
-        Vector points[24];
-        for (Int32 uh = p; uh < 360 + p; uh += 15) {
-            Int32 u = uh % 360;
-            Vector pos = playerCentre + radius * Vector::direction(u);
-            points[(uh - p) / 15] = Vector(pos.x, pos.y, 0.5f);
-        }
-        renderer.points(points, 24, 2.0f, Color::RED);
-    }
-
-    void WorldRenderer::invulRings(const std::vector<Player> &players) const {
-        for (const Player &player : players) {
-            if (player.isInvulnerable()) {
-                invulRing(player);
-            }
-        }
-    }
-
     void WorldRenderer::screenCurtain(const Color &color) const {
         const auto &screen = video.getScreen();
 
@@ -530,21 +313,33 @@ namespace Duel6 {
         video.setMode(Video::Mode::Orthogonal);
     }
 
-    void WorldRenderer::view(const Player &player) const {
+    void WorldRenderer::view() const {
         const World &world = game.getRound().getWorld();
-        world.getElevatorList().render(renderer);
-        world.getBonusList().render(renderer);
-        world.getSpriteList().render(renderer);
-        invulRings(game.getPlayers());
-        water(world.getLevelRenderData().getWater());
-        youAreHere();
-
-        for (const Player &hpPlayer : game.getPlayers()) {
-            playerStatus(hpPlayer);
+        const auto &geometry = world.getLevelRenderData();
+        ArenaScene scene{{geometry.getWalls(), geometry.getSprites(), geometry.getWater(),
+                game.getResources().getBlockTextures(), world.getTime()}};
+        scene.elevatorTexture = game.getResources().getElevatorTextures();
+        scene.bonusTexture = game.getResources().getBonusTextures();
+        scene.explosionTexture = game.getResources().getExplosionTextures();
+        for (const auto &elevator: world.getElevatorList().values()) scene.elevators.push_back(elevator.getPosition());
+        const auto &bonuses = world.getBonusList();
+        scene.bonuses.assign(bonuses.getBonuses().begin(), bonuses.getBonuses().end());
+        scene.weapons.assign(bonuses.getWeapons().begin(), bonuses.getWeapons().end());
+        scene.sprites.assign(world.getSpriteList().values().begin(), world.getSpriteList().values().end());
+        scene.explosions.assign(world.getExplosionList().values().begin(), world.getExplosionList().values().end());
+        for (const auto &actor: game.getPlayers()) {
+            ArenaPlayerHud hud;
+            hud.centre = actor.getCentre(); hud.dimensions = actor.getDimensions();
+            hud.name = actor.getPerson().getName(); hud.ammunition = actor.getAmmo(); hud.kills = actor.getRoundKills();
+            hud.life = actor.getLife(); hud.air = actor.getAir();
+            hud.reload = actor.getReloadTime(); hud.reloadTotal = actor.getReloadInterval();
+            hud.bonus = actor.getBonusRemainingTime(); hud.bonusTotal = actor.getBonusDuration();
+            hud.bonusTexture = actor.getBonus() == BonusType::NONE ? -1 : actor.getBonus()->getTextureIndex();
+            hud.indicators = actor.getIndicators(); hud.alive = actor.isAlive(); hud.invulnerable = actor.isInvulnerable();
+            hud.locationRemaining = game.getRound().getRemainingYouAreHere();
+            scene.players.push_back(std::move(hud));
         }
-        //shotCollisionBox(world.getShotList());
-
-        world.getExplosionList().render(renderer);
+        ArenaRenderer::render(renderer, font, scene);
     }
 
     Color WorldRenderer::getGameOverOverlay() const {
@@ -575,7 +370,7 @@ namespace Duel6 {
         renderer.enableDepthTest(true);
         video.setMode(Video::Mode::Perspective);
         setPlayerCamera(player);
-        view(player);
+        view();
 
         if (game.getRound().hasWinner()) {
             Color overlayColor = getGameOverOverlay();

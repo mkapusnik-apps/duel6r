@@ -56,6 +56,7 @@
 #undef private
 #include "tests/RecordingRenderer.h"
 #include "source/ArenaPresentation.h"
+#include "source/ArenaScene.h"
 #include "tests/CanonicalMotionTrace.h"
 #include "tests/SecondJumpObservation.h"
 #ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
@@ -3228,27 +3229,33 @@ D6R_TEST_CASE("NET-ADM reviewed presenter uses authoritative per-player arrival 
     Network::Replication::ContinuingEffectState effect;
     effect.effectId = 1; effect.playerId = 103; effect.type = "player-arrival"; effect.remaining = 120;
     state.effects = {effect};
+    FaceList walls, sprites, water;
+    const auto draw = [&](CanonicalWorldPresenter &presenter, const auto &player) {
+        ArenaScene scene{{walls, sprites, water, Texture(), 0}};
+        presenter.appendPlayerHud(state, player, 0, 0, scene);
+        ArenaRenderer::render(recording, application.service->getFont(), scene);
+    };
     // Host/existing/new observers all receive the same authoritative effect; no local first-snapshot timer.
     for (int observer = 0; observer < 3; ++observer) {
         CanonicalWorldPresenter presenter(*application.service, application.gameResources);
         presenter.update(0, &state, {});
-        recording.points.clear(); presenter.renderPlayerEffects(state, existing, 0, 0);
-        D6R_REQUIRE(recording.points.empty());
-        presenter.renderPlayerEffects(state, arrival, 0, 0);
-        D6R_REQUIRE_EQ(std::size_t(15), recording.points.size());
-        const auto initial = recording.points.front().position;
-        D6R_REQUIRE(std::abs(std::sqrt(initial.x * initial.x + initial.y * initial.y) - 0.15f) < 0.001f);
+        recording.lines.clear(); draw(presenter, existing);
+        D6R_REQUIRE(recording.lines.empty());
+        draw(presenter, arrival);
+        D6R_REQUIRE_EQ(std::size_t(36), recording.lines.size());
+        const auto initial = recording.lines.front().start;
+        D6R_REQUIRE_NEAR(0.95f * 0.75f, std::sqrt(initial.x * initial.x + initial.y * initial.y), 0.001f);
     }
-    state.effects[0].remaining = 60; state.phaseTime += 60;
+    state.effects[0].remaining = 30; state.phaseTime += 90;
     CanonicalWorldPresenter reconnect(*application.service, application.gameResources);
     reconnect.update(0, &state, {});
-    recording.points.clear(); reconnect.renderPlayerEffects(state, arrival, 0, 0);
-    D6R_REQUIRE_EQ(std::size_t(15), recording.points.size());
-    const auto point = recording.points.front().position;
-    D6R_REQUIRE(std::abs(std::sqrt(point.x * point.x + point.y * point.y) - 0.525f) < 0.001f);
-    state.effects.clear(); state.phaseTime += 60;
-    recording.points.clear(); reconnect.renderPlayerEffects(state, arrival, 0, 0);
-    D6R_REQUIRE(recording.points.empty());
+    recording.lines.clear(); draw(reconnect, arrival);
+    D6R_REQUIRE_EQ(std::size_t(36), recording.lines.size());
+    const auto point = recording.lines.front().start;
+    D6R_REQUIRE_NEAR(0.95f, std::sqrt(point.x * point.x + point.y * point.y), 0.001f);
+    state.effects.clear(); state.phaseTime += 30;
+    recording.lines.clear(); draw(reconnect, arrival);
+    D6R_REQUIRE(recording.lines.empty());
 }
 
 D6R_TEST_CASE("NET-DIR NET-PASS password setup preserves complete UTF8 input and bounded editable correction") {
@@ -4181,6 +4188,16 @@ D6R_TEST_CASE("network restoration production host and guest jump double jump an
     }));
 }
 
+namespace {
+    template<class Adapter>
+    void renderAdaptedScene(Application &application, Adapter adapter) {
+        FaceList walls, sprites, water;
+        ArenaScene scene{{walls, sprites, water, Texture(), 0}};
+        adapter(scene);
+        ArenaRenderer::render(application.service->getVideo().getRenderer(), application.service->getFont(), scene);
+    }
+}
+
 D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility from Predator") {
     char name[] = "duel6r-pr83-weapon-tests";
     char *arguments[] = {name};
@@ -4203,7 +4220,7 @@ D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility 
             player.activeBonus = invisible ? "invisibility" : "";
             player.bonusRemaining = invisible ? 60 : 0;
             draws.clear();
-            presenter.renderHeldWeapon(player, 0, 0);
+            renderAdaptedScene(application, [&](auto &scene) { presenter.appendHeldWeapon(player, 0, 0, scene); });
             D6R_REQUIRE_EQ(1u, draws.size());
             D6R_REQUIRE(draws[0].material.getColor() == Color(255, 255, 255, invisible ? 51 : 255));
             D6R_REQUIRE_EQ(!invisible, draws[0].material.isMasked());
@@ -4212,13 +4229,82 @@ D6R_TEST_CASE("PR83 canonical held weapon draw alpha distinguishes invisibility 
     }
     player.bonusRemaining = 0; // Expired bonus name must not retain weapon opacity.
     draws.clear();
-    presenter.renderHeldWeapon(player, 0, 0);
+    renderAdaptedScene(application, [&](auto &scene) { presenter.appendHeldWeapon(player, 0, 0, scene); });
     D6R_REQUIRE_EQ(1u, draws.size());
     D6R_REQUIRE(draws[0].material.getColor() == Color::WHITE);
     player.lifeState = Network::Replication::LifeState::Dead;
     draws.clear();
-    presenter.renderHeldWeapon(player, 0, 0);
+    renderAdaptedScene(application, [&](auto &scene) { presenter.appendHeldWeapon(player, 0, 0, scene); });
     D6R_REQUIRE(draws.empty());
+}
+
+D6R_TEST_CASE("Shared arena transparent Predator invisibility and overlaps match local raster and depth passes") {
+    char name[] = "duel6r-shared-arena-depth-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &renderer = application.service->getVideo().getRenderer();
+    const auto &font = application.service->getFont();
+    CanonicalWorldPresenter presenter(*application.service, application.gameResources);
+    FaceList walls, geometrySprites, water;
+    for (unsigned scenario = 0; scenario < 3; ++scenario) {
+        ArenaScene scene{{walls, geometrySprites, water, Texture(), 0}};
+        Network::Replication::PlayerState actor;
+        actor.heldWeapon = "pistol";
+        actor.presentationAlpha = scenario == 1 ? 51 : 25; // standing Predator / invisibility
+        if (scenario == 1) { actor.activeBonus = "invisibility"; actor.bonusRemaining = 65536; }
+        Sprite body(presenter.animationFor(actor), presenter.skinFor(actor).getTexture());
+        body.setPosition(Vector(1, 1), .5f).setAlpha(Float32(actor.presentationAlpha) / 255);
+        scene.sprites.push_back(body); // Deliberately body-first input, as in the canonical adapter.
+        presenter.appendHeldWeapon(actor, 1, 1, scene);
+        if (scenario == 2) {
+            auto overlapping = body;
+            overlapping.setPosition(Vector(1.25f, 1.0f), .5f).setAlpha(1);
+            scene.sprites.push_back(overlapping);
+            presenter.appendHeldWeapon(actor, 1.25f, 1, scene);
+        }
+        Test::RecordingRenderer recording;
+        ArenaRenderer::render(recording, font, scene);
+        bool transparentSeen = false;
+        D6R_REQUIRE_EQ(scene.sprites.size(), recording.quads.size());
+        for (const auto &draw: recording.quads) {
+            const bool transparent = draw.blend == BlendFunc::SrcAlpha;
+            D6R_REQUIRE(draw.depthTest);
+            D6R_REQUIRE_EQ(!transparent, draw.depthWrite);
+            if (transparent) transparentSeen = true;
+            else D6R_REQUIRE(!transparentSeen);
+        }
+        D6R_REQUIRE(transparentSeen);
+        D6R_REQUIRE(recording.depthWrite); // Restore state for later geometry.
+
+        SpriteList local;
+        for (const auto &sprite: scene.sprites)
+            *local.add(sprite.getAnimation(), Texture()) = sprite;
+        const auto draw = [&](unsigned path) {
+            renderer.enableDepthWrite(true);
+            renderer.clearBuffers();
+            renderer.enableDepthTest(true);
+            renderer.setBlendFunc(BlendFunc::None);
+            renderer.setProjectionMatrix(Matrix::orthographic(0, 4, 0, 3, -1, 1));
+            renderer.setViewMatrix(Matrix::IDENTITY);
+            renderer.setModelMatrix(Matrix::IDENTITY);
+            if (path == 0) local.render(renderer);
+            else if (path == 1) ArenaRenderer::render(renderer, font, scene);
+            else for (const auto &sprite: scene.sprites) sprite.render(renderer); // Original regression.
+            return renderer.makeScreenshot(); // Diagnostic memory readback only; no screenshot artifact.
+        };
+        const auto reference = draw(0), shared = draw(1), broken = draw(2);
+        D6R_REQUIRE_EQ(reference.getWidth(), shared.getWidth());
+        D6R_REQUIRE_EQ(reference.getHeight(), shared.getHeight());
+        Size visible = 0, regressionPixels = 0;
+        for (Size index = 0; index < reference.getWidth() * reference.getHeight(); ++index) {
+            D6R_REQUIRE(reference.at(index) == shared.at(index));
+            const auto pixel = reference.at(index);
+            if (pixel.getRed() || pixel.getGreen() || pixel.getBlue()) ++visible;
+            if (!(pixel == broken.at(index))) ++regressionPixels;
+        }
+        D6R_REQUIRE(visible > 100);
+        D6R_REQUIRE(regressionPixels > 10); // Prove each scene exposes the body-first depth-write bug.
+    }
 }
 
 D6R_TEST_CASE("network restoration all default weapons retain offline sprite attachment and projectile mapping") {
@@ -4271,7 +4357,7 @@ D6R_TEST_CASE("network restoration all default weapons retain offline sprite att
                 sprite->render(recording);
                 const auto expected = recording.quads.back();
                 recording.quads.clear();
-                presenter.renderHeldWeapon(actor, 4, 3);
+                renderAdaptedScene(application, [&](auto &scene) { presenter.appendHeldWeapon(actor, 4, 3, scene); });
                 D6R_REQUIRE_EQ(1u, recording.quads.size());
                 sameDraw(recording.quads.front(), expected);
             }
@@ -4281,7 +4367,7 @@ D6R_TEST_CASE("network restoration all default weapons retain offline sprite att
             shot.positionX = 7 * 65536; shot.positionY = 4 * 65536;
             shot.velocityX = left ? -65536 : 65536;
             recording.quads.clear();
-            presenter.renderEntity(shot);
+            renderAdaptedScene(application, [&](auto &scene) { presenter.appendEntity(shot, scene); });
             D6R_REQUIRE_EQ(1u, recording.quads.size());
             const auto actual = recording.quads.front();
             recording.quads.clear();
@@ -4296,7 +4382,7 @@ D6R_TEST_CASE("network restoration all default weapons retain offline sprite att
                 D6R_REQUIRE(frame <= Network::Replication::MaxProjectileAnimationFrame);
                 shot.primaryValue = static_cast<std::int64_t>(frame);
                 recording.quads.clear();
-                presenter.renderEntity(shot);
+                renderAdaptedScene(application, [&](auto &scene) { presenter.appendEntity(shot, scene); });
                 D6R_REQUIRE_EQ(1u, recording.quads.size());
                 D6R_REQUIRE_EQ(static_cast<Float32>(visual.animation[frame]),
                                recording.quads.front().uv.front().z);
@@ -4306,7 +4392,7 @@ D6R_TEST_CASE("network restoration all default weapons retain offline sprite att
             while (visual.animation[end] != -1) end += 2;
             shot.primaryValue = static_cast<std::int64_t>(end);
             recording.quads.clear();
-            presenter.renderEntity(shot);
+            renderAdaptedScene(application, [&](auto &scene) { presenter.appendEntity(shot, scene); });
             D6R_REQUIRE(recording.quads.empty());
         }
     }
@@ -4396,7 +4482,7 @@ D6R_TEST_CASE("network projectile frames render exact authoritative lifecycle th
                 const auto shot = projectile(*view);
                 D6R_REQUIRE_EQ(canonicalShot.primaryValue, shot.primaryValue);
                 recording.quads.clear();
-                presenter.renderEntity(shot);
+                renderAdaptedScene(application, [&](auto &scene) { presenter.appendEntity(shot, scene); });
                 D6R_REQUIRE_EQ(1u, recording.quads.size());
                 D6R_REQUIRE_EQ(static_cast<Float32>(visual.animation[shot.primaryValue]),
                                recording.quads.front().uv.front().z);
@@ -4464,8 +4550,8 @@ D6R_TEST_CASE("PRES-ARENA shared scene preserves dry and colored liquid geometry
         const std::vector<Uint8> bytes(json.begin(), json.end());
         for (const bool mirror: {false, true}) {
             Level local(bytes, mirror, blocks), remote(bytes, mirror, blocks);
-            LevelRenderData localGeometry(local, recording, D6_ANM_SPEED);
-            LevelRenderData networkGeometry(remote, recording, D6_ANM_SPEED);
+            LevelRenderData localGeometry(local, recording);
+            LevelRenderData networkGeometry(remote, recording);
             localGeometry.generateFaces(); networkGeometry.generateFaces();
             const auto type = std::find_if(blocks.begin(), blocks.end(), [&](const Block &block) {
                 return block.is(Block::Type::Water) && block.getWaterType() == local.getRisingWaterType();
@@ -4508,6 +4594,51 @@ D6R_TEST_CASE("PRES-ARENA shared scene preserves dry and colored liquid geometry
     D6R_REQUIRE_EQ(1.0f, ArenaPresentation::ratio(20, 10));
 }
 
+D6R_TEST_CASE("Shared arena water geometry follows baseline accumulator and regeneration without resetting walls") {
+    char name[] = "duel6r-water-cadence-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    Test::RecordingRenderer recording;
+    const auto &blocks = application.gameResources.getBlockMeta();
+    for (const int liquid: {4, 16, 33}) {
+        const std::string json = "{\"width\":4,\"height\":4,\"blocks\":[0,0,0,0,0,1,0,0,0,0,0,0,"
+                + std::to_string(liquid) + "," + std::to_string(liquid) + ",1," + std::to_string(liquid) + "]}";
+        Level level(std::vector<Uint8>(json.begin(), json.end()), false, blocks);
+        LevelRenderData geometry(level, recording);
+        geometry.generateFaces();
+        auto baselineWater = geometry.getWater().getFaces();
+        auto baselineWalls = geometry.getWalls().getFaces();
+        auto baselineSprites = geometry.getSprites().getFaces();
+        D6R_REQUIRE(!baselineWater.empty());
+        float baselineWait = 0;
+        const auto compare = [](const auto &expected, const FaceList &actual) {
+            D6R_REQUIRE_EQ(expected.size(), actual.getFaces().size());
+            for (Size index = 0; index < expected.size(); ++index)
+                D6R_REQUIRE_EQ(expected[index].getCurrentTexture(), actual.getFaces()[index].getCurrentTexture());
+        };
+        for (unsigned tick = 1; tick <= 900; ++tick) {
+            baselineWait += 1.0f / 90;
+            if (baselineWait > .328f) {
+                baselineWait = 0;
+                for (auto &face: baselineWater) face.nextFrame();
+                for (auto &face: baselineWalls) face.nextFrame();
+                for (auto &face: baselineSprites) face.nextFrame();
+            }
+            geometry.update(1.0f / 90);
+            if (tick == 89 || tick == 145 || tick == 300 || tick == 899) {
+                level.raiseWater();
+                geometry.generateWater();
+                baselineWater.clear();
+                for (const auto &face: geometry.getWater().getFaces())
+                    baselineWater.emplace_back(face.getBlock()); // Original rebuilt faces start at zero.
+            }
+            compare(baselineWater, geometry.getWater());
+            compare(baselineWalls, geometry.getWalls());
+            compare(baselineSprites, geometry.getSprites());
+        }
+    }
+}
+
 D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mirrored and retained snapshots") {
     char name[] = "duel6r-orientation-tests";
     char *arguments[] = {name};
@@ -4533,6 +4664,8 @@ D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mir
     actor.air = static_cast<std::int64_t>(D6_MAX_AIR * 32768);
     actor.reloadRemaining = 65536; actor.reloadDuration = 2 * 65536;
     actor.activeBonus = "fast-reload"; actor.bonusRemaining = 3 * 65536; actor.bonusDuration = 6 * 65536;
+    actor.width = 32768; actor.height = 65536;
+    for (auto &indicator: actor.hudIndicators) indicator = {65536, 5 * 65536};
     state.players = {actor};
     state.messages.currentPlayerIndicators = {actor.playerId};
     presenter.setCanonicalLevels(state.settings.levels);
@@ -4630,7 +4763,8 @@ D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mir
                 }
                 // Name/ammunition backing is submitted above the actor, not beneath its feet.
                 const auto label = std::find_if(recording.quads.begin(), recording.quads.end(), [](const auto &draw) {
-                    return draw.material.getColor() == Color(0, 0, 200, 220);
+                    return draw.material.getColor() == Color::BLUE
+                        && std::abs(draw.vertices[1].y - draw.vertices[0].y - 0.3f) < 0.00001f;
                 });
                 D6R_REQUIRE(label != recording.quads.end());
                 for (const auto color: {Color::GREEN, Color::BLUE, Color::MAGENTA}) {
@@ -4641,7 +4775,7 @@ D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mir
                     D6R_REQUIRE(bar != recording.quads.end());
                     const auto horizontal = std::minmax_element(bar->vertices.begin(), bar->vertices.end(),
                             [](const auto &a, const auto &b) { return a.x < b.x; });
-                    D6R_REQUIRE_NEAR(0.46f, horizontal.second->x - horizontal.first->x, 0.00001f);
+                    D6R_REQUIRE_NEAR(0.49f, horizontal.second->x - horizontal.first->x, 0.00001f);
                 }
                 const auto feet = matrix * Vector(4, 3, 0);
                 for (const auto &vertex : label->projected) D6R_REQUIRE(vertex.y > feet.y);
@@ -4791,7 +4925,7 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
         // not the former rectangle that painted through the floor.
         Level localLevel(state.round->level, state.round->mirrored, application.gameResources.getBlockMeta());
         while (localLevel.getWaterLevel() < state.round->waterLevel) localLevel.raiseWater();
-        LevelRenderData localGeometry(localLevel, recording, D6_ANM_SPEED);
+        LevelRenderData localGeometry(localLevel, recording);
         localGeometry.generateFaces();
         const auto &expectedVertices = localGeometry.getWater().getVertexes();
         D6R_REQUIRE_EQ(expectedVertices.size(), waterDraw->vertices.size());
