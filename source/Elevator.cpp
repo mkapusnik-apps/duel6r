@@ -31,6 +31,7 @@
 #include "math/Math.h"
 #ifndef D6R_HEADLESS_CORE
 #include "Video.h"
+#include "ArenaPresentation.h"
 #endif
 
 #define D6_ELEV_SPEED 1.83f
@@ -89,21 +90,7 @@ namespace Duel6 {
 
     void Elevator::render(Renderer &renderer, Texture texture) const {
 #ifndef D6R_HEADLESS_CORE
-        Float32 X = position.x, Y = position.y - 0.3f;
-        Material material = Material::makeTexture(texture);
-
-        // Front
-        renderer.quadXY(Vector(X, Y, 0.7f), Vector(1.0f, 0.3f), Vector::ZERO, Vector(1, 1), material);
-
-#ifdef D6_RENDER_BACKS
-        renderer.quadXY(Vector(X + 1.0f, Y, 0.7f), Vector(-1.0f, 0.3f), Vector::ZERO, Vector(1, 1), material);
-#endif
-        renderer.quadYZ(Vector(X, Y, 0.3f), Vector(0.0f, 0.3f, 0.4f), Vector::ZERO, Vector(1, 1), material);
-        renderer.quadYZ(Vector(X + 1.0f, Y, 0.7f), Vector(0.0f, 0.3f, -0.4f), Vector::ZERO, Vector(1, 1),
-                             material);
-
-        renderer.quadXZ(Vector(X, Y + 0.3f, 0.3f), Vector(1.0f, 0.0f, 0.4f), Vector::ZERO, Vector(1, 1), material);
-        renderer.quadXZ(Vector(X, Y, 0.7f), Vector(1.0f, 0.0f, -0.4f), Vector::ZERO, Vector(1, 1), material);
+        ArenaPresentation::elevator(renderer, texture, position);
 #else
         (void) renderer;
         (void) texture;

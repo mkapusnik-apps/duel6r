@@ -12,6 +12,7 @@
 #include "Level.h"
 #include "LevelRenderData.h"
 #include "PlayerSkin.h"
+#include "PresentationClock.h"
 #include "math/RandomSource.h"
 #include "network/NetworkResponsiveness.h"
 #include "network/StateReplication.h"
@@ -25,7 +26,8 @@ namespace Duel6 {
         void setCanonicalLevels(std::vector<std::string> levels);
         void update(Float32 elapsedTime,
                     const Network::Replication::CanonicalState *state,
-                    const std::vector<Network::Replication::PresentationEvent> &events);
+                    const std::vector<Network::Replication::PresentationEvent> &events,
+                    bool retainingWorld = false);
         bool render(const Network::Replication::CanonicalState &state,
                     const Network::Responsiveness::ConnectionPresentationState &presentation,
                     const std::vector<Network::Responsiveness::PresentedPlayerPose> &presentedPlayers,
@@ -59,6 +61,7 @@ namespace Duel6 {
         Network::Replication::Identity loadedMatch = 0;
         Network::Replication::Identity loadedRound = 0;
         bool loadedMirror = false;
+        PresentationClock worldClock;
         bool loadRound(const Network::Replication::CanonicalState &state);
         const PlayerSkin &skinFor(const Network::Replication::PlayerState &player) const;
         Animation animationFor(const Network::Replication::PlayerState &player) const;

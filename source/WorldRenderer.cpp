@@ -34,6 +34,7 @@
 #include "Explosion.h"
 #include "gamemodes/DeathMatch.h"
 #include "gamemodes/TeamDeathMatch.h"
+#include "ArenaPresentation.h"
 
 namespace Duel6 {
     WorldRenderer::WorldRenderer(Duel6::AppService &appService, const Duel6::Game &game)
@@ -59,13 +60,10 @@ namespace Duel6 {
     }
 
     void WorldRenderer::water(const FaceList &water) const {
-        renderer.enableDepthWrite(false);
-        renderer.setBlendFunc(BlendFunc::SrcColor);
-
-        water.render(game.getResources().getBlockTextures(), false);
-
-        renderer.setBlendFunc(BlendFunc::None);
-        renderer.enableDepthWrite(true);
+        const World &world = game.getRound().getWorld();
+        const auto &geometry = world.getLevelRenderData();
+        ArenaPresentation::water(renderer, {geometry.getWalls(), geometry.getSprites(), water,
+                game.getResources().getBlockTextures(), world.getTime()});
     }
 
     void WorldRenderer::sprites(const FaceList &sprites) const {
@@ -513,8 +511,9 @@ namespace Duel6 {
         }
 
         const World &world = game.getRound().getWorld();
-        walls(world.getLevelRenderData().getWalls());
-        sprites(world.getLevelRenderData().getSprites());
+        const auto &geometry = world.getLevelRenderData();
+        ArenaPresentation::staticGeometry(renderer, {geometry.getWalls(), geometry.getSprites(), geometry.getWater(),
+                game.getResources().getBlockTextures(), world.getTime()});
 
         renderer.enableWireframe(false);
     }

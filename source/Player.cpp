@@ -43,6 +43,7 @@
 #include "math/Math.h"
 #ifndef D6R_HEADLESS_CORE
 #include "Video.h"
+#include "ArenaPresentation.h"
 #endif
 #include "PlayerEventListener.h"
 
@@ -663,29 +664,8 @@ namespace Duel6 {
 
 #ifndef D6R_HEADLESS_CORE
     void Player::prepareCam(const Video &video, Int32 levelSizeX, Int32 levelSizeY) {
-        Float32 fovX, fovY, mZ, dX = 0.0, dY = 0.0;
-        fovY = Math::degTan(video.getView().getFieldOfView() / 2.0f);
-        fovX = video.getScreen().getAspect() * fovY;
-
-        if (levelSizeX > video.getScreen().getAspect() * levelSizeY)
-            dX = (Float32) levelSizeX;
-        else
-            dY = (Float32) levelSizeY;
-
-        if (dX == 0.0) {
-            mZ = dY / (2.0f * fovY);
-            dX = 2.0f * fovX * mZ;
-        } else {
-            mZ = dX / (2.0f * fovX);
-            dY = 2.0f * fovY * mZ;
-        }
-
-        Vector position;
-        position.x = levelSizeX / 2.0f;
-        position.y = levelSizeY / 2.0f;
-        position.z = mZ + 1.0f;
-
-        camera.setPosition(position);
+        camera.setPosition(ArenaPresentation::cameraPosition(levelSizeX, levelSizeY,
+                video.getScreen().getAspect(), video.getView().getFieldOfView()));
     }
 #endif
 

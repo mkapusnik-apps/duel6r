@@ -186,12 +186,16 @@ namespace Duel6::Network::Replication {
             w.boolean(round.has_value()); if (!round) return;
             w.integer(round->roundId); w.integer(round->roundNumber); w.string(round->level); w.boolean(round->mirrored);
             w.vector(round->rosterOrder, writeIdentity); writeOutcome(w, round->outcome);
+            w.integer(round->worldTime); w.integer(static_cast<std::uint8_t>(round->waterType));
+            w.integer(round->waterLevel); w.boolean(round->waterRaising);
         }
         std::optional<RoundState> readRound(Reader &r) {
             if (!r.boolean()) return std::nullopt;
             RoundState v; v.roundId = r.integer<Identity>(); v.roundNumber = r.integer<std::uint8_t>();
             v.level = r.string(); v.mirrored = r.boolean();
-            v.rosterOrder = r.vector<Identity>(MaxReplicatedPlayers, readIdentity); v.outcome = readOutcome(r); return v;
+            v.rosterOrder = r.vector<Identity>(MaxReplicatedPlayers, readIdentity); v.outcome = readOutcome(r);
+            v.worldTime = r.integer<std::int64_t>(); v.waterType = static_cast<LiquidKind>(r.integer<std::uint8_t>());
+            v.waterLevel = r.integer<std::int32_t>(); v.waterRaising = r.boolean(); return v;
         }
         void writePlayer(Writer &w, const PlayerState &v) {
             w.integer(v.playerId); w.integer(v.ownerParticipantId); w.integer(v.rosterPosition); w.string(v.displayName);
@@ -201,6 +205,7 @@ namespace Duel6::Network::Replication {
             w.string(v.activeBonus); w.integer(v.bonusRemaining); w.boolean(v.invulnerable); w.boolean(v.visible);
             w.integer(v.presentationAlpha);
             w.integer(v.reloadRemaining); w.integer(v.charge); w.integer(v.temporaryMovementRemaining);
+            w.integer(v.bonusDuration); w.integer(v.reloadDuration);
         }
         PlayerState readPlayer(Reader &r) {
             PlayerState v; v.playerId = r.integer<Identity>(); v.ownerParticipantId = r.integer<Identity>();
@@ -213,7 +218,8 @@ namespace Duel6::Network::Replication {
             v.activeBonus = r.string(); v.bonusRemaining = r.integer<std::int64_t>(); v.invulnerable = r.boolean();
             v.visible = r.boolean(); v.presentationAlpha = r.integer<std::uint8_t>();
             v.reloadRemaining = r.integer<std::int64_t>(); v.charge = r.integer<std::int64_t>();
-            v.temporaryMovementRemaining = r.integer<std::int64_t>(); return v;
+            v.temporaryMovementRemaining = r.integer<std::int64_t>();
+            v.bonusDuration = r.integer<std::int64_t>(); v.reloadDuration = r.integer<std::int64_t>(); return v;
         }
         void writeEntity(Writer &w, const WorldEntityState &v) {
             w.integer(v.entityId); w.integer(static_cast<std::uint8_t>(v.kind)); w.integer(v.ownerPlayerId); w.string(v.type);

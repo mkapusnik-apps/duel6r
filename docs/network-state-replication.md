@@ -84,8 +84,40 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-PRES-007** Replicated state must not contain a canonical fallback-background selection field.
 - **REP-PRES-008** A client must derive a fallback background under `NET-VIS-012` through `NET-VIS-017` from existing replicated identities and its eligible background list.
 - **REP-PRES-009** Reconnect and resynchronization must restore the same fallback background when the replicated identities and eligible background list remain equal.
+- **REP-PRES-010** Replicated state and events must supply sufficient gameplay type, action, effect age, and phase information to satisfy `PRES-ARENA-004`–`PRES-ARENA-012` in the [common arena presentation contract](screens/play-fullscreen.md#common-arena-presentation-contract).
+
+This includes authoritative water type and surface, player hit and weapon-pick presentation, water-entry splashes, and ongoing or completed tree burning. A client must distinguish the presented world's animation time from connection time and round-end countdown time. These semantic requirements do not select a wire encoding or require visual-resource identities. Snapshot and incremental equality compares equivalent presentation time as well as equivalent current state. `REP-029`–`REP-030` retain current-effect restoration without expired-event replay; `NRP-PRS-005`–`NRP-PRS-010` retain the existing prediction boundary.
 
 ## Entity lifecycle
+
+### Arena presentation wire fields
+
+Replication frame version 4 is paired with admission release ID `duel6r-network-r3`.
+An r2 peer is rejected during admission as a network-release mismatch; version-3
+replication frames are not decoded as version 4. The admission frame layout itself
+is unchanged.
+
+After the round outcome, both full and incremental round records append signed
+64-bit `worldTime` (Q16 seconds), byte `waterType` (`0` none, `1` blue, `2` red,
+`3` green), signed 32-bit `waterLevel` (highest completely flooded tile row,
+`-1` before the first row), and boolean `waterRaising`. `worldTime` follows the
+world rather than the match countdown; it stops in frozen phases. The liquid
+type comes from the authority even on a map initially without liquid. Rendering
+overlays accepted flooded rows on the loaded map without simulating a rise.
+
+Player records append signed 64-bit `bonusDuration` and `reloadDuration`, both
+Q16 seconds. They are the totals corresponding to the existing remaining-time
+fields, including the current reload modifier. `life` remains unscaled; `air`
+and remaining times retain Q16 units. Rendering converts units once and clamps
+visible proportions, including the zero-total case.
+
+The fields use the existing little-endian framing and participate in snapshot
+equality and player delta comparison. Validation rejects unknown liquid types,
+negative world time or durations, world times above 2^48 Q16 units, durations
+above 86400 seconds, water rows below -1 or outside the maximum level-cell bound,
+and a raising surface with no liquid type. Conservative payload accounting includes
+14 additional round bytes and 16 additional bytes per player; existing frame and
+aggregate payload limits remain in force.
 
 - **REP-031** A full snapshot must declare the complete set of current replicated entities at its state version.
 - **REP-032** An incremental update must identify each entity creation, update, and removal that applies after its baseline.
@@ -180,6 +212,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-PRES-AC-002 — Profile exclusion:** Replication does not require or provide profile, skin, animation-resource, or visual-resource identities for selected-profile appearance parity.
 - **REP-PRES-AC-003 — Read-only presentation:** A client presents replicated state without mutating it or creating another gameplay simulation.
 - **REP-PRES-AC-004 — Background derivation:** Equal replicated session, match, round, and level logical identities and equal eligible background lists select the same presentation-only fallback background from a full snapshot, equivalent incremental state, reconnect, or resynchronization. Replication adds no canonical background-selection field.
+- **REP-PRES-AC-005 — Arena presentation state:** Full and incremental state provide the authoritative water type, status quantities, action states, effect age, and phase information needed for `PRES-ARENA-AC-001`–`PRES-ARENA-AC-004`. Recovery restores current animation and burn completion without replaying expired effects or changing canonical gameplay.
 - **REP-OWN-AC-001 — Immutable ownership:** Lobby person and roster-order changes preserve admitted player identities and ownership. A participant-local control change also preserves identity and ownership. Participant removal removes all player slots owned by that participant.
 
 ## Downstream boundaries
