@@ -2137,7 +2137,6 @@ namespace Duel6 {
             appendWrapped(details, "Same-machine endpoint. Only clients on the host machine can connect.", 98);
             appendWrapped(details, "Loopback address; not verified as the advertised host on this machine.", 98);
         }
-        appendWrapped(details, "A listing does not guarantee reachability.", 98);
         for (std::size_t index = 0; index < details.size(); ++index)
             drawText(30, 272 - static_cast<Int32>(index) * 18, details[index]);
         const bool pagination = browser.hasPrevious() || !browser.result().nextCursor.empty();

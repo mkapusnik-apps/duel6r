@@ -35,7 +35,7 @@
     <text x="61" y="528">Selected: full session identity • Predator • 192.168.1.24:26660</text>
     <text x="61" y="551">Match in progress. Your players join next round if admitted.</text>
     <text x="61" y="574">The host confirms availability when you connect.</text>
-    <text x="61" y="597">LAN-first. A listing does not guarantee reachability.</text>
+    <text x="61" y="597">LAN-first.</text>
     <text x="179" y="641" text-anchor="middle">Join selected</text>
     <text x="770" y="207">Refresh</text>
     <text x="447" y="641" text-anchor="middle">Direct connect</text><text x="715" y="641" text-anchor="middle">Back</text>

@@ -1170,6 +1170,7 @@ D6R_TEST_CASE("NET-10 empty and initial error retain headings and subdued inline
             f.menu.focus = 0; f.deliver({available, {}, {}});
             const auto &message = available ? empty : error;
             D6R_REQUIRE(f.text(message) && !f.text(available ? error : empty));
+            D6R_REQUIRE(!f.text("A listing does not guarantee reachability."));
             D6R_REQUIRE(!f.fill(28,200,794,310,Color(192)));
             D6R_REQUIRE(f.fill(28,292,794,198,Color::WHITE));
             D6R_REQUIRE(f.fill(28,490,794,20,Color(170)));
@@ -1943,7 +1944,7 @@ D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Re
         f.deliver({true, {f.row}, pagination ? "cursor-next" : ""});
         f.menu.selectedListing = f.row.id; f.menu.focus = pagination ? 5 : 0; f.draw();
         D6R_REQUIRE(f.text(context));
-        D6R_REQUIRE(f.text(confirmation) && f.text(reachability));
+        D6R_REQUIRE(f.text(confirmation) && !f.text(reachability));
         std::vector<std::pair<float, float>> details;
         for (const auto &draw: f.recorder.quads) {
             const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
@@ -1952,7 +1953,7 @@ D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Re
             if (entry->text.find("Session: " + f.row.sessionId) != 0
                 && entry->text.find("Endpoint: ") != 0
                 && entry->text != context
-                && entry->text != confirmation && entry->text != reachability) continue;
+                && entry->text != confirmation) continue;
             const auto &quad = draw;
             D6R_REQUIRE(quad.vertices[0].x >= 24 && quad.vertices[2].x <= 826);
             D6R_REQUIRE(quad.vertices[0].y >= 130 && quad.vertices[2].y <= 290);
@@ -1962,7 +1963,7 @@ D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Re
             }
             details.emplace_back(quad.vertices[0].y, quad.vertices[2].y);
         }
-        D6R_REQUIRE_EQ(std::size_t(5), details.size()); // Separate full identity/mode and endpoint.
+        D6R_REQUIRE_EQ(std::size_t(4), details.size()); // Separate full identity/mode and endpoint.
         std::sort(details.begin(), details.end());
         for (std::size_t index = 1; index < details.size(); ++index)
             D6R_REQUIRE(details[index - 1].second <= details[index].first);
@@ -3201,7 +3202,10 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     };
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Previous page").first);
     D6R_REQUIRE(textBounds("Join selected").second < textBounds("Next page").first);
-    D6R_REQUIRE(textBounds("Page 1").second < textBounds("A listing does not guarantee reachability.").first);
+    D6R_REQUIRE(rendered.find("A listing does not guarantee reachability.") == std::string::npos);
+    // Refresh left this page unselected, so paging clears the table without selected details.
+    D6R_REQUIRE(menu.selectedListing.empty());
+    D6R_REQUIRE(textBounds("Page 1").second < textBounds("  127.0.0.1:25007").first);
     // Composed UX-NET-10-008 centers the captions in the same y=68, h=32 footer row.
     for (const auto *caption: {"Join selected", "Direct connect", "Back"}) {
         const auto bounds = textBounds(caption);
