@@ -190,34 +190,46 @@ namespace Duel6 {
     }
 
     void WorldRenderer::gameOverSummary() const {
-        const bool teamDeathMatch = dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;
-        const bool deathMatch = dynamic_cast<const DeathMatch *>(&game.getMode()) != nullptr;
-        if (!deathMatch && !teamDeathMatch) {
-            roundOverSummary(false, false);
-            return;
+        FinalSummaryPresentation::render(renderer, font, finalSummaryPlan());
+    }
+
+    FinalSummaryPresentation::Plan WorldRenderer::finalSummaryPlan() const {
+        using namespace FinalSummaryPresentation;
+        Model model;
+        model.completedRounds = game.getCurrentRound() + 1;
+        model.roundLimit = game.getSettings().getMaxRounds();
+        model.lastRoundNumber = model.completedRounds;
+        model.curtainAlpha = getGameOverOverlay().getAlpha();
+        const auto &outcome = game.getRound().getEstablishedOutcome();
+        model.lastRoundOutcome.noWinner = outcome.kind == MatchResultRules::OutcomeKind::NoWinner;
+        static const char *teams[] = {"", "Alpha", "Bravo", "Charlie", "Delta"};
+        if (outcome.team > 0 && outcome.team <= 4) model.lastRoundOutcome.winningTeam = teams[outcome.team];
+        for (const auto id: outcome.winners) {
+            const auto player = std::find_if(game.getPlayers().begin(), game.getPlayers().end(),
+                    [id](const auto &value) { return value.getRosterSlot() + 1 == id; });
+            if (player != game.getPlayers().end())
+                model.lastRoundOutcome.winners.push_back({player->getPerson().getName(), {},
+                        model.lastRoundOutcome.winningTeam, false});
         }
-
-        const std::string notice = "End of Game";
-        const Int32 fontSize = 32;
-        const Int32 horizontalPadding = 16;
-        const Int32 verticalPadding = 8;
-        const Int32 bottomInset = 16;
-        const Int32 panelGap = 16;
-        const Int32 noticeHeight = fontSize + 2 * verticalPadding;
-        const Float32 noticeTextWidth = font.getTextWidth(notice, fontSize);
-        const Float32 noticeWidth = noticeTextWidth + 2 * horizontalPadding;
-        const Float32 noticeX = video.getScreen().getClientWidth() / 2.0f - noticeWidth / 2.0f;
-        const Int32 counterBottom = finalRoundCounter();
-
-        roundOverSummary(false, teamDeathMatch, true, bottomInset + noticeHeight + panelGap, counterBottom - panelGap);
-        // Keep counter text above an oversized score panel's intersecting backing surface.
-        finalRoundCounter();
-
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(noticeX, Float32(bottomInset)), Vector(noticeWidth, Float32(noticeHeight)),
-                        Color(0, 0, 255, 255));
-        renderer.setBlendFunc(BlendFunc::None);
-        font.print(noticeX + horizontalPadding, bottomInset + verticalPadding, 0.0f, Color::WHITE, notice, fontSize);
+        model.matchOutcome = model.lastRoundOutcome;
+        model.cumulative.title = "CUMULATIVE RANKING";
+        model.cumulative.columns = {{"Player / team"}, {"K", true}, {"A", true}, {"D", true},
+                                    {"K/D", true}, {"PTS", true}};
+        const Ranking ranking = game.getMode().getRanking(game.getPlayers());
+        const auto append = [&](const Ranking::Entry &entry, bool nested, bool separator) {
+            Row row{{entry.name, std::to_string(entry.kills), std::to_string(entry.assistances),
+                    std::to_string(entry.deaths), Person::getKillsToDeathsRatio(entry.kills, entry.deaths),
+                    std::to_string(entry.points)}, nested, separator, {}};
+            if (!entry.entries.empty()) row.teamColor = entry.bcgColor;
+            model.cumulative.rows.push_back(std::move(row));
+        };
+        for (std::size_t index = 0; index < ranking.entries.size(); ++index) {
+            const auto &entry = ranking.entries[index];
+            append(entry, false, index > 0 && !entry.entries.empty());
+            for (const auto &nested: entry.entries) append(nested, true, false);
+        }
+        return compose(model, video.getScreen().getClientWidth(), video.getScreen().getClientHeight(),
+                       game.getFinalScroll());
     }
 
     void WorldRenderer::roundsPlayed() const {
@@ -228,23 +240,6 @@ namespace Duel6 {
         renderer.quadXY(Vector(x - 1, y - 1), Vector(width + 2, 18), Color::BLACK);
         font.print(x + 8, y, Color::WHITE,
                    Format("Rounds: {0,3}|{1,3}") << game.getCurrentRound() + 1 << game.getSettings().getMaxRounds());
-    }
-
-    Int32 WorldRenderer::finalRoundCounter() const {
-        const std::string counter = Format("Rounds: {0,3}|{1,3}") << game.getCurrentRound() + 1
-                                                                  << game.getSettings().getMaxRounds();
-        const Int32 fontSize = 32;
-        const Int32 horizontalPadding = 8;
-        const Int32 verticalPadding = 2;
-        const Int32 topInset = 2;
-        const Int32 width = font.getTextWidth(counter, fontSize) + 2 * horizontalPadding;
-        const Int32 height = fontSize + 2 * verticalPadding;
-        const Int32 x = video.getScreen().getClientWidth() / 2 - width / 2;
-        const Int32 y = video.getScreen().getClientHeight() - topInset - height;
-
-        renderer.quadXY(Vector(x, y), Vector(width, height), Color::BLACK);
-        font.print(x + horizontalPadding, y + verticalPadding, 0.0f, Color::WHITE, counter, fontSize);
-        return y;
     }
 
     void WorldRenderer::fpsCounter() const {
@@ -372,7 +367,7 @@ namespace Duel6 {
         setPlayerCamera(player);
         view();
 
-        if (game.getRound().hasWinner()) {
+        if (game.getRound().hasWinner() && !game.getRound().isLast()) {
             Color overlayColor = getGameOverOverlay();
             screenCurtain(overlayColor);
         }
@@ -394,6 +389,11 @@ namespace Duel6 {
         video.setMode(Video::Mode::Orthogonal);
         setView(0, 0, video.getScreen().getClientWidth(), video.getScreen().getClientHeight());
 
+        if (game.getRound().hasWinner() && game.getRound().isLast()) {
+            gameOverSummary();
+            return;
+        }
+
         infoMessages();
 
         if (settings.isShowFps()) {
@@ -404,9 +404,7 @@ namespace Duel6 {
             playerRankings();
         }
 
-        const bool localizedFinalSummary = game.getRound().hasWinner() && game.getRound().isLast() &&
-                                           (dynamic_cast<const DeathMatch *>(&game.getMode()) != nullptr ||
-                                            dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr);
+        const bool localizedFinalSummary = game.getRound().hasWinner() && game.getRound().isLast();
         if (settings.isRoundLimit() && !showRoundSummaryProgress && !localizedFinalSummary) {
             roundsPlayed();
         }

@@ -62,6 +62,9 @@ namespace Duel6 {
                                        RandomSource &randomSource) const override;
 
         Ranking getRanking(const std::vector<Player> &players) const override;
+        std::uint8_t teamNumber(const Player &player) const {
+            return static_cast<std::uint8_t>(player.getRosterSlot() % teamsCount + 1);
+        }
         void initializeArrival(Game &game, Player &player, World &world, RandomSource &randomSource) override;
 
         bool checkForSuddenDeathMode(World &world, const std::vector<Player *> &alivePlayers) const override;

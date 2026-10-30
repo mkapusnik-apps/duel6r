@@ -39,6 +39,7 @@
 #include "ShotList.h"
 #include "Ranking.h"
 #include "renderer/RendererTarget.h"
+#include "FinalSummaryPresentation.h"
 
 namespace Duel6 {
     class Game;
@@ -56,6 +57,7 @@ namespace Duel6 {
 
         void render() const;
         void prerender() const;
+        FinalSummaryPresentation::Plan finalSummaryPlan() const;
 
     private:
         void setView(const PlayerView &view) const;
@@ -85,7 +87,6 @@ namespace Duel6 {
 
         void roundsPlayed() const;
 
-        Int32 finalRoundCounter() const;
 
         void fpsCounter() const;
 

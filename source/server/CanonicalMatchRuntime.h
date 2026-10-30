@@ -50,12 +50,6 @@ namespace Duel6::Server::Authoritative {
         std::vector<CanonicalEvent> eventTrace;
         std::uint64_t nextTransitionSequence = 1;
         std::vector<CanonicalEvent> transitionTrace;
-        struct ActiveEffect {
-            CanonicalContinuingEffectSnapshot snapshot;
-            Tick expiresAt = 0;
-        };
-        std::vector<ActiveEffect> activeEffects;
-        bool effectsOverflowed = false;
         std::map<Identity, std::int32_t> previousLife;
         std::map<Identity, PlayerStatistics> previousStatistics;
         std::set<std::uint64_t> previousEntities;
@@ -80,8 +74,6 @@ namespace Duel6::Server::Authoritative {
         void appendTransition(std::string kind, std::uint64_t entityId = 0, Identity playerId = 0,
                                Identity targetPlayerId = 0, std::string valueCategory = {},
                                std::int64_t value = 0);
-        void appendContinuingEffect(std::string type, std::uint64_t sequence, Identity ownerPlayerId,
-                                    std::int64_t positionX, std::int64_t positionY, Tick duration);
         void endWorld(RandomSource *randomSource = nullptr);
         bool cleanup();
         MatchRuntimeDependencies dependencies();

@@ -31,7 +31,10 @@
 #include <list>
 #include "Type.h"
 #include "Color.h"
+#include "renderer/RendererTypes.h"
+#ifndef D6R_HEADLESS_CORE
 #include "TextureManager.h"
+#endif
 #include "math/Vector.h"
 #include "GameResources.h"
 
@@ -41,6 +44,7 @@ namespace Duel6 {
         Float32 now;
         Float32 max;
         Color color;
+        std::uint64_t stableId = 0, ageTicks = 0;
     };
 
     class ExplosionList {
@@ -48,6 +52,7 @@ namespace Duel6 {
         Texture textures;
         std::list<Explosion> explosions;
         Float32 speed;
+        std::uint64_t nextStableId = 1, cosmeticRandom = 0x9176ac9315ULL;
 
     public:
         ExplosionList(const GameResources &resources, Float32 speed);
@@ -60,6 +65,7 @@ namespace Duel6 {
         void render(Renderer &renderer) const;
 
         void add(const Vector &centre, Float32 startSize, Float32 maxSize, const Color &color);
+        unsigned bloodOffset();
     };
 }
 

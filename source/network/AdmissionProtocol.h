@@ -13,7 +13,7 @@
 
 namespace Duel6::Network {
     constexpr std::uint32_t AdmissionProtocolVersion = 3;
-    inline constexpr std::string_view NetworkReleaseId = "duel6r-network-r4";
+    inline constexpr std::string_view NetworkReleaseId = "duel6r-network-r5";
     enum class HostingKind : std::uint8_t { Unbound = 0, PlayerHosted = 1, Dedicated = 2 };
     inline bool validHostingKind(HostingKind kind) {
         return kind == HostingKind::PlayerHosted || kind == HostingKind::Dedicated;

@@ -29,8 +29,10 @@
 #define DUEL6_PLAYER_H
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <time.h>
+#include "Sprite.h"
 #ifndef D6R_HEADLESS_CORE
 #include "math/Camera.h"
 #include "SpriteList.h"
@@ -146,6 +148,10 @@ namespace Duel6 {
         bool headless;
         Float32 roundElapsedTime;
         const Size rosterSlot;
+        std::optional<Sprite> canonicalBody, canonicalGun;
+        PlayerPose presentationPose = PlayerPose::Stand;
+        bool canonicalDying = false, canonicalPicking = false;
+        double presentationRemainder = 0;
 
     public:
 #ifndef D6R_HEADLESS_CORE
@@ -173,6 +179,8 @@ namespace Duel6 {
         void updateControllerStatus();
 
         void update(World &world, Float32 elapsedTime);
+
+        PlayerAnimationState getAnimationState() const;
 
 #ifndef D6R_HEADLESS_CORE
         void prepareCam(const Video &video, Int32 levelSizeX, Int32 levelSizeY);

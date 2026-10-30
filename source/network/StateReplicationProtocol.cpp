@@ -210,6 +210,8 @@ namespace Duel6::Network::Replication {
             w.integer(v.bonusDuration); w.integer(v.reloadDuration);
             for (const auto &indicator: v.hudIndicators) { w.integer(indicator.elapsed); w.integer(indicator.total); }
             w.integer(v.width); w.integer(v.height); w.integer(v.roundKills);
+            w.integer(static_cast<std::uint8_t>(v.animation.pose)); w.integer(v.animation.bodyFrame);
+            w.integer(v.animation.weaponFrame); w.boolean(v.animation.weaponVisible);
         }
         PlayerState readPlayer(Reader &r) {
             PlayerState v; v.playerId = r.integer<Identity>(); v.ownerParticipantId = r.integer<Identity>();
@@ -228,7 +230,10 @@ namespace Duel6::Network::Replication {
                 indicator.elapsed = r.integer<std::int64_t>(); indicator.total = r.integer<std::int64_t>();
             }
             v.width = r.integer<std::int64_t>(); v.height = r.integer<std::int64_t>();
-            v.roundKills = r.integer<std::int32_t>(); return v;
+            v.roundKills = r.integer<std::int32_t>();
+            v.animation.pose = static_cast<PlayerPose>(r.integer<std::uint8_t>());
+            v.animation.bodyFrame = r.integer<std::uint16_t>(); v.animation.weaponFrame = r.integer<std::uint16_t>();
+            v.animation.weaponVisible = r.boolean(); return v;
         }
         void writeEntity(Writer &w, const WorldEntityState &v) {
             w.integer(v.entityId); w.integer(static_cast<std::uint8_t>(v.kind)); w.integer(v.ownerPlayerId); w.string(v.type);
@@ -279,11 +284,22 @@ namespace Duel6::Network::Replication {
         }
         void writeEffect(Writer &w, const ContinuingEffectState &v) {
             w.integer(v.effectId); w.string(v.type); w.integer(v.playerId); w.integer(v.entityId); w.integer(v.remaining);
+            for (const auto value: v.visual.geometry) w.integer(value);
+            w.integer(v.visual.frame); w.integer(v.visual.ageTicks);
+            w.integer(v.visual.alpha); w.integer(v.visual.blend);
+            for (const auto value: v.visual.color) w.integer(value);
+            w.boolean(v.visual.facingLeft); w.boolean(v.visual.noDepth);
         }
         ContinuingEffectState readEffect(Reader &r) {
             ContinuingEffectState v; v.effectId = r.integer<Identity>(); v.type = r.string();
             v.playerId = r.integer<Identity>(); v.entityId = r.integer<Identity>();
-            v.remaining = r.integer<std::int64_t>(); return v;
+            v.remaining = r.integer<std::int64_t>();
+            for (auto &value: v.visual.geometry) value = r.integer<std::int64_t>();
+            v.visual.frame = r.integer<std::uint16_t>(); v.visual.ageTicks = r.integer<std::uint64_t>();
+            v.visual.alpha = r.integer<std::uint8_t>(); v.visual.blend = r.integer<std::uint8_t>();
+            for (auto &value: v.visual.color) value = r.integer<std::uint8_t>();
+            v.visual.facingLeft = r.boolean(); v.visual.noDepth = r.boolean();
+            return v;
         }
         void writeResult(Writer &w, const ResultState &v) {
             w.boolean(v.available); w.boolean(v.sessionOnly); w.string(v.state); w.string(v.serialized);

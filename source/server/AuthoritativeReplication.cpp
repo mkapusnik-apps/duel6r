@@ -1,4 +1,5 @@
 #include "AuthoritativeReplication.h"
+#include "../MatchResultRules.h"
 
 #include <algorithm>
 #include <limits>
@@ -60,10 +61,9 @@ namespace Duel6::Server::Authoritative {
 
         bool rankedAhead(const R::ScoreRowState &left, const R::ScoreRowState &right,
                          const std::vector<PlayerDefinition> &roster) {
-            if (left.cumulativePoints != right.cumulativePoints)
-                return left.cumulativePoints > right.cumulativePoints;
-            if (left.wins != right.wins) return left.wins > right.wins;
-            if (left.damage != right.damage) return left.damage > right.damage;
+            const int order = MatchResultRules::compareRanking({left.cumulativePoints, left.wins, left.damage},
+                                                               {right.cumulativePoints, right.wins, right.damage});
+            if (order != 0) return order < 0;
             const auto *leftDefinition = definition(roster, left.playerId);
             const auto *rightDefinition = definition(roster, right.playerId);
             return leftDefinition && rightDefinition
@@ -359,6 +359,7 @@ namespace Duel6::Server::Authoritative {
                 player.reloadRemaining = source.reload; player.charge = source.charge;
                 player.bonusDuration = source.bonusDuration; player.reloadDuration = source.reloadDuration;
                 player.hudIndicators = source.hudIndicators;
+                player.animation = source.animation;
                 player.width = source.width; player.height = source.height; player.roundKills = source.roundKills;
                 player.temporaryMovementRemaining = source.temporarySlowdownRemaining;
                 player.visible = source.visible; player.invulnerable = source.invulnerable;
@@ -454,6 +455,7 @@ namespace Duel6::Server::Authoritative {
                 effect.type = source.type; effect.playerId = source.ownerPlayerId;
                 effect.entityId = worldIdentity(state.round->roundId, source.stableId);
                 effect.remaining = static_cast<std::int64_t>(source.remainingTicks);
+                effect.visual = source.visual;
                 state.effects.push_back(std::move(effect));
             }
             const auto appendEvents = [&](const std::vector<CanonicalEvent> &sources, bool transition) {

@@ -2200,6 +2200,8 @@ D6R_TEST_CASE("REP-PRES liquid clock and HUD durations survive full delta and re
         state.players.front().hudIndicators[0] = {32768, 2 * 65536};
         state.players.front().width = 32768; state.players.front().height = 65536;
         ++state.players.front().roundKills;
+        state.players.front().animation = {Duel6::PlayerPose::Pick,
+                static_cast<std::uint16_t>(state.players.front().roundKills * 2), 8, false};
         state.round->animation.ticks += 90;
         state.round->animation.waterResetStep = state.round->animation.ticks / 30;
         auto update = publisher.publish(state);
@@ -2218,6 +2220,7 @@ D6R_TEST_CASE("REP-PRES liquid clock and HUD durations survive full delta and re
         D6R_REQUIRE(recovered.state()->round->waterType == type);
         D6R_REQUIRE_EQ(state.round->worldTime, recovered.state()->round->worldTime);
         D6R_REQUIRE_EQ(state.players.front().reloadDuration, recovered.state()->players.front().reloadDuration);
+        D6R_REQUIRE(state.players.front().animation == recovered.state()->players.front().animation);
     }
     // A duplicate full version with different presentation time is not equal.
     auto changed = *publisher.fullSnapshot();
@@ -2244,6 +2247,12 @@ D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and earlier pr
         [](auto &s) { s.players.front().width = -1; },
         [](auto &s) { s.players.front().height = INT64_MAX; },
         [](auto &s) { s.players.front().roundKills = -1; },
+        [](auto &s) { s.players.front().animation.pose = static_cast<Duel6::PlayerPose>(12); },
+        [](auto &s) { s.players.front().animation.bodyFrame = 1; },
+        [](auto &s) { s.players.front().animation.bodyFrame = 22; },
+        [](auto &s) { s.players.front().animation.weaponFrame = 14; },
+        [](auto &s) { s.players.front().animation.weaponFrame = 3; },
+        [](auto &s) { s.players.front().animation = {Duel6::PlayerPose::Pick, 0, 12, true}; },
         [](auto &s) { s.round->animation.waterResetStep = 1; },
         [](auto &s) { s.round->animation.ticks = UINT64_MAX; }
     };
@@ -2258,9 +2267,79 @@ D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and earlier pr
     }
     auto bytes = R::serializeReplicationSnapshot({1, state});
     // Four-byte identifier followed by the little-endian uint16 version.
-    for (const unsigned version: {3, 4}) {
+    for (const unsigned version: {3, 4, 5}) {
         bytes[4] = version; bytes[5] = 0;
         D6R_REQUIRE(!R::deserializeReplicationFrame(bytes));
+    }
+}
+
+D6R_TEST_CASE("REP-PRES current effect geometry color and age restore through delta recovery expiry and duplicate checks") {
+    auto state = activeState();
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    R::ContinuingEffectState effect{77, "tree-burning", 0, 0, 98};
+    effect.visual.geometry = {65536, 131072, 51118, 104858, 104858, 0, 0, 0};
+    effect.visual.blend = 2; effect.visual.frame = 31; effect.visual.ageTicks = 80;
+    effect.visual.color = {255, 32, 16, 200};
+    effect.visual.facingLeft = false; effect.visual.noDepth = true;
+    state.effects = {effect};
+    for (unsigned step = 0; step < 3; ++step) {
+        ++state.phaseTime; ++state.effects.front().visual.ageTicks;
+        ++state.effects.front().visual.frame; --state.effects.front().remaining;
+        const auto update = publisher.publish(state);
+        D6R_REQUIRE(update);
+        const auto wire = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+        D6R_REQUIRE(wire && wire->update);
+        D6R_REQUIRE(observer.apply(*wire->update) == R::ApplyResult::Applied);
+        const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+        D6R_REQUIRE(full && full->snapshot);
+        R::ReplicatedState recovered;
+        D6R_REQUIRE(recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE(recovered.takePresentationEvents().empty());
+        D6R_REQUIRE(recovered.state()->effects.front().visual == state.effects.front().visual);
+        D6R_REQUIRE(observer.state()->effects.front().visual == state.effects.front().visual);
+    }
+    auto duplicate = *publisher.fullSnapshot();
+    ++duplicate.state.effects.front().visual.frame;
+    observer.requireResynchronization();
+    D6R_REQUIRE(observer.apply(duplicate) != R::ApplyResult::Applied);
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    const std::vector<std::function<void(Duel6::EffectVisualState &)>> invalid{
+        [](auto &v) { v.geometry[0] = INT64_MAX; }, [](auto &v) { v.geometry[3] = -1; },
+        [](auto &v) { v.frame = 49; }, [](auto &v) { v.ageTicks = UINT64_MAX; },
+        [](auto &v) { v.blend = 3; }};
+    for (const auto &corrupt: invalid) {
+        auto bad = state; corrupt(bad.effects.front().visual);
+        D6R_REQUIRE(!R::validateCanonicalState(bad));
+    }
+    state.effects.clear(); ++state.phaseTime;
+    const auto expired = publisher.publish(state);
+    D6R_REQUIRE(expired && observer.apply(*expired) == R::ApplyResult::Applied);
+    D6R_REQUIRE(observer.state()->effects.empty());
+}
+
+D6R_TEST_CASE("REP-PRES current sprite frames are bounded by actual texture family") {
+    const std::vector<std::pair<std::string, unsigned>> families{
+        {"tree-burning", 48}, {"water-splash:blue", 9}, {"water-splash:red", 9}, {"water-splash:green", 9},
+        {"weapon-boom:bazooka", 35}, {"weapon-boom:double-laser", 35}, {"weapon-boom:triton", 35},
+        {"weapon-boom:pistol", 1}, {"weapon-boom:uzi", 1}, {"weapon-boom:shotgun", 1},
+        {"weapon-boom:plasma", 1}, {"weapon-boom:slime", 1}, {"weapon-boom:lightning", 1},
+        {"weapon-boom:kiss-of-death", 1}, {"weapon-boom:bow", 0}, {"weapon-boom:sling", 0},
+        {"weapon-boom:stopper-gun", 0}, {"weapon-boom:shit-thrower", 0}, {"weapon-boom:machine-gun", 0},
+        {"weapon-boom:spray", 0}, {"weapon-boom:laser", 0}, {"explosion-ring", 0}};
+    for (const auto &family: families) {
+        auto state = activeState();
+        state.effects = {{77, family.first, 0, 0, 1}};
+        state.effects.front().visual.frame = family.second;
+        D6R_REQUIRE(R::validateCanonicalState(state));
+        ++state.effects.front().visual.frame;
+        D6R_REQUIRE(!R::validateCanonicalState(state));
+    }
+    for (const auto *unknown: {"weapon-boom:unknown", "water-splash:unknown"}) {
+        auto state = activeState(); state.effects = {{77, unknown, 0, 0, 1}};
+        D6R_REQUIRE(!R::validateCanonicalState(state));
     }
 }
 

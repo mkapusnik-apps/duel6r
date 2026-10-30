@@ -28,11 +28,39 @@
 #include <string>
 #include "DataException.h"
 #include "PlayerAnimations.h"
+#ifndef D6R_HEADLESS_CORE
 #include "PlayerSkinColors.h"
 #include "TextureManager.h"
 #include "aseprite/animation.h"
+#endif
 
 namespace Duel6 {
+    Animation defaultPlayerAnimation(PlayerPose pose) {
+        static const AnimationEntry stand[] = {0,2000,1,5000,2,2000,3,500,4,200,5,500,6,100,7,500,8,500,9,500,10,100,-1,0};
+        static const AnimationEntry hit[] = {0,500,-1,0};
+        static const AnimationEntry walk[] = {0,50,1,50,2,50,3,50,-1,0};
+        static const AnimationEntry air[] = {0,200,1,200,2,200,-1,0};
+        static const AnimationEntry duck[] = {0,3000,1,100,2,1000,3,2000,4,50,5,1000,6,100,7,100,8,50,-1,0};
+        static const AnimationEntry deadFall[] = {0,100,1,100,2,100,3,100,-1,0};
+        static const AnimationEntry deadHit[] = {0,100,1,50,2,50,3,50,4,50,5,50,6,50,7,100,8,120,9,1000,-1,0};
+        static const AnimationEntry deadLying[] = {0,1000,-1,0};
+        static const AnimationEntry dying[] = {0,100,1,100,2,100,3,100,4,100,5,50,6,100,7,50,8,50,9,50,10,50,11,50,12,50,13,100,14,120,15,1000,-1,0};
+        static const AnimationEntry pick[] = {0,100,1,100,2,100,3,100,4,100,5,100,6,100,7,100,8,100,9,100,10,100,-1,0};
+        switch (pose) {
+            case PlayerPose::Stand: return stand;
+            case PlayerPose::HitStand: case PlayerPose::HitDuck: return hit;
+            case PlayerPose::Walk: return walk;
+            case PlayerPose::Fall: case PlayerPose::Jump: return air;
+            case PlayerPose::Duck: return duck;
+            case PlayerPose::DeadFall: return deadFall;
+            case PlayerPose::DeadHit: return deadHit;
+            case PlayerPose::DeadLying: return deadLying;
+            case PlayerPose::Dying: return dying;
+            case PlayerPose::Pick: return pick;
+        }
+        D6_THROW(DataException, "Invalid player pose");
+    }
+#ifndef D6R_HEADLESS_CORE
     namespace {
         const std::vector<AnimationEntry> &requiredAnimation(const animation::Animation &animation,
                                                               const std::string &name) {
@@ -150,4 +178,23 @@ namespace Duel6 {
     const PlayerAnimation &PlayerAnimations::getPick() const {
         return pick;
     }
+
+    Animation PlayerAnimations::forPose(PlayerPose pose) const {
+        switch (pose) {
+            case PlayerPose::Stand: return getStand().get();
+            case PlayerPose::HitStand: return getHitStand().get();
+            case PlayerPose::Walk: return getWalk().get();
+            case PlayerPose::Fall: return getFall().get();
+            case PlayerPose::Jump: return getJump().get();
+            case PlayerPose::Duck: return getDuck().get();
+            case PlayerPose::HitDuck: return getHitDuck().get();
+            case PlayerPose::DeadFall: return getDeadFall().get();
+            case PlayerPose::DeadHit: return getDeadHit().get();
+            case PlayerPose::DeadLying: return getDeadLying().get();
+            case PlayerPose::Dying: return getDying().get();
+            case PlayerPose::Pick: return getPick().get();
+        }
+        D6_THROW(DataException, "Invalid player pose");
+    }
+#endif
 }

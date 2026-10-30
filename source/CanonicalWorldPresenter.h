@@ -46,7 +46,6 @@ namespace Duel6 {
         std::unique_ptr<RandomSource> levelRandomSource;
         std::unique_ptr<Level> level;
         std::unique_ptr<LevelRenderData> levelRenderData;
-        ExplosionList explosions;
         Sound::Sample playerHitSound;
         Sound::Sample playerDeathSound;
         Sound::Sample bonusSound;

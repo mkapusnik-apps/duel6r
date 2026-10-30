@@ -92,9 +92,9 @@ This includes authoritative water type and surface, player hit and weapon-pick p
 
 ### Arena presentation wire fields
 
-Replication frame version 5 is paired with admission release ID `duel6r-network-r4`.
+Replication frame version 6 is paired with admission release ID `duel6r-network-r5`.
 Earlier release IDs are rejected during admission as a network-release mismatch;
-earlier replication frames are not decoded as version 5. The admission frame layout itself
+earlier replication frames are not decoded as version 6. The admission frame layout itself
 is unchanged.
 
 After the round outcome, both full and incremental round records append signed
@@ -118,7 +118,35 @@ visible proportions, including the zero-total case.
 They are followed by six pairs of signed 64-bit Q16-second `elapsed` and `total`
 HUD indicator values, ordered reload, air, bonus, health, name, ammunition.
 Inactive indicators use zero pairs. Signed 64-bit Q16-world-unit `width` and
-`height`, then signed 32-bit `roundKills`, complete the player presentation fields.
+`height`, then signed 32-bit `roundKills`, follow the indicator values.
+The final six bytes are byte `animation.pose` (Stand, HitStand, Walk, Fall, Jump,
+Duck, HitDuck, DeadFall, DeadHit, DeadLying, Dying, Pick, numbered 0–11), unsigned
+16-bit `bodyFrame` and `weaponFrame` pair offsets within their semantic clips,
+and boolean `weaponVisible`. These restore the current cursor without replaying
+events or using global world age. The headless cosmetic cursor advances at the
+90 Hz reference cadence without changing the 60 Hz simulation, death flags or
+fixed pickup lock. Offsets must be even and within the default semantic clip;
+weapon offsets range from 0 through 12. A visible weapon requires an equipped
+player outside the Pick pose; dead/waiting players cannot expose a gun. Departed
+historical players may retain their frozen animation record but are not drawn.
+No profile or animation-resource identity
+is transmitted.
+
+Continuing-effect records append eight signed 64-bit Q16 geometry components
+(x, y, z, width, height, rotation, rotation-centre x/y), unsigned 16-bit texture
+frame, unsigned 64-bit reference age, byte alpha and blend (`0` opaque, `1` source
+alpha, `2` source color), four RGBA bytes and facing-left/no-depth booleans. These
+82 bytes describe current actual sprites (`weapon-boom:<weapon>`, `tree-burning`,
+`water-splash:<water>`) rather than event-derived substitutes. `explosion-ring`
+uses x/y for its centre and width/height for its current/maximum radius, with its
+actual color. Nonvisual bonus/arrival effects leave these values at defaults.
+Geometry is bounded to ±16384 units (sizes nonnegative), blend to 0–2 and age to
+2^48 ticks. Texture frames are bounded by family: tree 0–48, splash 0–9, weapon
+boom 0–35, 0–1 or 0 according to its shipped animation, and non-sprite effects 0.
+Effects retain stable identities until removed; a full
+snapshot restores the current frame/geometry, not the birth animation. Tree
+entity `primaryValue` distinguishes intact (`0`) from completed burned (`1`)
+artwork while the independent burn effect runs to its actual completion.
 
 The fields use the existing little-endian framing and participate in snapshot
 equality and player delta comparison. Validation rejects unknown liquid types,
@@ -129,8 +157,9 @@ the water reset step cannot exceed `ticks / 30`. Within a round, world time,
 reference ticks and water reset step cannot move backwards. Indicator elapsed time
 must be nonnegative and no greater than its total, capped at 86400 seconds.
 Dimensions are bounded to 0–4 world units and round kills to the round player-history
-limit. Conservative payload accounting includes 30 additional round bytes and 132
-additional bytes per player; existing frame and aggregate payload limits remain in force.
+limit. Conservative payload accounting includes 30 additional round bytes, 138
+additional bytes per player and a 256-byte allowance per effect; existing frame
+and aggregate payload limits remain in force.
 
 - **REP-031** A full snapshot must declare the complete set of current replicated entities at its state version.
 - **REP-032** An incremental update must identify each entity creation, update, and removal that applies after its baseline.

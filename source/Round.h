@@ -32,6 +32,7 @@
 #include <queue>
 #include "Player.h"
 #include "World.h"
+#include "MatchResultRules.h"
 #ifndef D6R_HEADLESS_CORE
 #include "SysEvent.h"
 #endif
@@ -53,6 +54,7 @@ namespace Duel6 {
         Uint32 startTime;
         bool winner;
         bool headlessOpposition = true;
+        MatchResultRules::Outcome establishedOutcome;
         std::vector<Player *> alivePlayers;
 #ifndef D6R_HEADLESS_CORE
         Script::RoundScriptContext scriptContext;
@@ -84,6 +86,7 @@ namespace Duel6 {
         bool hasWinner() const {
             return winner;
         }
+        const MatchResultRules::Outcome &getEstablishedOutcome() const { return establishedOutcome; }
         void setHeadlessOpposition(bool present) noexcept { headlessOpposition = present; }
 
         bool isSuddenDeath() const noexcept { return suddenDeathMode; }

@@ -235,7 +235,9 @@ if (NOT D6R_TRANSPORT_ONLY)
     endif ()
     add_executable(duel6r-network-session-runtime-tests
             ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
-            ${CMAKE_SOURCE_DIR}/tests/NetworkSessionRuntimeTests.cpp)
+            ${CMAKE_SOURCE_DIR}/tests/NetworkSessionRuntimeTests.cpp
+            ${CMAKE_SOURCE_DIR}/tests/FinalSummaryPresentationTests.cpp
+            ${CMAKE_SOURCE_DIR}/tests/MatchResultRulesTests.cpp)
     target_include_directories(duel6r-network-session-runtime-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-network-session-runtime-tests
             duel6r-game-engine duel6r-network-scaffold)

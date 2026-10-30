@@ -61,11 +61,8 @@ namespace Duel6 {
                         if (block.getIndex() == type.getBlock()) {
                             Vector position(x, y);
 
-                            SpriteList::Iterator sprite;
-                            if (textures) {
-                                sprite = spriteList->add(nonFireAnimation, textures->at(type.getId()));
-                                sprite->setPosition(position, 0.75f).setLooping(AnimationLooping::OnceAndStop);
-                            }
+                            auto sprite = spriteList->add(nonFireAnimation, textures ? textures->at(type.getId()) : Texture());
+                            sprite->setPosition(position, 0.75f).setLooping(AnimationLooping::OnceAndStop);
 
                             fires.emplace_back(type, sprite, position);
                         }
@@ -91,8 +88,8 @@ namespace Duel6 {
                 try { burnedSink(static_cast<Size>(&fire - fires.data()) + 1); } catch (...) {}
             }
 
-            if (!textures) continue;
             auto sprite = spriteList->add(burningAnimation.data(), burningTexture);
+            sprite->setEffectType("tree-burning");
             sprite->setPosition(fire.getPosition() - Vector(0.3f, 0.2f), 0.78f)
                     .setSize(Vector(1.6f, 1.6f))
                     .setLooping(AnimationLooping::OnceAndRemove)
