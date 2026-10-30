@@ -2261,7 +2261,9 @@ D6R_TEST_CASE("REP-PRES accepted round clock rejects rollback in publisher full 
     auto invalid = *forward;
     invalid.round->worldTime = rollback.round->worldTime;
     D6R_REQUIRE(client.apply(invalid) == R::ApplyResult::ResynchronizationRequired);
-    D6R_REQUIRE_EQ(initial.state.round->worldTime, client.state()->round->worldTime);
+    D6R_REQUIRE(client.state() == nullptr);
+    D6R_REQUIRE(client.retainedState());
+    D6R_REQUIRE_EQ(initial.state.round->worldTime, client.retainedState()->round->worldTime);
     D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
     D6R_REQUIRE_EQ(state.round->worldTime, client.state()->round->worldTime);
 }
