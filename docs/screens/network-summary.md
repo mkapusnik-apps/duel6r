@@ -8,15 +8,15 @@
 
 Functional acceptance: `NET-PUB-AC-002`–`NET-PUB-AC-004`, `NET-PUB-AC-006`, and `HSL-PUB-AC-002` cover permissions, return to lobby, result lifetime, and interruption. UX owns public role and status presentation.
 
-This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It presents a completed authoritative match result without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
+This screen presents a completed authoritative match result without implying local persistence. It implements `NET-AC-010`, `NET-AC-011`, `NET-AC-014`, `NET-AC-016`, `NET-AC-017`, and `NET-AC-018` in [network play](../network-play-first-release.md), and `SUMMARY-VIEW-001`–`SUMMARY-VIEW-007` in the [common final-screen contract](overlay-game-over.md#common-final-screen-contract). `NET-06-completed-host` and `NET-06-completed-guest` share the whole-screen presentation with local `OVER-03`; their functional permissions remain different.
 
 Normal match completion enters from `NET-05`. An interrupted match enters `NET-04` directly and never enters this screen. Host Return to lobby sends all connected participants to `NET-04` with readiness cleared; guest Leave returns to `NET-01`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
-## Representative layout
+## Required result content
 
-PR #83 review corrections supersede the earlier visual acceptance; replacement `SS-020` evidence is pending. Bound match and last-round headings using a winner count and `See outcome rows` when full names do not fit. Put complete match and round outcome rows before existing result sections. Each winner row retains scope, full display name, player identity, and departure state independently of live membership. Horizontal and vertical scrolling must expose every supported 64 UTF-8-byte name without splitting characters. Keep outcome headings, scrolling position, and actions fixed; do not shrink text or infer winners from ranking. Validate 14 Predator winners including departed winners at 1280×900 and containment at 1280×720.
+UX owns the common whole-screen appearance in [design.md](../design.md) and [NET-06](../design/screens/NET-06.md). A separate mandatory menu canvas or arena overlay is not a functional requirement. Every winner must remain readable with full display name, player identity, outcome scope, and departure state independently of live membership under `NET-RES-001`–`NET-RES-002`. Existing result navigation must expose supported 64 UTF-8-byte names without splitting characters.
 
-- Use the final arena frame or retro summary context consistently with the existing score-summary visual language.
+- Use the common final-screen presentation under `SUMMARY-VIEW-001`–`SUMMARY-VIEW-007`.
 - Show result state `Completed`.
 - Show the labeled match outcome as the configured final-round winner identity, winning team, or `No winner`.
 - Show the labeled last completed-round number and outcome separately from match outcome.
@@ -28,16 +28,11 @@ PR #83 review corrections supersede the earlier visual acceptance; replacement `
 - Show team totals when the mode uses teams.
 - Place the exact label `Session only` beside the heading or result table and show `Not saved to local statistics or Elo` as supporting copy.
 - Show host-only `Return to lobby` and `End session`; guests see a waiting status and `Leave`.
-- Keep the summary panel at least 16 px from every client edge.
-- Limit the summary panel to the available client width and height.
-- Use a fixed summary heading and result-identity region, a flexible result viewport, and a fixed status and action region.
-- Keep `Session only`, `Completed`, match outcome, and last completed-round outcome visible above the scrolling result viewport.
-- Group match settings, round results, and cumulative results as separately labeled sections in reading order.
+- Keep `Session only`, `Completed`, match outcome, and last completed-round outcome available while the user navigates result content.
+- Identify match settings, round results, and cumulative results as distinct content.
 - Let the result viewport scroll vertically when all sections do not fit.
-- Keep table headings visible while table rows scroll.
 - Provide horizontal scrolling inside a table when all required columns do not fit.
 - Keep action controls visible while result content scrolls.
-- Clip long display names inside their columns and do not increase row height.
 
 ## Navigation and significant variants
 
@@ -68,4 +63,8 @@ PR #83 review corrections supersede the earlier visual acceptance; replacement `
 - Focus order is Return to lobby → End session for host, or Leave for guest. Confirmation dialogs have Confirm then Cancel and retain visible focus.
 - Keyboard arrows/Tab and controller directions traverse; Enter/Space/controller Confirm activates; Escape/controller Back opens the applicable Leave/End confirmation.
 
-Planned representative screenshot: [`SS-020`](../screenshots/README.md#ss-020).
+## Acceptance
+
+`SUMMARY-VIEW-AC-001`–`SUMMARY-VIEW-AC-005` cover common appearance, result meaning, complete content, permissions, and persistence. `NET-RES-AC-001` retains complete departed and multiwinner coverage. Network round completion must retain its final delay before this screen; shared local appearance must not expose Return to lobby early. End session retains its existing availability during `NET-05`. Waiting players must not gain result rows before participation. A result with no winner must not acquire a winner from cumulative ranking.
+
+UX owns the coordinated representative coverage, including existing [`SS-020`](../screenshots/README.md#ss-020). Earlier visual artifacts do not establish acceptance of the common final-screen appearance.

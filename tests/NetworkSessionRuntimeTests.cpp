@@ -55,6 +55,7 @@
 #include "source/Menu.h"
 #undef private
 #include "tests/RecordingRenderer.h"
+#include "source/ArenaPresentation.h"
 #include "tests/CanonicalMotionTrace.h"
 #include "tests/SecondJumpObservation.h"
 #ifdef D6R_TEST_OBSERVE_PLAYER_INPUT
@@ -4451,6 +4452,62 @@ D6R_TEST_CASE("PR83 capture complete presenter draws translucent body and weapon
     }
 }
 
+D6R_TEST_CASE("PRES-ARENA shared scene preserves dry and colored liquid geometry timing depth and anchors") {
+    char name[] = "duel6r-shared-scene-tests";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    Test::RecordingRenderer recording;
+    const auto &blocks = application.gameResources.getBlockMeta();
+    for (const int liquid: {0, 4, 16, 33}) {
+        const std::string json = "{\"width\":4,\"height\":4,\"blocks\":[0,0,0,0,0,1,0,0,0,0,0,0,"
+                + std::to_string(liquid) + "," + std::to_string(liquid) + ",1," + std::to_string(liquid) + "]}";
+        const std::vector<Uint8> bytes(json.begin(), json.end());
+        for (const bool mirror: {false, true}) {
+            Level local(bytes, mirror, blocks), remote(bytes, mirror, blocks);
+            LevelRenderData localGeometry(local, recording, D6_ANM_SPEED);
+            LevelRenderData networkGeometry(remote, recording, D6_ANM_SPEED);
+            localGeometry.generateFaces(); networkGeometry.generateFaces();
+            const auto type = std::find_if(blocks.begin(), blocks.end(), [&](const Block &block) {
+                return block.is(Block::Type::Water) && block.getWaterType() == local.getRisingWaterType();
+            });
+            D6R_REQUIRE(type != blocks.end());
+            for (unsigned rise = 0; rise < 3; ++rise) {
+                local.raiseWater();
+                localGeometry.generateWater();
+                networkGeometry.setWaterSurface(*type, local.getWaterLevel(), true);
+                localGeometry.setAnimationTime(2.0f);
+                networkGeometry.setAnimationTime(2.0f);
+                const auto &expected = localGeometry.getWater();
+                const auto &actual = networkGeometry.getWater();
+                D6R_REQUIRE_EQ(expected.getFaces().size(), actual.getFaces().size());
+                D6R_REQUIRE_EQ(expected.getVertexes().size(), actual.getVertexes().size());
+                for (std::size_t i = 0; i < expected.getVertexes().size(); ++i) {
+                    const auto &a = expected.getVertexes()[i], &b = actual.getVertexes()[i];
+                    D6R_REQUIRE_EQ(a.x, b.x); D6R_REQUIRE_EQ(a.y, b.y); D6R_REQUIRE_EQ(a.z, b.z);
+                }
+                for (std::size_t i = 0; i < expected.getFaces().size(); ++i)
+                    D6R_REQUIRE_EQ(expected.getFaces()[i].getCurrentTexture(), actual.getFaces()[i].getCurrentTexture());
+                recording.buffers.clear();
+                ArenaPresentation::water(recording, {networkGeometry.getWalls(), networkGeometry.getSprites(),
+                        actual, Texture{}, 2.0f});
+                D6R_REQUIRE_EQ(1u, recording.buffers.size());
+                D6R_REQUIRE(recording.buffers.front().depthTest && !recording.buffers.front().depthWrite);
+                D6R_REQUIRE(recording.buffers.front().blend == BlendFunc::SrcColor);
+                D6R_REQUIRE_NEAR(2.0f, recording.buffers.front().globalTime, 0.00001f);
+                D6R_REQUIRE(!remote.isRaisingWater()); // The adapter never simulates/mutates.
+            }
+        }
+    }
+    recording.quads.clear();
+    ArenaPresentation::elevator(recording, Texture{}, Vector(3, 4));
+    D6R_REQUIRE_EQ(5u, recording.quads.size());
+    D6R_REQUIRE(std::any_of(recording.quads.front().vertices.begin(), recording.quads.front().vertices.end(),
+            [](const auto &v) { return v.x == 3 && v.y == 4 && v.z == 0.7f; }));
+    D6R_REQUIRE_NEAR(0.5f, ArenaPresentation::ratio(5, 10), 0.00001f);
+    D6R_REQUIRE_EQ(0.0f, ArenaPresentation::ratio(5, 0));
+    D6R_REQUIRE_EQ(1.0f, ArenaPresentation::ratio(20, 10));
+}
+
 D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mirrored and retained snapshots") {
     char name[] = "duel6r-orientation-tests";
     char *arguments[] = {name};
@@ -4473,6 +4530,9 @@ D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mir
     actor.playerId = 101; actor.ownerParticipantId = 1; actor.life = 100;
     actor.positionX = 4 * 65536; actor.positionY = 3 * 65536;
     actor.heldWeapon = "pistol"; actor.visible = true; actor.displayName = "Upright";
+    actor.air = static_cast<std::int64_t>(D6_MAX_AIR * 32768);
+    actor.reloadRemaining = 65536; actor.reloadDuration = 2 * 65536;
+    actor.activeBonus = "fast-reload"; actor.bonusRemaining = 3 * 65536; actor.bonusDuration = 6 * 65536;
     state.players = {actor};
     state.messages.currentPlayerIndicators = {actor.playerId};
     presenter.setCanonicalLevels(state.settings.levels);
@@ -4518,6 +4578,20 @@ D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mir
                         [texture](const auto &draw) { return draw.material.getTexture() == texture; });
                 D6R_REQUIRE(body != recording.quads.end());
                 const auto matrix = body->projection * body->view * body->model;
+                const Float32 aspect = static_cast<Float32>(size.first) / size.second;
+                localCamera.setPosition(ArenaPresentation::cameraPosition(level.getWidth(), level.getHeight(),
+                        aspect, video.getView().getFieldOfView()));
+                const auto localProjection = Matrix::perspective(video.getView().getFieldOfView(), aspect,
+                        video.getView().getNearClip(), video.getView().getFarClip());
+                const auto localMatrix = localProjection * Matrix::lookAt(localCamera.getPosition(),
+                        localCamera.getFront(), localCamera.getUp());
+                for (const auto position: {Vector(0, 0, 0), Vector(1, 1, 1), Vector(4, 3, 0)}) {
+                    const auto expected = localMatrix * position, actual = matrix * position;
+                    D6R_REQUIRE_NEAR(expected.x, actual.x, 0.00001f);
+                    D6R_REQUIRE_NEAR(expected.y, actual.y, 0.00001f);
+                    D6R_REQUIRE_NEAR(expected.z, actual.z, 0.00001f);
+                }
+                D6R_REQUIRE(body->depthTest && body->depthWrite);
                 const auto origin = matrix * Vector::ZERO;
                 const auto right = matrix * Vector::UNIT_X;
                 const auto up = matrix * Vector::UNIT_Y;
@@ -4559,6 +4633,16 @@ D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mir
                     return draw.material.getColor() == Color(0, 0, 200, 220);
                 });
                 D6R_REQUIRE(label != recording.quads.end());
+                for (const auto color: {Color::GREEN, Color::BLUE, Color::MAGENTA}) {
+                    const auto bar = std::find_if(recording.quads.begin(), recording.quads.end(), [&](const auto &draw) {
+                        return draw.material.getColor() == color
+                            && std::abs(draw.vertices[0].y - draw.vertices[1].y) < 0.1f;
+                    });
+                    D6R_REQUIRE(bar != recording.quads.end());
+                    const auto horizontal = std::minmax_element(bar->vertices.begin(), bar->vertices.end(),
+                            [](const auto &a, const auto &b) { return a.x < b.x; });
+                    D6R_REQUIRE_NEAR(0.46f, horizontal.second->x - horizontal.first->x, 0.00001f);
+                }
                 const auto feet = matrix * Vector(4, 3, 0);
                 for (const auto &vertex : label->projected) D6R_REQUIRE(vertex.y > feet.y);
                 D6R_REQUIRE_EQ(actor.positionX, state.players.front().positionX);
@@ -4566,29 +4650,35 @@ D6R_TEST_CASE("PR87 submitted arena vertices retain Local Play basis through mir
                 D6R_REQUIRE_EQ(mirrored, state.round->mirrored);
             }
         }
-        // Canonical water heights are absolute world levels. Check the submitted
-        // filled region stays rooted at world zero as its surface advances.
+        // Accepted liquid is rendered as local tile faces, not a screen-space
+        // blue rectangle. Surface flow and walls retain their depth/material.
         Network::Replication::WorldEntityState water;
         water.kind = Network::Replication::EntityKind::Water;
         state.entities = {water};
-        Float32 previousTop = -2;
-        Float32 bottom = -2;
         for (const int height : {0, 1, 2}) {
             state.entities.front().primaryValue = height;
+            state.round->waterType = LiquidKind::Blue;
+            state.round->waterLevel = height;
+            state.round->waterRaising = true;
+            state.round->worldTime = 2 * 65536;
+            presenter.update(0, &state, {});
             recording.quads.clear();
             recording.buffers.clear();
             D6R_REQUIRE(presenter.render(state, {}, {}, 900, 1280));
-            const auto draw = std::find_if(recording.quads.begin(), recording.quads.end(), [](const auto &quad) {
-                return quad.material.getColor() == Color(32, 96, 224, 128);
+            const auto draw = std::find_if(recording.buffers.begin(), recording.buffers.end(), [](const auto &buffer) {
+                return buffer.blend == BlendFunc::SrcColor;
             });
-            D6R_REQUIRE(draw != recording.quads.end());
-            const auto bounds = std::minmax_element(draw->projected.begin(), draw->projected.end(),
-                    [](const auto &a, const auto &b) { return a.y < b.y; });
-            if (height == 0) bottom = bounds.first->y;
-            D6R_REQUIRE(std::abs(bottom - bounds.first->y) < 0.00001f);
-            D6R_REQUIRE(bounds.second->y > previousTop);
-            previousTop = bounds.second->y;
-            D6R_REQUIRE(draw->blend == BlendFunc::SrcAlpha);
+            D6R_REQUIRE(draw != recording.buffers.end());
+            D6R_REQUIRE(draw->depthTest && !draw->depthWrite);
+            D6R_REQUIRE_NEAR(2.0f, draw->globalTime, 0.00001f);
+            D6R_REQUIRE(draw->material.getTexture() == application.gameResources.getBlockTextures());
+            D6R_REQUIRE(!draw->material.isMasked());
+            D6R_REQUIRE(std::any_of(draw->vertices.begin(), draw->vertices.end(), [height](const auto &vertex) {
+                return vertex.y == height + 1 && vertex.z == 1;
+            }));
+            D6R_REQUIRE(std::none_of(recording.quads.begin(), recording.quads.end(), [](const auto &quad) {
+                return quad.material.getColor() == Color(32, 96, 224, 128);
+            }));
             D6R_REQUIRE_EQ(height, state.entities.front().primaryValue);
         }
         state.entities.clear();
@@ -4655,6 +4745,7 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
         Float32 waterBottom, waterTop;
         Network::Replication::PlayerState actor;
         std::int64_t waterHeight;
+        std::vector<std::pair<Int32, Int32>> wetCells;
     };
     std::map<std::string, Projection> projected;
     for (const auto &sample : samples) {
@@ -4688,16 +4779,36 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
             return entity.kind == Network::Replication::EntityKind::Water;
         });
         D6R_REQUIRE(water != state.entities.end());
-        const auto waterDraw = std::find_if(recording.quads.begin(), recording.quads.end(), [](const auto &draw) {
-            return draw.material.getColor() == Color(32, 96, 224, 128);
+        const auto waterDraw = std::find_if(recording.buffers.begin(), recording.buffers.end(), [](const auto &draw) {
+            return draw.blend == BlendFunc::SrcColor;
         });
-        D6R_REQUIRE(waterDraw != recording.quads.end());
-        const auto bounds = std::minmax_element(waterDraw->projected.begin(), waterDraw->projected.end(),
+        D6R_REQUIRE(waterDraw != recording.buffers.end());
+        D6R_REQUIRE(waterDraw->depthTest && !waterDraw->depthWrite);
+        const auto bounds = std::minmax_element(waterDraw->vertices.begin(), waterDraw->vertices.end(),
                 [](const auto &a, const auto &b) { return a.y < b.y; });
-        D6R_REQUIRE_NEAR((matrix * Vector::ZERO).y, bounds.first->y, 0.00001f);
-        D6R_REQUIRE_NEAR((matrix * Vector(0, water->primaryValue + 1, 0)).y, bounds.second->y, 0.00001f);
+        // Shipped maps may have a solid bottom row and pre-existing liquid.
+        // Compare the accepted overlay against actual local level geometry,
+        // not the former rectangle that painted through the floor.
+        Level localLevel(state.round->level, state.round->mirrored, application.gameResources.getBlockMeta());
+        while (localLevel.getWaterLevel() < state.round->waterLevel) localLevel.raiseWater();
+        LevelRenderData localGeometry(localLevel, recording, D6_ANM_SPEED);
+        localGeometry.generateFaces();
+        const auto &expectedVertices = localGeometry.getWater().getVertexes();
+        D6R_REQUIRE_EQ(expectedVertices.size(), waterDraw->vertices.size());
+        for (std::size_t index = 0; index < expectedVertices.size(); ++index) {
+            const auto &expectedVertex = expectedVertices[index], &actualVertex = waterDraw->vertices[index];
+            D6R_REQUIRE_EQ(expectedVertex.x, actualVertex.x);
+            D6R_REQUIRE_EQ(expectedVertex.y, actualVertex.y);
+            D6R_REQUIRE_EQ(expectedVertex.z, actualVertex.z);
+        }
+        D6R_REQUIRE_NEAR(static_cast<Float32>(state.round->worldTime) / 65536,
+                         waterDraw->globalTime, 0.00001f);
+        std::vector<std::pair<Int32, Int32>> wetCells;
+        for (Int32 row = 0; row < localLevel.getHeight(); ++row)
+            for (Int32 column = 0; column < localLevel.getWidth(); ++column)
+                if (localLevel.isWater(column, row)) wetCells.emplace_back(column, row);
         D6R_REQUIRE(projected.emplace(sample.name, Projection{bodyRoot, bounds.first->y, bounds.second->y,
-                                                             *actor, water->primaryValue}).second);
+                                                             *actor, water->primaryValue, std::move(wetCells)}).second);
         D6R_REQUIRE(serialized == Network::Replication::serializeReplicationSnapshot(sample.snapshot));
     }
     const auto &rightBefore = projected.at("right-before"), &rightAfter = projected.at("right-after");
@@ -4711,7 +4822,12 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
     D6R_REQUIRE(fallAfter.root.y < fallBefore.root.y);
     const auto &waterBefore = projected.at("water-before"), &waterAfter = projected.at("water-after");
     D6R_REQUIRE_EQ(waterBefore.waterHeight + 1, waterAfter.waterHeight);
-    D6R_REQUIRE(waterAfter.waterTop > waterBefore.waterTop);
+    // Higher pre-existing pools can keep the overall maximum unchanged. The
+    // actual rise must add at least one wet tile in the newly accepted row.
+    D6R_REQUIRE(std::any_of(waterAfter.wetCells.begin(), waterAfter.wetCells.end(), [&](const auto &cell) {
+        return cell.second == waterAfter.waterHeight
+            && std::find(waterBefore.wetCells.begin(), waterBefore.wetCells.end(), cell) == waterBefore.wetCells.end();
+    }));
     D6R_REQUIRE_NEAR(waterBefore.waterBottom, waterAfter.waterBottom, 0.00001f);
 }
 

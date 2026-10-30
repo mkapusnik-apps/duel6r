@@ -1779,7 +1779,10 @@ namespace Duel6 {
             if (focus == teamFocus || focus == teamFocus + 1) focus = teamFocus + 2;
         }
         worldPresenter.update(elapsedTime, currentSnapshot.canonical ? &*currentSnapshot.canonical : nullptr,
-                              currentSnapshot.presentationEvents);
+                              currentSnapshot.presentationEvents,
+                              currentSnapshot.presentation.retainingLastConfirmedState
+                              || currentSnapshot.presentation.reconnecting
+                              || currentSnapshot.presentation.resynchronizing);
         bool sessionBack = false, uiConfirm = false, uiBack = false;
         bool uiUp = false, uiDown = false, uiLeft = false, uiRight = false;
         for (const auto &controller: service.getInput().getJoys()) {

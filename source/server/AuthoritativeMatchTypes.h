@@ -1,6 +1,7 @@
 #ifndef DUEL6_SERVER_AUTHORITATIVEMATCHTYPES_H
 #define DUEL6_SERVER_AUTHORITATIVEMATCHTYPES_H
 #include "../Defines.h"
+#include "../ArenaState.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -154,6 +155,8 @@ namespace Duel6::Server::Authoritative {
         PlayerStatistics statistics;
         bool departed = false;
         bool waiting = false;
+        std::int64_t bonusDuration = 0;
+        std::int64_t reloadDuration = 0;
     };
 
     struct CanonicalEntitySnapshot {
@@ -213,6 +216,8 @@ namespace Duel6::Server::Authoritative {
         bool valid = false;
         std::uint64_t stateDigest = 0;
         std::size_t dynamicEntityCount = 0;
+        std::int64_t worldTime = 0;
+        LiquidKind waterType = LiquidKind::None;
     };
 
     struct PlayerResultRow {

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1086" viewBox="0 0 1280 1086">
+  <title>NET-06 — Common final shell, network role variants</title>
+  <desc>Same complete arena-backed final structure as OVER-03. Completed session-only results preserve outcome identity, all statistics and existing navigation. Host actions are drawn; the Guest replacement is specified below as a footer variant of the same layout.</desc>
+  <rect width="1280" height="1086" fill="white"/>
+  <g fill="none" stroke="black" stroke-width="2">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <rect x="48" y="16" width="1184" height="748"/>
+    <rect x="50" y="18" width="1180" height="40"/>
+    <rect x="936" y="22" width="278" height="32"/>
+    <rect x="64" y="146" width="1152" height="602"/>
+    <path d="M64 182 H1216 M64 208 H1216 M80 306 H1192 M80 404 H1192 M80 502 H1192"/>
+    <rect x="1200" y="210" width="12" height="490"/>
+    <rect x="1202" y="212" width="8" height="170"/>
+    <rect x="80" y="712" width="1112" height="24"/>
+    <rect x="46" y="778" width="224" height="44"/>
+    <rect x="48" y="780" width="220" height="40"/>
+    <rect x="284" y="780" width="200" height="40"/>
+    <rect x="520" y="836" width="240" height="48"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="18">
+    <text x="80" y="46" font-size="26">SCORE</text><text x="954" y="46" font-size="24">Rounds: 3 | 3</text>
+    <text x="64" y="80">Completed · Session only</text><text x="64" y="96">Not saved to local statistics or Elo</text>
+    <text x="64" y="116">Match outcome: Bravo</text><text x="64" y="134">Last completed round: 3 — Bravo</text>
+    <text x="80" y="172">Cumulative ranking — not the match outcome</text>
+    <text x="80" y="202">Rank / Team / Player / Identity / Owner / Departed</text><text x="730" y="202">K</text><text x="790" y="202">A</text><text x="850" y="202">D</text><text x="910" y="202">PTS</text><text x="990" y="202">More fields →</text>
+    <text x="80" y="226">1  Alpha — team totals</text><text x="910" y="226">24</text>
+    <text x="104" y="244">Player 1 / identity / owner</text><text x="104" y="262">Player 2 / identity / owner</text><text x="104" y="280">Player 3 / identity / owner</text><text x="104" y="298">Player 4 / identity / owner</text>
+    <text x="80" y="324">2  Bravo — team totals</text><text x="910" y="324">18</text>
+    <text x="104" y="342">Player 5 / identity / owner / Departed</text><text x="104" y="360">Player 6 / identity / owner</text><text x="104" y="378">Player 7 / identity / owner</text><text x="104" y="396">Player 8 / identity / owner</text>
+    <text x="80" y="422">3  Charlie — team totals</text><text x="910" y="422">12</text>
+    <text x="104" y="440">Player 9 / identity / owner</text><text x="104" y="458">Player 10 / identity / owner</text><text x="104" y="476">Player 11 / identity / owner</text><text x="104" y="494">Player 12 / identity / owner</text>
+    <text x="80" y="520">4  Delta — team totals</text><text x="910" y="520">6</text>
+    <text x="104" y="538">Player 13 / identity / owner</text><text x="104" y="556">Player 14 / identity / owner</text><text x="104" y="574">Player 15 / identity / owner</text>
+    <text x="80" y="622">Match settings — complete required fields</text><text x="80" y="658">Per-round results — complete required rounds and player values</text>
+    <text x="88" y="730">← Horizontal navigation →</text><text x="650" y="730">Rows: current / total · Position: current / total</text>
+    <text x="86" y="806">Return to lobby</text><text x="326" y="806">End session</text><text x="552" y="868" font-size="26">End of Game</text>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="17">
+    <text x="20" y="930">ANNOTATIONS — not UI. Same final arena, curtain, panel and fixed notice as OVER-03; no menu banner or canvas.</text>
+    <text x="20" y="956">Host: Return to lobby then End session. Guest: replace actions with Leave in the first position; no disabled host buttons.</text>
+    <text x="20" y="982">Guest scope line also shows Waiting for host to return to lobby or end session. Persistence copy stays on line two.</text>
+    <text x="20" y="1008">Overflow: bounded winner-count headings; complete outcome identity rows first in body, then cumulative/settings/rounds.</text>
+    <text x="20" y="1034">Only the body scrolls. Sticky current-table headings; complete values through existing navigation. Labels here are schematic.</text>
+    <text x="20" y="1060">UX-FINAL-001–034 / UX-NET-06-001–007. Solo / No winner / departed use this same shell. 850 × 700 floor retained.</text>
+  </g>
+</svg>

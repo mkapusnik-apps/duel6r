@@ -14,6 +14,7 @@
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeReplication.h"
 #include "tests/TestHarness.h"
+#include "source/PresentationClock.h"
 
 namespace {
     namespace R = Duel6::Network::Replication;
@@ -2168,6 +2169,112 @@ namespace {
         D6R_REQUIRE(payload.size() < Duel6::Network::MaxPayloadBytes);
         return payload;
     }
+}
+
+D6R_TEST_CASE("REP-PRES liquid clock and HUD durations survive full delta and recovery without event replay") {
+    auto state = activeState();
+    state.round->waterType = Duel6::LiquidKind::Blue;
+    state.round->worldTime = 65536;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    for (const auto type: {Duel6::LiquidKind::Blue, Duel6::LiquidKind::Red, Duel6::LiquidKind::Green}) {
+        state.phaseTime += 60;
+        state.round->worldTime += 65536;
+        state.round->waterType = type;
+        state.round->waterRaising = true;
+        ++state.round->waterLevel;
+        state.players.front().bonusDuration += 65536;
+        state.players.front().reloadDuration += 32768;
+        auto update = publisher.publish(state);
+        D6R_REQUIRE(update);
+        D6R_REQUIRE_EQ(1u, update->players.size());
+        auto decoded = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+        D6R_REQUIRE(decoded && decoded->update);
+        D6R_REQUIRE(incremental.apply(*decoded->update) == R::ApplyResult::Applied);
+        R::ReplicatedState recovered;
+        auto snapshot = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+        D6R_REQUIRE(snapshot && snapshot->snapshot);
+        D6R_REQUIRE(recovered.apply(*snapshot->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE(recovered.takePresentationEvents().empty());
+        D6R_REQUIRE(R::serializeReplicationSnapshot({publisher.version(), *recovered.state()})
+                    == R::serializeReplicationSnapshot({publisher.version(), *incremental.state()}));
+        D6R_REQUIRE(recovered.state()->round->waterType == type);
+        D6R_REQUIRE_EQ(state.round->worldTime, recovered.state()->round->worldTime);
+        D6R_REQUIRE_EQ(state.players.front().reloadDuration, recovered.state()->players.front().reloadDuration);
+    }
+    // A duplicate full version with different presentation time is not equal.
+    auto changed = *publisher.fullSnapshot();
+    ++changed.state.round->worldTime;
+    incremental.requireResynchronization();
+    D6R_REQUIRE(incremental.apply(changed) != R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+}
+
+D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and protocol three is incompatible") {
+    const auto state = activeState();
+    const std::vector<std::function<void(R::CanonicalState &)>> corruptions = {
+        [](auto &s) { s.round->worldTime = -1; },
+        [](auto &s) { s.round->worldTime = INT64_MAX; },
+        [](auto &s) { s.round->waterType = static_cast<Duel6::LiquidKind>(4); },
+        [](auto &s) { s.round->waterLevel = -2; },
+        [](auto &s) { s.round->waterLevel = INT32_MAX; },
+        [](auto &s) { s.round->waterRaising = true; },
+        [](auto &s) { s.players.front().bonusDuration = -1; },
+        [](auto &s) { s.players.front().reloadDuration = INT64_MAX; }
+    };
+    for (const auto &corrupt: corruptions) {
+        auto invalid = state;
+        corrupt(invalid);
+        D6R_REQUIRE(!R::validateCanonicalState(invalid));
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, state}) == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.apply({2, invalid}) == R::ApplyResult::Invalid);
+        D6R_REQUIRE_EQ(1u, client.version());
+    }
+    auto bytes = R::serializeReplicationSnapshot({1, state});
+    // Four-byte identifier followed by the little-endian uint16 version.
+    bytes[4] = 3; bytes[5] = 0;
+    D6R_REQUIRE(!R::deserializeReplicationFrame(bytes));
+}
+
+D6R_TEST_CASE("REP-PRES accepted round clock rejects rollback in publisher full and delta paths") {
+    auto state = activeState();
+    state.round->worldTime = 2 * 65536;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    const auto initial = *publisher.fullSnapshot();
+    auto rollback = state;
+    --rollback.round->worldTime;
+    ++rollback.phaseTime; // Increasing match time cannot legitimize world rollback.
+    D6R_REQUIRE(!publisher.publish(rollback));
+    D6R_REQUIRE_EQ(initial.version, publisher.version());
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply(initial) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply({initial.version + 1, rollback}) == R::ApplyResult::Invalid);
+    D6R_REQUIRE_EQ(state.round->worldTime, client.state()->round->worldTime);
+    ++state.phaseTime;
+    state.round->worldTime += 65536;
+    const auto forward = publisher.publish(state);
+    D6R_REQUIRE(forward);
+    auto invalid = *forward;
+    invalid.round->worldTime = rollback.round->worldTime;
+    D6R_REQUIRE(client.apply(invalid) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE_EQ(initial.state.round->worldTime, client.state()->round->worldTime);
+    D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(state.round->worldTime, client.state()->round->worldTime);
+}
+
+D6R_TEST_CASE("REP-PRES clock bridges snapshots but freezes retained worlds and restores accepted age") {
+    Duel6::PresentationClock clock;
+    D6R_REQUIRE_NEAR(1.01f, clock.update(65536, 0.01f, true), 0.0001f);
+    D6R_REQUIRE_NEAR(1.03f, clock.update(65536, 0.02f, true), 0.0001f);
+    D6R_REQUIRE_NEAR(1.05f, clock.update(65536, 10.0f, true), 0.0001f);
+    D6R_REQUIRE_NEAR(1.0f, clock.update(65536, 5.0f, false), 0.0001f);
+    D6R_REQUIRE_NEAR(9.0f, clock.update(9 * 65536, 0.0f, false), 0.0001f);
+    clock.reset();
+    D6R_REQUIRE_NEAR(0.0f, clock.update(0, 0.0f, true), 0.0001f);
 }
 
 D6R_TEST_CASE("network projectile frames converge through full incremental and fresh current snapshots") {

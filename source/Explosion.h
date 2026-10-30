@@ -54,6 +54,7 @@ namespace Duel6 {
         ExplosionList(Texture textures, Float32 speed);
 
         void update(Float32 elapsedTime);
+        void clear() { explosions.clear(); }
 
         void render(Renderer &renderer) const;
 

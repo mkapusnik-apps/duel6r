@@ -393,13 +393,15 @@ The **shared arena view** is one gameplay view that shows the whole level to all
 
 ### Final game summary
 
-- **UI-GAME-001** After the last round of a limited Team match, the final game summary must use the non-final summary's team-group spacing.
-- **UI-GAME-002** While a final limited Deathmatch or Team game summary is visible, the window bottom must show the exact text `End of Game`.
+- **UI-GAME-001** After the last round of a limited Team match, the final game summary must distinguish each team and its player rows from other teams.
+- **UI-GAME-002** A final limited Deathmatch or Team game summary must show the exact text `End of Game`.
 - **UI-GAME-003** The `End of Game` notification must be clearly legible and visually separate from the final score table.
 - **UI-GAME-004** The `End of Game` notification must not obscure or replace final score content.
-- **UI-GAME-005** In a final limited Deathmatch or Team game summary, the final round counter must use the same character height as the `SCORE` heading.
-- **UI-GAME-006** The final round counter backing must contain the complete counter text.
-- **UI-GAME-007** The layout must use the available middle height to separate the final round counter and the final score panel. If the final score panel is taller than that height, it may overlap the counter backing. The overlap must not obscure the counter text or final score content.
+- **UI-GAME-005** A final limited Deathmatch or Team game summary must show the completed round count and configured round limit.
+- **UI-GAME-006** The final round counter must remain complete and readable.
+- **UI-GAME-007** The final game summary must keep required score content accessible without obscuring the final round counter or completion notice.
+
+The functional final-screen contract is [OVER-03](screens/overlay-game-over.md). `SUMMARY-VIEW-001`–`SUMMARY-VIEW-007` define common final-screen presentation with source-specific data and actions. UX owns the whole-screen appearance. These presentation requirements do not change Local Play outcomes, controls, Elo, persistence, or entry and exit timing.
 
 ### Split-screen removal scope
 
@@ -595,9 +597,9 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-067** `Remove`, `<<`, `>>`, `Equalize`, `Shuffle`, and `Detect All` have equal heights. Each caption has visible space from the button border on all sides.
 - **AC-068** The batch controller-detection action shows `Detect All`. Each row-level controller-detection action still shows `D`.
 - **AC-069** The refinement keeps person-list content, person actions, roster-order actions, and controller-detection behavior unchanged.
-- **AC-070** After the last round of a limited Team match, each team boundary has the same spacing as the non-final round summary.
-- **AC-071** A final limited Deathmatch or Team game summary shows `End of Game` at the window bottom. The notification is legible and separate from the score table. It does not obscure score content.
-- **AC-072** In a final limited Deathmatch or Team game summary, the final round counter and `SCORE` heading use the same character height. The counter backing contains all counter text. The layout separates the counter and score panel when the panel fits in the available middle height. An oversized panel may overlap the counter backing without obscuring the counter text or final score content.
+- **AC-070** A final limited Team summary keeps each team identifiable with its player rows. Two through four teams and up to 15 players remain supported.
+- **AC-071** A final limited Deathmatch or Team game summary shows `End of Game`. The notification is legible and separate from the score table. It does not obscure score content.
+- **AC-072** A final limited Deathmatch or Team game summary shows the complete completed-round count and configured limit. Required score content remains accessible without obscuring the counter or completion notice, including at the supported maximum roster and with a multi-digit round limit.
 
 ## Source traceability
 

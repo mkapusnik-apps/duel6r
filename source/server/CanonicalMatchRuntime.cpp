@@ -517,6 +517,11 @@ namespace Duel6::Server::Authoritative {
         result.worldTick = worldTick;
         result.waterLevel = world.getLevel().getWaterLevel();
         result.waterRaising = world.getLevel().isRaisingWater();
+        if (!fixedValue(world.getTime(), result.worldTime)) return {};
+        const Water *liquid = world.getLevel().getRisingWaterType();
+        result.waterType = liquid == Water::BLUE ? LiquidKind::Blue
+                         : liquid == Water::RED ? LiquidKind::Red
+                         : liquid == Water::GREEN ? LiquidKind::Green : LiquidKind::None;
         result.suddenDeath = game->getRound().isSuddenDeath();
         activeEffects.erase(std::remove_if(activeEffects.begin(), activeEffects.end(), [&](const auto &effect) {
             return effect.expiresAt <= worldTick;
@@ -596,6 +601,8 @@ namespace Duel6::Server::Authoritative {
             result.players.back().air = air;
             result.players.back().bonusRemaining = bonusRemaining;
             result.players.back().temporarySlowdownRemaining = slowdownRemaining;
+            if (!fixedValue(players[index].getBonusDuration(), result.players.back().bonusDuration)
+                || !fixedValue(players[index].getReloadInterval(), result.players.back().reloadDuration)) return {};
             digestValue(digest, definition.playerId);
             digestValue(digest, definition.rosterOrder);
             digestValue(digest, result.players.back().spawnIdentity);

@@ -1,125 +1,73 @@
-# OVER-03 — Game-over summary
+# OVER-03 — Final game summary
 
 ## Purpose and traceability
 
-This overlay reports final ranking after the last round of a finite match.
-Entry occurs when the configured final round gains a winner or no-winner result.
-Exit occurs when Escape closes gameplay after the final wait has completed, or when Shift+Escape closes gameplay earlier.
-The overlay implements `LIF-018`, `SCO-022`–`SCO-023`, `UI-013`–`UI-014`, `UI-GAME-001`–`UI-GAME-007`, and `AC-070`–`AC-072` from [`docs/features.md`](../features.md).
-Primary sources are `source/Game.cpp:51-79,158-164`, `source/Round.cpp:231-237`, and `source/WorldRenderer.cpp:121-230,554-583`.
+`OVER-03` presents the final local ranking after the last round of a finite match. `NET-06` presents the completed authoritative network result. They use one common whole-screen presentation with different data and permitted actions. These stable screen IDs identify functional journeys, not separate visual designs.
 
-## Layout and hierarchy
+Local entry occurs when the configured final round gains a winner or no-winner result. Escape closes gameplay after the final wait completes. Shift+Escape closes gameplay earlier. Network entry, return, departure, recovery, and result lifetime remain in [NET-06](network-summary.md).
 
-- The overlay must match [`overlay-game-over.md`](wireframes/overlay-game-over.md).
-- The arena must remain visible behind the dark red curtain.
-- The arena must remain one undivided shared view.
-- The final score panel must use the same visual table structure as round over.
-- The final score panel must remain the primary information region.
-- The top round counter and bottom completion notice must remain secondary status regions.
-- The final score must include K, A, D, K/D, and PTS.
-- Final Elo updates do not appear as a separate gameplay panel.
-- In Team deathmatch, each team row must stay directly adjacent to that team's nested player rows.
-- In Team deathmatch, an 8 px separator band must separate adjacent team groups.
-- A 2 px `team-group-separator` rule must cross the score-table width at the vertical center of each separator band.
-- Each separator band must keep 3 px of clear inner-panel space above and below the rule.
-- The last team group must not have a separator band after it.
-- The final Team panel height must add 8 px for each boundary between team groups.
-- The separator treatment must support two through four teams.
-- The separator treatment must not change team names, team colors, row colors, score values, ranking order, columns, or row alignment.
-- A final limited Deathmatch or Team state must reserve a dedicated notice region at the bottom of the client.
-- The notice region must show the exact text `End of Game`.
-- The notice must use white 32 px score-summary text on a solid blue rectangular surface.
-- The notice surface must keep at least 16 px of horizontal text padding and 8 px of vertical text padding.
-- The notice must align to the horizontal center of the client.
-- The bottom edge of the notice must be 16 px from the bottom client edge.
-- The notice and the score panel must have separate visible bounds.
-- The notice must keep at least 16 px of clear space from the score panel.
-- The score panel must keep its current client-centered position when that position satisfies the clear-space requirement.
-- The score panel may move upward only by the minimum distance needed to satisfy the clear-space requirement.
-- The notice must not overlap, clip, cover, replace, or reduce any score heading, row, value, or panel content.
-- A final limited Deathmatch or Team state must show the final round counter in the top-center counter region.
-- The final round counter must preserve the current round-counter content and values.
-- The final round counter and the `---SCORE---` heading must use the same 32 px character height.
-- The final round counter must use white text on the existing opaque black counter backing.
-- The backing width must grow from the measured complete counter text.
-- The backing must keep visible inner space on the left and right of the counter text.
-- Every rendered counter character must remain inside the backing and the client bounds.
-- The layout must first use the available middle height between the top counter allocation and the bottom notice allocation.
-- A score panel that fits in the available middle height must keep at least 16 px of clear arena or curtain space from the counter backing.
-- A score panel that fits in the available middle height must not overlap the counter backing.
-- A score panel that is taller than the available middle height may overlap the counter backing.
-- An oversized score panel must use the minimum backing overlap needed after the layout uses the complete available middle height.
-- The overlap must not reach, cover, clip, or reduce the contrast of any counter character.
-- The overlap must not cover, clip, or reduce the contrast of any score heading, row, value, or separator.
+Local requirements are `LIF-018`–`LIF-029`, `SCO-022`–`SCO-023`, `UI-013`–`UI-014`, `UI-GAME-001`–`UI-GAME-007`, and `AC-070`–`AC-072` in [features.md](../features.md). Network result requirements remain in [network play](../network-play-first-release.md#session-only-result-lifecycle) and [the authoritative match contract](../network-authoritative-headless-match.md#session-only-result).
 
-## Content and containment
+## Common final-screen contract
 
-- The final Team state must support two through four teams and two through 15 players.
-- The final Deathmatch state must support two through 15 players.
-- The backing must contain the complete counter when the final round and configured limit use multiple digits.
-- The score panel width must continue to grow through the existing ranking text-length calculation.
-- A long player name must use the existing score-table width behavior.
-- Score rows and the `End of Game` text must remain on one line.
-- The overlay must not add wrapping, truncation, or scrolling.
-- The counter text, score content, and notice must remain inside the complete client area at the representative 1280 by 900 viewport.
-- The notice region must not cover the live ranking, outcome message, or final round progress when those elements remain visible.
-- The curtain must remain behind the score panel and the notice.
+This section is the authoritative source for `SUMMARY-VIEW` requirements. UX owns the shared whole-screen appearance in [design.md](../design.md) and its linked screen specifications, including [NET-06](../design/screens/NET-06.md). Separate mandatory local arena-overlay and network menu-background treatments do not apply to the common final screen. The common appearance includes finite Predator results; non-final and active-round score overlays remain separate states.
 
-## States, controls, and recovery
+- **SUMMARY-VIEW-001** Local and network final results must use one common whole-screen presentation, not only a common score table.
+- **SUMMARY-VIEW-002** The common screen must apply the same presentation rules to equivalent result content, with source-specific content and permitted actions.
+- **SUMMARY-VIEW-003** The screen must preserve each result value and ranking order supplied by the applicable gameplay authority.
+- **SUMMARY-VIEW-004** The screen must keep the meaning of a match outcome separate from cumulative ranking.
+- **SUMMARY-VIEW-005** The screen must keep all required result content accessible at the supported roster size.
+- **SUMMARY-VIEW-006** The screen must offer only the actions permitted by the local or network journey.
+- **SUMMARY-VIEW-007** Opening, drawing, navigating, or closing the screen must not duplicate a score award, outcome, or required persistence operation.
 
-- The state must occur only when Rounds is greater than zero and the final configured round ends.
-- The `End of Game` notice and the enlarged final round counter must appear only in the final limited Deathmatch and Team variants.
-- Predator, non-final, unlimited, and active-round score overlays must remain unchanged.
-- A completed finite Deathmatch must update Elo on the final round; Predator and Team deathmatch must not update Elo.
-- Every mode must preserve the shared arena overlay geometry.
-- Escape must close gameplay when the round is over.
-- Shift+Escape must close gameplay at any time.
-- The state must not automatically start another round.
-- The menu must become the next visible context after close.
-- The overlay has no pointer control.
-- The notice must not create a pointer target or a keyboard focus target.
-- The final round counter and score panel must not create pointer targets or keyboard focus targets.
-- The implementation must not show `Game Over`, `Exit`, or `Return to menu` text.
+Common appearance covers the background/context treatment, screen frame, headings, result regions, score presentation, and status/action treatment. UX defines their geometry, typography, overflow, focus, and visual rules. Conditional network details and role-specific actions do not require a separate visual design. Appearance reuse does not require Local Play to acquire network-only history, identities, seed data, connection status, or participant actions.
 
-## Accessibility and viewport behavior
+## Local content and actions
 
-- Column headings must identify score values.
-- Team names must supplement team colors.
-- The separator rule and separator space must identify team boundaries without color.
-- The literal `End of Game` must identify the final state without reliance on curtain color or workflow timing.
-- The notice text and surface must preserve high contrast over every arena background and every curtain-opacity frame.
-- The white final round counter must preserve high contrast against its opaque black backing.
-- The panel and curtain must adapt to current client dimensions.
-- The notice must remain horizontally centered and 16 px above the bottom edge at each supported desktop viewport.
-- The final round counter backing must remain horizontally centered in the top counter region at each supported desktop viewport.
-- The final round counter text must remain fully contained and readable at each supported desktop viewport.
-- The score panel must apply the fitted-panel or oversized-panel rule at each supported desktop viewport.
-- The layout must allocate top-counter, middle-score, and bottom-notice regions before it permits overlap.
-- The layout must keep at least 16 px between the counter backing and a score panel that fits in the middle region.
-- If the score panel is taller than the middle region, the panel may extend into the counter backing by only the required excess height.
-- In the oversized state, the counter text must remain visually above any intersecting backing surface.
-- In the oversized state, score content must remain visually distinct from the counter text and backing.
-- The oversized state must not wrap, truncate, scale down, or remove counter text or score content to create separation.
-- No mobile layout exists, so one desktop wireframe is sufficient.
+- The local final result must retain K, A, D, K/D, and PTS.
+- Local rankings and score values must retain the existing mode rules.
+- Team results must retain team identity and membership for two through four teams.
+- Local finite results must support two through 15 players in each applicable mode.
+- Local Deathmatch and Team results must retain `End of Game` and final round progress under `UI-GAME-002`–`UI-GAME-007`.
+- Final Elo updates must not appear as a separate gameplay panel.
+- Local Play must retain its existing Escape and Shift+Escape actions and return to the main menu.
+- The local final result must not start another round automatically.
+- The screen must not add a local host, Leave session, Return to lobby, or End session action.
+- Local results must not use `Session only` or `Not saved to local statistics or Elo` to describe local persistence.
 
-## Observable acceptance
+`LIF-020`–`LIF-029`, `SCO-022`–`SCO-024`, and `PER-001`–`PER-005` retain authority over local saves, continuation, and Elo. A network result must not enter these local persistence paths. Shared ranking presentation does not introduce a new tie-break rule for Local Play or remove the network tie-break rules.
 
-- A final limited four-team summary must show three separator bands.
-- Each separator band must match the non-final Team summary in width, height, rule thickness, opacity, and inner spacing.
-- The final score must show every expected team row and nested player row.
-- A final limited Deathmatch summary and a final limited Team summary must show the exact `End of Game` notice.
-- The bottom notice must read exactly `End of Game`.
-- The notice must remain legible against the final curtain and arena.
-- A visible clear gap must separate the notice from the score panel.
-- No score content may appear below, behind, or inside the notice.
-- The final round counter and `---SCORE---` must have the same visible character height.
-- The final round counter backing must contain the complete counter with visible inner space.
-- A fitted score panel must keep a visible gap of at least 16 px from the final round counter backing.
-- An oversized score panel may overlap only the counter backing by the minimum required vertical depth.
-- An oversized score panel must leave every counter character and every item of score content complete, unobscured, and readable.
-- A Deathmatch final summary must keep its separator-free score table.
-- Only a Team final summary may use the Team-group separator treatment.
+### Local completed-result navigation
 
-## Screenshot link
+This section owns local overflow navigation for `SUMMARY-VIEW-005`. It supplies the functional input binding for [OVER-03](../design/screens/OVER-03.md) and `UX-FINAL-020`–`UX-FINAL-026` in [the shared final presentation](../design.md#shared-final-presentation).
 
-Representative evidence: [`SS-012`](../screenshots/README.md#ss-012).
+- **SUMMARY-LOCAL-NAV-001** In `OVER-03-completed`, Page Up and Page Down must scroll result content vertically toward preceding and following content, respectively.
+- **SUMMARY-LOCAL-NAV-002** In `OVER-03-completed`, the mouse wheel must scroll result content vertically only when the pointer is inside the result body.
+- **SUMMARY-LOCAL-NAV-003** For navigation under `SUMMARY-LOCAL-NAV-001` and `SUMMARY-LOCAL-NAV-002`, Shift must select horizontal scrolling instead of vertical scrolling, with up toward the left and down toward the right.
+- **SUMMARY-LOCAL-NAV-004** The result view must consume these navigation inputs only when `OVER-03-completed` is the active input context.
+- **SUMMARY-LOCAL-NAV-005** Result navigation must stop at the content bounds and make no change on an axis without overflow.
+
+`OVER-03-final-wait` must not consume these inputs for result navigation. Console input retains `CFG-002` precedence. Navigation changes only the visible part of result content; it does not change completion timing, outcome, ranking, persistence, or the exit destination. Escape, Shift+Escape, Tab, and assigned player/controller actions retain their existing behavior. No local controller navigation binding, exit control, or confirmation is added. Network result navigation remains unchanged.
+
+## Functional states and transitions
+
+| State | Entry and displayed meaning | Permitted transition |
+|---|---|---|
+| `OVER-03-final-wait` | Local final outcome exists; final wait is not complete | Shift+Escape closes gameplay; completion of the wait permits ordinary Escape |
+| `OVER-03-completed` | Local final wait is complete; bounded result navigation is available | Navigation stays in this state; Escape or Shift+Escape returns to the main menu |
+| `NET-06-completed-host` | Completed network result; participant has host/controller authority | Existing Return to lobby, confirmed End session, or network recovery |
+| `NET-06-completed-guest` | Completed network result; participant is a guest | Existing confirmed Leave or network recovery; host Return moves connected participants to the lobby |
+
+`NET-06-PUBLIC` remains a hosting-context variant, not a separate result design. Interrupted network results go directly to `NET-04`, never to the completed final screen. Network waiting players that never spawned have no match-participation result row. Departed identities and established outcomes remain intact under `NET-RES-001`–`NET-RES-002`. The screen does not decide winners, complete a round, extend a match, or transfer controller authority.
+
+## Acceptance criteria
+
+- **SUMMARY-VIEW-AC-001 — Whole-screen parity:** Local and network final Deathmatch, Predator, and Team results use the same approved whole-screen presentation rules at 1280 × 900 and the 1280 × 720 evaluation minimum. Differences are attributable to required content, available data, and permitted actions, not a separate local overlay versus network menu design.
+- **SUMMARY-VIEW-AC-002 — Data integrity:** Common score quantities and team totals remain correct for equivalent result inputs. Local mode rankings remain unchanged. Network rows retain points, wins, damage, and authoritative roster-order precedence, with team ties resolved in fixed team order. A cumulative leader different from the final-round winner does not replace the network match outcome.
+- **SUMMARY-VIEW-AC-003 — Complete content:** Required content remains readable and accessible at the supported maximum roster. Network coverage includes 14 Predator winners, departed winner identities, supported 64 UTF-8-byte names, and both result-scroll extremes. Local coverage includes team membership, K/A/D/K/D/PTS, and complete multi-digit final round progress.
+- **SUMMARY-VIEW-AC-004 — Actions and timing:** Local final-wait and completed exits retain their eligibility and destinations. Host/controller and guest actions retain their permissions, exact confirmation consequences, and destinations. A guest cannot advance, return everyone to the lobby, or end the session. Repeated presentation or recovery creates no extra round, award, or outcome.
+- **SUMMARY-VIEW-AC-005 — Persistence and lifecycle:** Offline Local Play retains saves, continuation, and eligible Elo updates. Network results retain `Session only`, no local statistics/Elo writes, waiting/departed semantics, same-session lobby retention, and discard on session end. Interrupted network results do not enter this screen.
+- **SUMMARY-VIEW-AC-006 — Local overflow access:** In `OVER-03-completed`, wheel and Page Up / Page Down expose vertical overflow. Their Shift variants expose horizontal overflow without vertical movement. Wheel navigation applies inside the result body. All required rows and complete overflowing identities remain accessible at both scroll extremes. Navigation stops at bounds and does not move an axis without overflow.
+- **SUMMARY-VIEW-AC-007 — Local input isolation:** The same inputs do not navigate or get consumed by the result view during `OVER-03-final-wait` or while the console owns input. Navigation in the completed state leaves results, persistence, and completion timing unchanged. Escape, Shift+Escape, Tab, assigned player/controller actions, and network navigation retain their existing behavior.
+
+Behavioral evidence must cover values, authority, transitions, and persistence. UX assesses the whole screen through its coordinated screenshot matrix; static images alone do not establish lifecycle correctness. Existing `SS-012` and `SS-020` identify local and network result coverage, not acceptance of a changed presentation.

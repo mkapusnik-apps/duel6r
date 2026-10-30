@@ -2,7 +2,7 @@
 
 Functional authority: [NET-05](../../screens/network-match.md), existing NET-VIS and NRP, product-owned NET-ADM-001–016 and NET-SOLO-001–006, NET-PUB-008, and HSL-PUB-005–010. States include NET-05-PUBLIC and product-confirmed NET-05-waiting-for-next-round. Structural sources: existing [NET-05](../../screens/wireframes/network-match.md), [NET-05-C](../wireframes/NET-05/NET-05-C.svg), [NET-05-S](../wireframes/NET-05/NET-05-S.svg), [NET-05-R](../wireframes/NET-05/NET-05-R.svg), and incoming [NET-05-W](../wireframes/NET-05/NET-05-W.svg).
 
-Visual impact: use current develop's framed controls and contextual panels. The dedicated extension adds status and role-specific consequence copy only. Do not redesign the arena, camera, world assets, gameplay HUD, or compact translucent network status.
+Visual impact: restore the world and gameplay HUD to [Local and network arena parity](../../design.md#local-and-network-arena-parity), UX-ARENA-001–026, under PRES-ARENA-001–012 / AC-001–005 and REP-PRES-010 / REP-PRES-AC-005. [NET-05 SVG](../wireframes/NET-05/NET-05.svg) is the current live structural source; its anchors preserve Local Play. This supersedes preservation of defective network projection, water, attachments, layers or animation. Keep the existing default network visual set, approved background fallback, compact status, framed controls and contextual panels. The local arena is not redesigned.
 
 ## Presentation and allocation
 

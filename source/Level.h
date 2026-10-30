@@ -115,6 +115,8 @@ namespace Duel6 {
 
         Int32 getWaterLevel() const;
 
+        const Water *getRisingWaterType() const { return blockMeta[waterBlock].getWaterType(); }
+
         bool isRaisingWater() const;
 
     private:

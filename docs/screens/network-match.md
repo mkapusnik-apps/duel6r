@@ -16,6 +16,8 @@ It implements `NET-VIS-003` through `NET-VIS-017` and `NET-VIS-AC-002` through `
 
 The host starts this screen from `NET-04` after all participants are ready and clears any prior retained result. Match completion enters `NET-06`; unexpected host contact failure enters guest `NET-07`. Only a valid End session notice accepted through the current established session enters guest `NET-09`.
 
+The [common arena presentation contract](play-fullscreen.md#common-arena-presentation-contract) owns `PRES-ARENA-001`–`PRES-ARENA-012` and `PRES-ARENA-AC-001`–`PRES-ARENA-AC-005`. It applies to live play, both round-end phases, waiting views, and retained or restored arena context. Network settings, ownership, input, timing, solo/waiting rules, and outcome authority remain unchanged. Whole final-screen presentation follows [SUMMARY-VIEW](overlay-game-over.md#common-final-screen-contract), not the active-round or non-final score overlay.
+
 ## Representative layout
 
 - Fill the client with one undivided arena showing the complete level and all currently spawned players, including a one-player hosted round. Waiting roster entries have no actor.
@@ -142,7 +144,7 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - No join, invite, migration, account, or persistent-statistics action may appear during the match.
 - Phase and countdown text must remain visible without reliance on curtain motion or color.
 - Only the host may receive focus on `Advance round` or `End session`.
-- Local Play advancement, scripting, presentation, and persistence behavior must remain unchanged.
+- Local Play advancement, scripting, and persistence behavior must remain unchanged. Common arena and final-screen presentation follow `PRES-ARENA` and `SUMMARY-VIEW`.
 - Solo feedback derives only from authoritative mode-appropriate opposition/outcome state. Solo play is not pause, victory, or failure. No living current-round players uses normal completed no-winner presentation, delay, and limit, including last-living death, Leave, or expiry; waiting does not prevent completion. With opposition normal mode winner rules apply.
 - Waiting feedback stays above network status, wraps at 1280 × 720, and must not dim the arena, capture focus/input, or add a new action. Waiting excludes gameplay input, damage, pickups, winner/survival/statistics/result participation until normal eligible spawn.
 - Each established keyboard or controller action must affect only an owned player through the network session.

@@ -83,6 +83,7 @@ namespace Duel6 {
         void render(Texture texture, bool masked) const;
 
         void nextFrame();
+        void setFrame(std::uint64_t frame);
     };
 }
 

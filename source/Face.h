@@ -52,6 +52,11 @@ namespace Duel6 {
         }
 
         /** Next animation frame. */
+        Face &setFrame(std::uint64_t frame) {
+            currentAnimationFrame = frame % block->getAnimationFrames();
+            return *this;
+        }
+
         Face &nextFrame() {
             if (++currentAnimationFrame >= block->getAnimationFrames()) {
                 currentAnimationFrame = 0;

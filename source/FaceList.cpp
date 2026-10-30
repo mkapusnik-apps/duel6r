@@ -59,4 +59,15 @@ namespace Duel6 {
         }
         buffer->update(*this);
     }
+
+    void FaceList::setFrame(std::uint64_t frame) {
+        if (faces.empty()) return;
+        bool changed = false;
+        for (Face &face: faces) {
+            const auto before = face.getCurrentTexture();
+            face.setFrame(frame);
+            changed = changed || before != face.getCurrentTexture();
+        }
+        if (changed) buffer->update(*this);
+    }
 }

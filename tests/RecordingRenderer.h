@@ -17,6 +17,8 @@ public:
         Matrix view, projection, model;
         Material material;
         BlendFunc blend;
+        bool depthTest, depthWrite;
+        Float32 globalTime;
     };
     std::vector<Quad> quads;
     struct BufferDraw {
@@ -24,12 +26,15 @@ public:
         std::vector<Vector> projected;
         Matrix view;
         Material material;
+        BlendFunc blend;
+        bool depthTest, depthWrite;
+        Float32 globalTime;
     };
     std::vector<BufferDraw> buffers;
     void recordQuad(const std::array<Vector, 4> &vertices,
                     const std::array<Vector, 4> &uv, const Material &material) {
         Quad draw{vertices, uv, {}, getViewMatrix(), getProjectionMatrix(),
-                  getModelMatrix(), material, blend};
+                  getModelMatrix(), material, blend, depthTest, depthWrite, globalTime};
         const auto matrix = draw.projection * draw.view * draw.model;
         for (unsigned i = 0; i < 4; ++i) draw.projected[i] = matrix * vertices[i];
         quads.push_back(draw);
@@ -38,6 +43,8 @@ public:
     std::vector<Frame> frames;
     unsigned uploads = 0;
     BlendFunc blend = BlendFunc::None;
+    bool depthTest = false, depthWrite = true;
+    Float32 globalTime = 0;
     Info getInfo() override { return {}; }
     Extensions getExtensions() override { return {}; }
     Texture createTexture(const Image &, TextureFilter, bool) override { return static_cast<Texture>(++uploads); }
@@ -45,10 +52,10 @@ public:
     Image makeScreenshot() override { return {}; }
     void setViewport(Int32, Int32, Int32, Int32) override {}
     void enableWireframe(bool) override {}
-    void enableDepthTest(bool) override {}
-    void enableDepthWrite(bool) override {}
+    void enableDepthTest(bool value) override { depthTest = value; }
+    void enableDepthWrite(bool value) override { depthWrite = value; }
     void setBlendFunc(BlendFunc value) override { blend = value; }
-    void setGlobalTime(Float32) override {}
+    void setGlobalTime(Float32 value) override { globalTime = value; }
     void clearBuffers() override {}
     void triangle(const Vector &, const Vector &, const Vector &, const Color &) override {}
     void triangle(const Vector &, const Vector &, const Vector &, const Vector &,
@@ -86,7 +93,8 @@ public:
                 : owner(owner), vertices(faces.getVertexes()) {}
             void update(const FaceList &faces) override { vertices = faces.getVertexes(); }
             void render(const Material &material) override {
-                BufferDraw draw{vertices, {}, owner.getViewMatrix(), material};
+                BufferDraw draw{vertices, {}, owner.getViewMatrix(), material, owner.blend,
+                                owner.depthTest, owner.depthWrite, owner.globalTime};
                 const auto matrix = owner.getProjectionMatrix() * owner.getViewMatrix() * owner.getModelMatrix();
                 for (const auto &v : vertices) draw.projected.push_back(matrix * Vector(v.x, v.y, v.z));
                 owner.buffers.push_back(std::move(draw));

@@ -131,13 +131,7 @@ The service must not create a partial round or result when match-start validatio
 
 The authoritative service must apply local round-start, world, combat, and scoring rules with the hosted solo/opposition exception in NET-SOLO-002 through NET-SOLO-006. Opposition uses spawned nonremoved current-round membership, including dead and reserved players: Deathmatch requires two players; Predator requires Predator plus non-predator; teams require two represented teams. Waiting players are excluded. Without opposition there is no automatic victory; with opposition normal mode winner rules apply. No living current-round players completes a no-winner round without victory, including last-living death, Leave, or expiry; waiting does not prevent completion. Normal timing and limits apply. Each round reevaluates opposition. Before outcome, removal can restore solo rules only when mode-appropriate opposition is absent; an established outcome remains immutable.
 
-When a mode produces a winner or no-winner outcome, the service must start one six-second round-end delay.
-
-During the first second, the service must continue normal world and player updates.
-
-During the final five seconds, the service must stop normal round updates.
-
-After the delay, the service must start the next non-final round automatically.
+When a mode produces a winner or no-winner outcome, the service must apply the round-end timing and update phases in `LIF-011`–`LIF-014` of [features.md](features.md). This means one six-second delay, one second of normal updates, five seconds without normal round updates, and automatic next-round start only for a non-final round. The sound clause in `LIF-011` does not require audio initialization in the headless service.
 
 Only the host may request advancement before the delay ends. The request is valid only after the mode produces a winner or no-winner outcome.
 
@@ -146,6 +140,8 @@ A guest must not advance a round. An arbitrary participant key press must not ad
 Network play must not support the local Shift+F1 force-advance action before a winner exists.
 
 The final round must not advance to another round. It must produce the completed session-only result.
+
+`PRES-ARENA-010`–`PRES-ARENA-012` in the [common arena contract](screens/play-fullscreen.md#common-arena-presentation-contract) govern presentation of these phases, not their duration or authority. `SUMMARY-VIEW` governs final-screen presentation, not winner evaluation or result calculation. Shared presentation must not apply Local Play's early-advance inputs, persistence, or resume rules to a network session. Hosted solo, waiting admission, removal, and immutable outcomes retain the rules above.
 
 ## Host End session action
 

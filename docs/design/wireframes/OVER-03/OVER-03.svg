@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1060" viewBox="0 0 1280 1060">
+  <title>OVER-03 — Common final shell, local variant</title>
+  <desc>Completed finite local match. Full final arena beneath curtain, one common score panel, separate match and last-round outcomes, cumulative table, fixed role footer and completion notice. Diagram values are illustrative design labels, not evidence.</desc>
+  <rect width="1280" height="1060" fill="white"/>
+  <g fill="none" stroke="black" stroke-width="2">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <rect x="48" y="16" width="1184" height="748"/>
+    <rect x="50" y="18" width="1180" height="40"/>
+    <rect x="936" y="22" width="278" height="32"/>
+    <rect x="64" y="146" width="1152" height="602"/>
+    <path d="M64 182 H1216 M64 208 H1216 M80 306 H1200 M80 404 H1200 M80 502 H1200"/>
+    <rect x="48" y="780" width="1184" height="40" stroke-dasharray="6 5"/>
+    <rect x="520" y="836" width="240" height="48"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="18">
+    <text x="80" y="46" font-size="26">SCORE</text><text x="954" y="46" font-size="24">Rounds: 3 | 3</text>
+    <text x="64" y="80">Local Play</text>
+    <text x="64" y="116">Match outcome: Bravo</text>
+    <text x="64" y="134">Last completed round: 3 — Bravo</text>
+    <text x="80" y="172">Cumulative ranking — not the match outcome</text>
+    <text x="80" y="202">Rank / Team / Player</text><text x="790" y="202">K</text><text x="870" y="202">A</text><text x="950" y="202">D</text><text x="1030" y="202">K/D</text><text x="1140" y="202">PTS</text>
+    <text x="80" y="226">1  Alpha — team totals</text><text x="1140" y="226">24</text>
+    <text x="104" y="244">Player 1</text><text x="104" y="262">Player 2</text><text x="104" y="280">Player 3</text><text x="104" y="298">Player 4</text>
+    <text x="80" y="324">2  Bravo — team totals</text><text x="1140" y="324">18</text>
+    <text x="104" y="342">Player 5</text><text x="104" y="360">Player 6</text><text x="104" y="378">Player 7</text><text x="104" y="396">Player 8</text>
+    <text x="80" y="422">3  Charlie — team totals</text><text x="1140" y="422">12</text>
+    <text x="104" y="440">Player 9</text><text x="104" y="458">Player 10</text><text x="104" y="476">Player 11</text><text x="104" y="494">Player 12</text>
+    <text x="80" y="520">4  Delta — team totals</text><text x="1140" y="520">6</text>
+    <text x="104" y="538">Player 13</text><text x="104" y="556">Player 14</text><text x="104" y="574">Player 15</text>
+    <text x="552" y="868" font-size="26">End of Game</text>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="17">
+    <text x="20" y="930">ANNOTATIONS — not UI. Background is the complete final arena under the existing curtain, not a blank canvas.</text>
+    <text x="20" y="956">Dashed footer marks reserved space, not a control. Local Escape / Shift+Escape semantics remain product-owned.</text>
+    <text x="20" y="982">Common panel, header, body and notice match NET-06. Empty numeric cells stand for existing local statistics.</text>
+    <text x="20" y="1008">Only body content may scroll after explicit local input approval. Long outcome identities precede ranking when needed.</text>
+    <text x="20" y="1034">UX-FINAL-001–034. 850 × 700 and 1280 × 720 reduce body height; header/footer stay fixed. No mobile variant.</text>
+  </g>
+</svg>

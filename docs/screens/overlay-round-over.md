@@ -61,8 +61,7 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - An unlimited-match summary must not show the score-panel round-progress label.
 - An unlimited-match summary must not reserve the 32 px progress row.
 - A final game summary must not show the new score-panel round-progress label.
-- A final Team game summary must use the same team-group separator treatment under `UI-GAME-001`.
-- A final non-Team game summary must remain unchanged.
+- Final Team and non-Team game summaries must use the [common final-screen contract](overlay-game-over.md#common-final-screen-contract). This non-final overlay does not prescribe their appearance.
 - An active-round Tab score overlay must remain unchanged and must not show the new score-panel round-progress label.
 - The first visible frame of the next active limited round must restore the top-center arena round progress.
 - The next active round must not retain the summary progress row.

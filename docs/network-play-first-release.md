@@ -439,6 +439,8 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 
 ## Session-only result lifecycle
 
+`NET-06` uses the [common final-screen presentation](screens/overlay-game-over.md#common-final-screen-contract) under `SUMMARY-VIEW-001`–`SUMMARY-VIEW-007`. Shared appearance and ranking presentation do not change the result meanings, permissions, retention, or persistence rules below.
+
 - Authoritative network results are labeled `Session only` and never write local statistics, Elo, people, profiles, or saves.
 - Result state, match outcome, last completed-round outcome, and cumulative rankings are distinct values.
 - For a completed result, the match outcome equals the configured final round outcome.
@@ -463,6 +465,8 @@ An isolated guest reaching its local deadline enters `NET-08`; it does not claim
 - `Network (F2)` is distinct and must not replace, wrap, or redirect local Play.
 - Network configuration, readiness, results, failures, and participant state do not mutate local persistent data.
 - This specification does not add network behavior to [`docs/features.md`](features.md).
+
+Local independence does not require a separate renderer appearance or final-screen design. Common arena and final-screen presentation follow `PRES-ARENA` and `SUMMARY-VIEW` in the [screen contracts](screens/README.md#common-arena-and-final-result-presentation), without making Local Play a network session.
 
 ## Non-goals and explicit boundaries
 

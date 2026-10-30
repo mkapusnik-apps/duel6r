@@ -1,6 +1,7 @@
 #ifndef DUEL6_NETWORK_STATEREPLICATION_H
 #define DUEL6_NETWORK_STATEREPLICATION_H
 #include "../Defines.h"
+#include "../ArenaState.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -76,6 +77,10 @@ namespace Duel6::Network::Replication {
         bool mirrored = false;
         std::vector<Identity> rosterOrder;
         RoundOutcomeState outcome;
+        std::int64_t worldTime = 0; // Q16 seconds; stops when the world stops.
+        LiquidKind waterType = LiquidKind::None;
+        std::int32_t waterLevel = -1; // Highest completely flooded tile row.
+        bool waterRaising = false;
     };
 
     struct PlayerState {
@@ -104,6 +109,8 @@ namespace Duel6::Network::Replication {
         std::int64_t reloadRemaining = 0;
         std::int64_t charge = 0;
         std::int64_t temporaryMovementRemaining = 0;
+        std::int64_t bonusDuration = 0; // Q16 seconds, same unit as remaining.
+        std::int64_t reloadDuration = 0; // Q16 seconds, includes current modifiers.
     };
 
     struct WorldEntityState {

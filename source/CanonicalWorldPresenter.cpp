@@ -13,6 +13,8 @@
 #include "Material.h"
 #include "Orientation.h"
 #include "Sprite.h"
+#include "ArenaPresentation.h"
+#include "Water.h"
 #include "network/NetworkTrustPolicy.h"
 
 namespace Duel6 {
@@ -208,26 +210,45 @@ namespace Duel6 {
         level = std::make_unique<Level>(round.level, round.mirrored, resources.getBlockMeta(),
                                         *levelRandomSource);
         loadedBackground = selectBackground(state, *level, resources);
-        levelRenderData = std::make_unique<LevelRenderData>(*level, renderer, 0.15f);
+        levelRenderData = std::make_unique<LevelRenderData>(*level, renderer, D6_ANM_SPEED);
         levelRenderData->generateFaces();
         loadedLevel = round.level;
         loadedSession = state.sessionId;
         loadedMatch = state.matchId;
         loadedRound = round.roundId;
         loadedMirror = round.mirrored;
+        worldClock.reset();
+        explosions.clear();
+        playerStatusRemaining.clear();
+        presentedEntities.clear();
         return true;
     }
 
     void CanonicalWorldPresenter::update(
             Float32 elapsedTime, const Network::Replication::CanonicalState *state,
-            const std::vector<Network::Replication::PresentationEvent> &events) {
+            const std::vector<Network::Replication::PresentationEvent> &events, bool retainingWorld) {
+        const bool advancing = state && !retainingWorld && Network::Replication::acceptsGameplayInput(*state);
+        const Float32 animationDelta = advancing ? elapsedTime : 0.0f;
         for (auto iterator = playerStatusRemaining.begin(); iterator != playerStatusRemaining.end();) {
-            iterator->second -= elapsedTime;
+            iterator->second -= animationDelta;
             if (iterator->second <= 0) iterator = playerStatusRemaining.erase(iterator); else ++iterator;
         }
-        if (state && state->round && loadRound(*state) && levelRenderData)
-            levelRenderData->update(elapsedTime);
-        explosions.update(elapsedTime);
+        if (state && state->round && loadRound(*state) && levelRenderData) {
+            const auto &round = *state->round;
+            const Water *type = round.waterType == LiquidKind::Blue ? Water::BLUE
+                              : round.waterType == LiquidKind::Red ? Water::RED
+                              : round.waterType == LiquidKind::Green ? Water::GREEN : Water::NONE;
+            if (type != Water::NONE) {
+                const auto &blocks = resources.getBlockMeta();
+                const auto block = std::find_if(blocks.begin(), blocks.end(), [&](const Block &value) {
+                    return value.is(Block::Type::Water) && value.getWaterType() == type;
+                });
+                if (block == blocks.end()) D6_THROW(DataException, "Required liquid material is unavailable");
+                levelRenderData->setWaterSurface(*block, round.waterLevel, round.waterRaising);
+            }
+            levelRenderData->setAnimationTime(worldClock.update(round.worldTime, elapsedTime, advancing));
+        }
+        explosions.update(animationDelta);
         if (!state) return;
         if (presentedSession != state->sessionId) {
             presentedSession = state->sessionId;
@@ -354,7 +375,7 @@ namespace Duel6 {
             const Network::Replication::WorldEntityState &entity) const {
         if (!entity.active && entity.kind != Network::Replication::EntityKind::Tree
             && entity.kind != Network::Replication::EntityKind::Water) return;
-        const Vector centre(worldValue(entity.positionX), worldValue(entity.positionY), 0.65f);
+        const Vector centre(worldValue(entity.positionX), worldValue(entity.positionY), 0.6f);
         using Kind = Network::Replication::EntityKind;
         switch (entity.kind) {
             case Kind::Shot:
@@ -375,7 +396,7 @@ namespace Duel6 {
                     const Vector origin(centre.x + (facingLeft ? -anchor.x : anchor.x - 1.0f),
                                         centre.y - anchor.y);
                     Sprite sprite(visual.animation, weapon->getNetworkProjectileTexture());
-                    sprite.setPosition(origin, 0.65f)
+                    sprite.setPosition(origin, 0.6f)
                             .setFrame(static_cast<Size>(frame))
                             .setOrientation(facingLeft ? Orientation::Left : Orientation::Right);
                     sprite.render(renderer);
@@ -399,19 +420,11 @@ namespace Duel6 {
                 renderer.frame(centre - Vector(0.25f, 0.25f), Vector(0.5f, 0.5f), 3.0f, Color(96, 224, 128));
                 break;
             case Kind::Elevator:
-                renderer.quadXY(centre - Vector(0.5f, 0.12f), Vector(1.0f, 0.24f),
-                                Vector(0, 1, 0), Vector(1, -1),
-                                Material::makeMaskedTexture(resources.getElevatorTextures()));
+                ArenaPresentation::elevator(renderer, resources.getElevatorTextures(), centre);
                 break;
             case Kind::Water:
-                if (level) {
-                    renderer.setBlendFunc(BlendFunc::SrcAlpha);
-                    renderer.quadXY(Vector(0.0f, 0.0f, 0.72f),
-                                    Vector(static_cast<Float32>(level->getWidth()),
-                                           static_cast<Float32>(entity.primaryValue + 1)),
-                                    Color(32, 96, 224, 128));
-                    renderer.setBlendFunc(BlendFunc::None);
-                }
+                // The shared level geometry renders accepted surface and side
+                // faces. The legacy hazard entity carries no render rectangle.
                 break;
             case Kind::Fire:
                 renderer.quadXY(centre - Vector(0.5f, 0.5f), Vector(1, 1), Vector(0, 1, 0),
@@ -426,7 +439,7 @@ namespace Duel6 {
                     const auto type = static_cast<Size>(std::stoul(entity.type));
                     const auto found = resources.getFireTextures().find(type);
                     if (found != resources.getFireTextures().end())
-                        renderer.quadXY(centre - Vector(0.5f, 0.5f), Vector(1, 1),
+                        renderer.quadXY(Vector(centre.x, centre.y, 0.75f), Vector(1, 1),
                                         Vector(0, 1, entity.active ? 0 : 1), Vector(1, -1),
                                         Material::makeMaskedTexture(found->second));
                 } catch (...) {}
@@ -444,7 +457,7 @@ namespace Duel6 {
         if (!weapon || !weapon->getNetworkWeaponTexture()) return;
         const bool invisible = player.activeBonus == "invisibility" && player.bonusRemaining > 0;
         if (invisible) renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(x, y - (player.crouching ? 0.15f : 0.0f), 0.64f), Vector(1.0f, 1.0f),
+        renderer.quadXY(Vector(x, y - (player.crouching ? 0.15f : 0.0f), 0.5f), Vector(1.0f, 1.0f),
                         Vector(player.facingLeft ? 0.0f : 1.0f, 1.0f,
                                static_cast<Float32>(weapon->getBonusTextureIndex())),
                         Vector(player.facingLeft ? 1.0f : -1.0f, -1.0f),
@@ -500,13 +513,14 @@ namespace Duel6 {
             statusY += 0.10f;
         };
         if (player.reloadRemaining > 0) {
-            const Weapon *weapon = weaponFor(player.heldWeapon);
-            const Float32 total = weapon ? std::max(1.0f, weapon->getReloadInterval() * 60.0f) : 60.0f;
-            bar(Color::GREEN, 1.0f - unitRatio(player.reloadRemaining, total));
+            bar(Color::GREEN, 1.0f - ArenaPresentation::ratio(worldValue(player.reloadRemaining),
+                                                            worldValue(player.reloadDuration)));
         }
-        if (player.air < D6_MAX_AIR) bar(Color::BLUE, unitRatio(player.air, D6_MAX_AIR));
+        if (worldValue(player.air) < D6_MAX_AIR)
+            bar(Color::BLUE, ArenaPresentation::ratio(worldValue(player.air), D6_MAX_AIR));
         if (!player.activeBonus.empty() && player.bonusRemaining > 0)
-            bar(Color::MAGENTA, unitRatio(player.bonusRemaining, 600.0f));
+            bar(Color::MAGENTA, ArenaPresentation::ratio(worldValue(player.bonusRemaining),
+                                                        worldValue(player.bonusDuration)));
         bar(Color::RED, unitRatio(player.life, D6_MAX_LIFE));
 
         const std::string name = utf8Prefix(player.displayName, 18);
@@ -538,28 +552,27 @@ namespace Duel6 {
         service.getVideo().resetDrawableViewport();
 #endif
         if (!state.round || !level || !levelRenderData || width <= 0 || height <= 0) return false;
-        const Float32 scale = std::min(static_cast<Float32>(width) / level->getWidth(),
-                                      static_cast<Float32>(height) / level->getHeight());
-        const Float32 x = (width - level->getWidth() * scale) * 0.5f;
-        const Float32 y = (height - level->getHeight() * scale) * 0.5f;
-
+        const Matrix previousProjection = renderer.getProjectionMatrix();
+        renderer.clearBuffers();
+        renderer.setProjectionMatrix(Matrix::orthographic(0, width, 0, height, -1, 1));
         renderer.setViewMatrix(Matrix::IDENTITY);
+        renderer.setModelMatrix(Matrix::IDENTITY);
+        renderer.enableDepthTest(false);
+        renderer.setBlendFunc(BlendFunc::None);
         const Texture background = backgroundTexture();
         if (background) renderer.quadXY(Vector(0, 0), Vector(width, height), Vector(0, 1),
                                         Vector(1, -1), Material(background));
         else renderer.quadXY(Vector(0, 0), Vector(width, height), Color(24, 28, 40));
 
-        // Match Local Play's positive-X/right, positive-Y/up world basis.
-        // Level loading already applies row conversion and the round's mirror.
-        // Positive uniform scaling preserves the clockwise front-face winding.
-        renderer.setViewMatrix(Matrix::translate(x, y, 0)
-                               * Matrix::scale(scale, scale, 1));
-        // This is a flattened orthographic presentation with an explicit
-        // painter order. Do not test against depth left by the underlying menu
-        // background; that can reject the complete canonical arena.
-        renderer.enableDepthTest(false);
-        levelRenderData->getWalls().render(resources.getBlockTextures(), false);
-        levelRenderData->getSprites().render(resources.getBlockTextures(), true);
+        const auto &view = service.getVideo().getView();
+        const Float32 aspect = static_cast<Float32>(width) / height;
+        renderer.setProjectionMatrix(Matrix::perspective(view.getFieldOfView(), aspect,
+                view.getNearClip(), view.getFarClip()));
+        renderer.setViewMatrix(Matrix::lookAt(ArenaPresentation::cameraPosition(level->getWidth(),
+                level->getHeight(), aspect, view.getFieldOfView()), -Vector::UNIT_Z, Vector::UNIT_Y));
+        const ArenaGeometryScene scene{levelRenderData->getWalls(), levelRenderData->getSprites(),
+                levelRenderData->getWater(), resources.getBlockTextures(), worldClock.value()};
+        ArenaPresentation::staticGeometry(renderer, scene);
         for (const auto &entity: state.entities) renderEntity(entity);
         for (const auto &player: state.players) {
             if (!player.visible || player.lifeState == Network::Replication::LifeState::Departed
@@ -582,22 +595,29 @@ namespace Duel6 {
             const PlayerSkin &skin = skinFor(visualState);
             const Animation animation = animationFor(visualState);
             Sprite sprite(animation, skin.getTexture());
-            sprite.setPosition(Vector(px, py), 0.55f)
-                    .setFrame(animationFrame(animation, state.phaseTime))
+            sprite.setPosition(Vector(px, py), 0.5f)
+                    .setFrame(animationFrame(animation, static_cast<std::uint64_t>(worldClock.value() * 60)))
                     .setOrientation(visualState.facingLeft ? Orientation::Left : Orientation::Right)
                     .setAlpha(static_cast<Float32>(player.presentationAlpha) / 255.0f);
             sprite.render(renderer);
             renderHeldWeapon(visualState, px, py);
             renderPlayerEffects(state, visualState, px, py);
-            renderPlayerStatus(state, visualState, px, py);
         }
-        levelRenderData->getWater().render(resources.getBlockTextures(), true);
+        ArenaPresentation::water(renderer, scene);
+        for (const auto &player: state.players) {
+            const auto pose = std::find_if(presentedPlayers.begin(), presentedPlayers.end(), [&](const auto &value) {
+                return value.playerId == player.playerId;
+            });
+            renderPlayerStatus(state, player, worldValue(pose == presentedPlayers.end() ? player.positionX : pose->positionX),
+                    worldValue(pose == presentedPlayers.end() ? player.positionY : pose->positionY));
+        }
         explosions.render(renderer);
         // Sprite effects may restore depth testing after their own no-depth
         // draw. Leave the renderer in the orthographic UI state expected by
         // NetworkMenu's HUD and overlays.
         renderer.enableDepthTest(false);
         renderer.setViewMatrix(Matrix::IDENTITY);
+        renderer.setProjectionMatrix(previousProjection);
         (void) presentation;
         return true;
     }
