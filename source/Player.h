@@ -328,9 +328,7 @@ namespace Duel6 {
 
         Player &pickAmmo(Int32 ammo) {
             this->ammo += ammo;
-#ifndef D6R_HEADLESS_CORE
             indicators.getBullets().show();
-#endif
             return *this;
         }
 
@@ -385,6 +383,9 @@ namespace Duel6 {
         bool isInGame() const {
             return isAlive() || isLying();
         }
+
+        // Body presence is independent of alpha/invisibility and membership.
+        bool isBodyVisible() const { return isAlive() || isGhost() || isLying(); }
 
         bool isInvulnerable() const {
             return (getBonus() == BonusType::INVULNERABILITY);

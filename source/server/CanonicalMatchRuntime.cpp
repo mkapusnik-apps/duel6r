@@ -551,7 +551,7 @@ namespace Duel6::Server::Authoritative {
             player.invulnerable = players[index].isInvulnerable();
             // Invisibility is translucent presentation, not entity omission. It
             // applies to body and weapon; Predator alone keeps its body-only alpha.
-            player.visible = true;
+            player.visible = players[index].isBodyVisible();
             const Float32 bodyAlpha = players[index].getBonus() == BonusType::INVISIBILITY
                                       ? 0.2f : players[index].getBodyAlpha();
             player.presentationAlpha = static_cast<std::uint8_t>(
