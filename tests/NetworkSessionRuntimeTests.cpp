@@ -73,6 +73,7 @@
 #include "source/gamemodes/Predator.h"
 #include "source/gamemodes/TeamDeathMatch.h"
 #include <cmath>
+#include "source/json/JsonParser.h"
 
 namespace {
     using namespace Duel6;
@@ -6508,3 +6509,5 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
     host.endSession();
 }
 #endif
+
+#include "tests/LocalPersistenceRuntimeCases.h"
