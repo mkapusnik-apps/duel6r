@@ -152,6 +152,10 @@ namespace Duel6::Server {
                 config.admissionClient = true;
             } else if (argument == "--host-service-ipc") {
                 config.hostedServiceIpc = true;
+#ifdef __linux__
+            } else if (startsWith(argument, "--host-service-diagnostics=")) {
+                config.hostServiceDiagnostics = valueAfter(argument, "--host-service-diagnostics=");
+#endif
             } else if (argument == "--graphical-host-composition") {
                 config.graphicalHostComposition = true;
             } else if (startsWith(argument, "--host-service-parent=")) {

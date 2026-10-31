@@ -442,6 +442,8 @@ if (UNIX)
     add_executable(duel6r-host-service-linux-process-tests
             ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp
             ${CMAKE_SOURCE_DIR}/tests/HostServiceLinuxProcessTests.cpp)
+    target_sources(duel6r-host-service-linux-process-tests PRIVATE
+            ${CMAKE_SOURCE_DIR}/tests/HostServiceDiagnosticsTests.cpp)
     target_include_directories(duel6r-host-service-linux-process-tests PRIVATE ${CMAKE_SOURCE_DIR})
     target_link_libraries(duel6r-host-service-linux-process-tests duel6r-network-scaffold)
     target_compile_definitions(duel6r-host-service-linux-process-tests PRIVATE

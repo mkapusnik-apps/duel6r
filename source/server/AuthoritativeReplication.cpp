@@ -282,7 +282,8 @@ namespace Duel6::Server::Authoritative {
     }
 
     bool AuthoritativeReplication::updateFromMatch(const AuthoritativeMatch &match,
-                                                    std::vector<R::PresentationEvent> &events) {
+                                                    std::vector<R::PresentationEvent> &events,
+                                                    Network::HostServiceDiagnostics *diagnostics) {
         if (state.matchId == 0) return false;
         const R::Phase priorPhase = state.phase;
         const bool resultWasAvailable = state.result.available;
@@ -597,16 +598,28 @@ namespace Duel6::Server::Authoritative {
             if (event.eventId == 0) return false;
             events.push_back(std::move(event));
         }
-        return R::validateCanonicalState(state);
+        const bool valid = R::validateCanonicalState(state);
+        if (!valid && diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                static_cast<int>(Network::HostDiagnosticFailure::CanonicalValidationRejected));
+        return valid;
     }
 
-    std::optional<R::IncrementalUpdate> AuthoritativeReplication::capture(const AuthoritativeMatch &match) {
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::capture(const AuthoritativeMatch &match,
+            Network::HostServiceDiagnostics *diagnostics) {
         if (publisher.version() == 0 || state.matchId == 0) return std::nullopt;
         const AuthoritativeReplication before = *this;
         std::vector<R::PresentationEvent> events;
-        if (!updateFromMatch(match, events)) { *this = before; return std::nullopt; }
+        if (!updateFromMatch(match, events, diagnostics)) {
+            if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                    static_cast<int>(Network::HostDiagnosticFailure::CaptureMappingRejected));
+            *this = before; return std::nullopt;
+        }
         auto update = publisher.publish(state, std::move(events));
-        if (!update) *this = before;
+        if (!update) {
+            if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                    static_cast<int>(Network::HostDiagnosticFailure::PublicationRejected));
+            *this = before;
+        }
         return update;
     }
 

@@ -27,6 +27,7 @@ namespace Duel6::Server {
         bool transportEcho = false;
         bool admissionClient = false;
         bool hostedServiceIpc = false;
+        std::string hostServiceDiagnostics; // Internal Linux task FIFO; not peer configuration.
         bool graphicalHostComposition = false;
         bool dedicated = false;
         Network::Endpoint advertisedFrontend{"", 0};

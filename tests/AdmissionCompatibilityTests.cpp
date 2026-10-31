@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "tests/TestHarness.h"
+#include "tests/HostDiagnosticFixture.h"
 #ifdef D6R_TEST_OBSERVE_NATIVE_CLOSE
 #include <sys/ioctl.h>
 namespace NativeCloseObservation {
@@ -2158,6 +2159,11 @@ D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production ser
             Network::ManifestStatus::Valid, hostedManifest, content};
 
     Server::ServerConfig hostConfig = runtimeServerConfig();
+#ifdef __linux__
+    Test::HostDiagnosticFixture diagnostics;
+    hostConfig.hostedServiceIpc = true;
+    hostConfig.hostServiceDiagnostics = diagnostics.fifo.string();
+#endif
     hostConfig.listenEndpoint.port = unusedLoopbackPort();
     D6R_REQUIRE(hostConfig.listenEndpoint.port != 0);
     Server::AdmissionRuntimeDependencies hostDependencies;
@@ -2211,6 +2217,20 @@ D6R_TEST_CASE("REP-067 injected canonical tick failure terminates production ser
             + ";cleaned=" + (output.find("transport stopped") != std::string::npos ? "true" : "false")
             + ";intentional=" + (output.find("authoritative-match-ended-intentionally") != std::string::npos ? "true" : "false");
     D6R_REQUIRE_EQ(std::string("status=3;runtime-failed=true;cleaned=true;intentional=false"), evidence);
+#ifdef __linux__
+    const auto records = diagnostics.drain();
+    const auto failure = std::find_if(records.begin(), records.end(), [](const auto &r) {
+        return r.event == static_cast<int>(Network::HostDiagnosticEvent::BackendFailure);
+    });
+    const auto outcome = std::find_if(records.begin(), records.end(), [](const auto &r) {
+        return r.event == static_cast<int>(Network::HostDiagnosticEvent::BackendOutcome);
+    });
+    D6R_REQUIRE(failure != records.end() && outcome != records.end());
+    D6R_REQUIRE_EQ(static_cast<int>(Network::HostDiagnosticFailure::AdvanceRejected), failure->a);
+    D6R_REQUIRE_EQ(static_cast<int>(Server::Authoritative::OutcomeCode::RuntimeFailed), outcome->a);
+    D6R_REQUIRE_EQ(3, outcome->b);
+    D6R_REQUIRE(failure->seq < outcome->seq);
+#endif
 }
 
 

@@ -130,6 +130,9 @@ namespace Duel6::Client {
         const auto accepted = now();
         const auto latest = HostServiceTimePoint::max() - CleanupDeadline;
         cleanupDeadline = accepted >= latest ? HostServiceTimePoint::max() : accepted + CleanupDeadline;
+        if (retainedConfig.diagnostics) retainedConfig.diagnostics->record(
+                Network::HostDiagnosticEvent::StopSelected, static_cast<int>(stopReason),
+                static_cast<int>(failure), static_cast<int>(state));
     }
 
     bool HostServiceSupervisor::start(const HostServiceStartConfig &config) {
@@ -151,6 +154,10 @@ namespace Duel6::Client {
             stopReason = HostServiceStopReason::None;
             intentionalEndHandoffEmitted = false;
             retainedConfig = config;
+            if (!retainedConfig.diagnostics)
+                retainedConfig.diagnostics = Network::HostServiceDiagnostics::fromEnvironment();
+            if (retainedConfig.diagnostics)
+                retainedConfig.diagnostics->record(Network::HostDiagnosticEvent::Begin);
             hasRetainedConfig = true;
             const auto began = now();
             startupBegan = began;
@@ -297,13 +304,19 @@ namespace Duel6::Client {
                             exitEvent, events, [this] { return now(); });
                 }
                 catch (...) {
+                    if (retainedConfig.diagnostics)
+                        retainedConfig.diagnostics->record(Network::HostDiagnosticEvent::ObserverException);
                     exitObserved = true;
                     exitEvent.observedAt = now();
                 }
             }
 
             for (auto iterator = events.begin(); iterator != events.end();) {
-                if (iterator->sessionPayload.empty()) { ++iterator; continue; }
+                if (iterator->sessionPayload.empty()) {
+                    if (retainedConfig.diagnostics) retainedConfig.diagnostics->record(
+                            Network::HostDiagnosticEvent::Status, static_cast<int>(iterator->code));
+                    ++iterator; continue;
+                }
                 if (dependencies.sessionPayloadObserver) {
                     try { dependencies.sessionPayloadObserver(iterator->sessionPayload); } catch (...) {}
                 }
@@ -408,6 +421,9 @@ namespace Duel6::Client {
         HostServiceSnapshot current;
         {
             std::lock_guard<std::mutex> lock(mutex);
+            if (retainedConfig.diagnostics) retainedConfig.diagnostics->record(
+                    Network::HostDiagnosticEvent::BeforeReset, static_cast<int>(stopReason),
+                    static_cast<int>(selectedFailure), cleaned);
             child.reset();
             cleanupComplete = true;
             selectedStop = SelectedStop::None;

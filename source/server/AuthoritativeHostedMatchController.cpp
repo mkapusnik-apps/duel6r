@@ -467,7 +467,7 @@ namespace Duel6::Server::Authoritative {
         return activeMatch ? activeMatch->outcome() : terminalOutcome(OutcomeCode::RuntimeFailed);
     }
 
-    bool AuthoritativeHostedMatchController::observeMatchOutcome() {
+    bool AuthoritativeHostedMatchController::observeMatchOutcome(Network::HostServiceDiagnostics *diagnostics) {
         if (!activeMatch || currentStage != HostedMatchStage::MatchActive) return false;
         if (activeMatch->outcome().code == OutcomeCode::RuntimeFailed
             || activeMatch->outcome().code == OutcomeCode::ShutdownFailed) {
@@ -492,7 +492,7 @@ namespace Duel6::Server::Authoritative {
                     currentStage = HostedMatchStage::UnexpectedStop;
                     return false;
                 }
-                const auto result = replication.capture(*activeMatch);
+                const auto result = replication.capture(*activeMatch, diagnostics);
                 if (!result) {
                     discardSessionResults();
                     currentStage = HostedMatchStage::UnexpectedStop;
@@ -510,7 +510,7 @@ namespace Duel6::Server::Authoritative {
         } else {
             const bool lifecycleTransition = activeMatch->phase() != lastReplicatedPhase;
             if (replicationPacer.shouldPublish(activeMatch->currentTick(), lifecycleTransition)) {
-                const auto update = replication.capture(*activeMatch);
+                const auto update = replication.capture(*activeMatch, diagnostics);
                 if (!update) return false;
                 (void) replicationConnections.broadcast(*update);
                 lastReplicatedPhase = activeMatch->phase();

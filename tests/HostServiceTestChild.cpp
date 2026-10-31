@@ -11,6 +11,7 @@
 #include "source/network/HostServiceControlProtocol.h"
 #include "source/network/SessionTransport.h"
 #include "source/server/HostedServiceChannel.h"
+#include "source/network/HostServiceDiagnostics.h"
 
 #ifndef _WIN32
 #include <cerrno>
@@ -148,6 +149,36 @@ int main(int count, char **arguments) {
     }
 #endif
     if (!channel || !channel->active()) return 70;
+#ifdef __linux__
+    if (mode == "diagnostic-failure" || mode == "diagnostic-signal" || mode == "diagnostic-end"
+        || mode == "diagnostic-force") {
+        if (environ && environ[0]) return 87;
+        for (int descriptor = 5; descriptor < 256; ++descriptor)
+            if (fcntl(descriptor, F_GETFD) >= 0 || errno != EBADF) return 79;
+        std::shared_ptr<Duel6::Network::HostServiceDiagnostics> diagnostics;
+        const std::string prefix = "--host-service-diagnostics=";
+        for (int i = 1; i < count; ++i) {
+            const std::string argument = arguments[i] ? arguments[i] : "";
+            if (argument.compare(0, prefix.size(), prefix) == 0)
+                diagnostics = Duel6::Network::HostServiceDiagnostics::open(argument.substr(prefix.size()));
+        }
+        if (diagnostics) diagnostics->record(Duel6::Network::HostDiagnosticEvent::BackendBegin);
+        if (!channel->send(Duel6::Network::HostServiceStatusCode::Ready)) return 75;
+        if (mode == "diagnostic-force") for (;;) pause();
+        while (!channel->stopRequested() && !channel->intentionalEndRequested()) {
+            if (mode != "diagnostic-end" && std::filesystem::exists(gameplayScriptFromArguments(count, arguments))) {
+                if (mode == "diagnostic-signal") { raise(SIGUSR1); return 96; }
+                // Test fixture category, not a reproduced application defect.
+                if (diagnostics) diagnostics->record(Duel6::Network::HostDiagnosticEvent::BackendFailure,
+                        static_cast<int>(Duel6::Network::HostDiagnosticFailure::CanonicalValidationRejected));
+                return 76;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        if (diagnostics) diagnostics->record(Duel6::Network::HostDiagnosticEvent::BackendOutcome, 0, 0);
+        return 0;
+    }
+#endif
     if (mode == "listener-environment") {
         if (std::getenv("D6R_TEST_PARENT_SECRET")) return 86;
 #ifdef _WIN32

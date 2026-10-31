@@ -85,7 +85,7 @@ namespace Duel6::Server::Authoritative {
                               const Network::GameplayManifest &manifest,
                               MatchRuntimeDependencies matchDependencies);
         TerminalOutcome end(Identity participantId);
-        bool observeMatchOutcome();
+        bool observeMatchOutcome(Network::HostServiceDiagnostics *diagnostics = nullptr);
         bool returnToLobby(Identity participantId);
         bool initializeReplication(std::vector<Network::Replication::ParticipantState> participants,
                                    std::vector<PlayerDefinition> roster, MatchConfig settings);

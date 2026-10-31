@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../network/HostServiceControlProtocol.h"
+#include "../network/HostServiceDiagnostics.h"
 #include "../network/Protocol.h"
 
 namespace Duel6::Client {
@@ -64,6 +65,8 @@ namespace Duel6::Client {
         std::vector<std::string> enabledGameplayScripts;
         std::uint8_t localPlayers = 1;
         bool graphicalComposition = false;
+        // Internal opt-in only; never serialized to peers or exposed in menu state.
+        std::shared_ptr<Network::HostServiceDiagnostics> diagnostics;
     };
 
     struct HostServiceSnapshot {
