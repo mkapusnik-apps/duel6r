@@ -1240,6 +1240,83 @@ D6R_TEST_CASE("Shared arena actual splash burn and colored rings preserve curren
         [](const auto &sprite) { return sprite.getEffectType() == "tree-burning"; }));
 }
 
+D6R_TEST_CASE("Shared arena direct explosive kill removes only the body across full delta and recovery") {
+    ProductionCanonicalFixture fixture(2);
+    auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
+    auto &world = game.getRound().getWorld();
+    auto &attacker = game.getPlayers().front();
+    auto &victim = game.getPlayers().back();
+    const auto before = fixture.controller.currentSnapshot()->state;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(before));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    victim.setBonus(Duel6::BonusType::NONE, 0);
+    const auto &weapons = Duel6::Weapon::values();
+    const auto bazooka = std::find_if(weapons.begin(), weapons.end(), [](const auto &weapon) {
+        return weapon.getName() == "bazooka";
+    });
+    D6R_REQUIRE(bazooka != weapons.end());
+    bazooka->shoot(attacker, Duel6::Orientation::Right, world);
+    bool hit = false;
+    world.getShotList().forEach([&](Duel6::Shot &shot) {
+        hit = victim.hitByShot(1000, shot, true, victim.getCentre(), Duel6::Vector(1, 0));
+        return false;
+    });
+    D6R_REQUIRE(hit && !victim.isAlive() && !victim.isLying());
+    D6R_REQUIRE(!world.getExplosionList().values().empty());
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto after = fixture.controller.currentSnapshot()->state;
+    const auto update = publisher.publish(after);
+    D6R_REQUIRE(update);
+    const auto wire = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+    D6R_REQUIRE(wire && wire->update && observer.apply(*wire->update) == R::ApplyResult::Applied);
+    R::ReplicatedState recovered;
+    const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(full && full->snapshot && recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+    for (const auto *state: {&after, observer.state(), recovered.state()}) {
+        D6R_REQUIRE_EQ(before.players.size(), state->players.size());
+        const auto target = std::find_if(state->players.begin(), state->players.end(),
+            [](const auto &player) { return player.playerId == 102; });
+        D6R_REQUIRE(target != state->players.end() && !target->visible);
+        D6R_REQUIRE(target->lifeState == R::LifeState::Dead);
+        D6R_REQUIRE(std::any_of(state->effects.begin(), state->effects.end(),
+            [](const auto &effect) { return effect.type == "explosion-ring"; }));
+    }
+    D6R_REQUIRE(recovered.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("Shared arena post fade ammo pickup restores authoritative HUD in full delta and recovery") {
+    ProductionCanonicalFixture fixture(1);
+    auto *player = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(101);
+    for (unsigned tick = 0; tick < 300; ++tick) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto before = fixture.controller.currentSnapshot()->state;
+    D6R_REQUIRE(before.players.front().hudIndicators[5].elapsed >= before.players.front().hudIndicators[5].total);
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(before));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    player->pickAmmo(17);
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto after = fixture.controller.currentSnapshot()->state;
+    const auto update = publisher.publish(after);
+    D6R_REQUIRE(update);
+    const auto wire = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+    D6R_REQUIRE(wire && wire->update && observer.apply(*wire->update) == R::ApplyResult::Applied);
+    R::ReplicatedState recovered;
+    const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(full && full->snapshot && recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+    for (const auto *state: {&after, observer.state(), recovered.state()}) {
+        const auto &value = state->players.front();
+        D6R_REQUIRE_EQ(before.players.front().ammunition + 17, value.ammunition);
+        D6R_REQUIRE(value.hudIndicators[5].elapsed < value.hudIndicators[5].total);
+        D6R_REQUIRE(value.hudIndicators == after.players.front().hudIndicators);
+    }
+}
+
 D6R_TEST_CASE("NET-ADM real first-round arrival preserves existing world and mode state") {
     const std::vector<std::tuple<Mode, std::uint8_t, bool>> cases{
         {Mode::Deathmatch, 0, false}, {Mode::Predator, 0, false},

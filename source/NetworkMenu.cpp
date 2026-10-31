@@ -355,30 +355,37 @@ namespace Duel6 {
             return model;
         }
 
-        std::vector<std::string> resultLines(const Network::Replication::CanonicalState &state) {
-            std::vector<std::string> lines;
+        struct ResultLine {
+            std::string text, section, columns;
+            bool sectionHeading = false;
+        };
+
+        std::vector<ResultLine> resultLines(const Network::Replication::CanonicalState &state) {
+            std::vector<ResultLine> lines;
             if (!state.result.available || state.result.serialized.empty()) return lines;
             const auto outcomes = Network::Replication::retainedOutcomeRows(state.result);
-            if (!outcomes) return {"Authoritative result details are unavailable."};
-            lines.push_back("OUTCOME WINNERS");
+            if (!outcomes) return {{"Authoritative result details are unavailable.", "RESULT", ""}};
+            const std::string outcomeSection = "OUTCOME WINNERS";
+            const std::string outcomeColumns = "Outcome scope • Complete display name / Player identity / Team / Departure";
+            lines.push_back({outcomeSection, outcomeSection, outcomeColumns, true});
             for (const auto &row: *outcomes) {
                 const auto scope = row.roundNumber ? "Round " + std::to_string(row.roundNumber) : "Match";
-                lines.push_back(scope + (row.playerId ? " • " + row.displayName + " / Player " + std::to_string(row.playerId)
+                lines.push_back({scope + (row.playerId ? " • " + row.displayName + " / Player " + std::to_string(row.playerId)
                     + (row.team ? " / Team " + std::to_string(row.team) : "")
-                    + (row.departed ? " / Departed" : " / Retained") : " • No winner"));
+                    + (row.departed ? " / Departed" : " / Retained") : " • No winner"), outcomeSection, outcomeColumns});
             }
             // The lobby's compact retained-result view uses the same bounded,
             // integer-preserving projection as the full final overlay.
             const auto model = finalResultModel(state, false);
             const auto append = [&](const FinalSummaryPresentation::Table &table) {
-                lines.push_back(table.title);
                 std::string headings;
                 for (const auto &column: table.columns) headings += column.heading + "  ";
-                lines.push_back(std::move(headings));
+                lines.push_back({table.title, table.title, headings, true});
+                lines.push_back({headings, table.title, headings});
                 for (const auto &row: table.rows) {
                     std::string text = row.nested ? "    " : "";
                     for (const auto &cell: row.cells) text += cell + "  ";
-                    lines.push_back(std::move(text));
+                    lines.push_back({std::move(text), table.title, headings});
                 }
             };
             append(model.cumulative);
@@ -471,7 +478,8 @@ namespace Duel6 {
             const std::size_t visible = bodyTop < bodyBottom ? 1
                     : static_cast<std::size_t>((bodyTop - bodyBottom) / 18 + 1);
             std::size_t widest = 0;
-            for (const auto &line: lines) widest = std::max(widest, utf8Length(line));
+            for (const auto &line: lines)
+                widest = std::max({widest, utf8Length(line.text), utf8Length(line.columns)});
             return {lines.size() > visible ? lines.size() - visible : 0,
                     widest > 94 ? widest - 94 : 0, visible, widest};
         }
@@ -2656,19 +2664,10 @@ namespace Duel6 {
         const auto bounds = resultScrollBounds(state, retained);
         const std::size_t appliedHorizontal = std::min<std::size_t>(summaryHorizontal, bounds.horizontal);
         const std::size_t first = std::min<std::size_t>(summaryScroll, bounds.vertical);
-        std::string section = "OUTCOME WINNERS";
-        for (std::size_t index = 0; index <= first && index < lines.size(); ++index) {
-            if (lines[index] == "OUTCOME WINNERS" || lines[index] == "MATCH SETTINGS" || lines[index] == "ROUND RESULTS"
-                || lines[index] == "CUMULATIVE PLAYER RESULTS" || lines[index] == "TEAM TOTALS")
-                section = lines[index];
-        }
-        const std::string columns = section == "OUTCOME WINNERS"
-                ? "Outcome scope • Complete display name / Player identity / Team / Departure"
-                : section == "ROUND RESULTS"
-                ? "Round  Level  Orientation  Outcome  Roster"
-                : section == "CUMULATIVE PLAYER RESULTS"
-                  ? "Rank  Player / owner / team / state  R Sh Hi K D A W P Survival Damage Assist dmg Points"
-                  : section == "TEAM TOTALS" ? "Rank  Team  Points" : "Setting  Value";
+        // Sticky labels travel with their typed table rows; never infer section
+        // boundaries from display strings, which may also occur in player data.
+        const std::string section = lines.empty() ? "RESULT" : lines[first].section;
+        const std::string columns = lines.empty() ? "" : lines[first].columns;
         const Int32 stickyBottom = finalSummary ? top - 50 : top - 122;
         const Int32 stickyHeadingY = finalSummary ? top - 26 : top - 98;
         const Int32 stickyColumnsY = finalSummary ? top - 44 : top - 116;
@@ -2679,11 +2678,11 @@ namespace Duel6 {
         drawField(42, bottom + 30, 766, stickyBottom - bottom - 30);
         Int32 y = finalSummary ? top - 68 : top - 138;
         std::size_t start = first;
-        if (start < lines.size() && lines[start] == section) ++start;
+        if (start < lines.size() && lines[start].sectionHeading) ++start;
         std::size_t shown = 0;
         for (std::size_t index = start; index < lines.size() && shown < bounds.visibleRows; ++index, ++shown, y -= 18) {
-            const std::size_t horizontal = std::min<std::size_t>(appliedHorizontal, utf8Length(lines[index]));
-            drawText(50, y, utf8Slice(lines[index], horizontal, 94));
+            const std::size_t horizontal = std::min<std::size_t>(appliedHorizontal, utf8Length(lines[index].text));
+            drawText(50, y, utf8Slice(lines[index].text, horizontal, 94));
         }
         // Active-play Tab is informational: it has no result-scroll handlers.
         // Keep the existing controls only in the two navigable result contexts.

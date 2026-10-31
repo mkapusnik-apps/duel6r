@@ -221,9 +221,15 @@ run_scenario() {
     fi
 }
 
-run_scenario deathmatch 0 2
-run_scenario team2 2 4
-run_scenario team3 3 6
-run_scenario team4 4 15
+case "${1:-all}" in
+    all)
+        run_scenario deathmatch 0 2
+        run_scenario team2 2 4
+        run_scenario team3 3 6
+        run_scenario team4 4 15
+        ;;
+    team4) run_scenario team4 4 15 ;;
+    *) fail "unknown scenario: $1" ;;
+esac
 
 echo "Final Deathmatch and Team summary behavior test passed. Artifacts: ${test_root}"

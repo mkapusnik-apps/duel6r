@@ -310,9 +310,10 @@ def assert_shared_final_body(data, label, players, teams):
     # UX-FINAL-005/006/018/019: final-only client-pixel shell. Active Tab
     # and non-final summaries deliberately retain the legacy oracle below.
     panel_width = min(1184, WIDTH - 32)
-    left = (WIDTH - panel_width) // 2 + 16
-    right = (WIDTH + panel_width) // 2 - 16
-    header = fraction(region_pixels(data, left, 24, left + 100, 52),
+    body_left = (WIDTH - panel_width) // 2 + 16
+    left = body_left + 16  # row viewport inset; swatches add another 8 px
+    right = (WIDTH + panel_width) // 2 - 40
+    header = fraction(region_pixels(data, body_left, 24, body_left + 100, 52),
                       lambda rgb: rgb[2] > 200 and rgb[0] < 60 and rgb[1] < 60)
     if header < 0.45:
         fail(f"{label}: shared final SCORE title surface missing: {header:.3f}")
@@ -321,10 +322,10 @@ def assert_shared_final_body(data, label, players, teams):
     for group in range(teams or 1):
         count = players
         if group:
-            assert_team_separators(data, label, left, right - left - 8, [row_y + 3])
+            assert_team_separators(data, label, left, right - left, [row_y + 3])
             row_y += 8
         if teams:
-            swatch = region_pixels(data, left + 9, row_y + 6, left + 15, row_y + 12)
+            swatch = region_pixels(data, left + 9, row_y + 6, left + 19, row_y + 12)
             colors = parent_team_fractions(swatch)
             color = max(colors, key=colors.get)
             if colors[color] < 0.9 or color in groups:

@@ -5211,6 +5211,118 @@ D6R_TEST_CASE("Shared final and retained overlays render the arena and restore e
     }
 }
 
+D6R_TEST_CASE("Shared arena absent exploded bodies stay absent while rings and translucent living bodies render") {
+    ReviewMenuFixture f;
+    auto state = canonical(91, Network::Replication::Phase::ActiveRound);
+    state.matchId = 5; state.round = Network::Replication::RoundState{7, 1, "levels/duel_01.json"};
+    state.settings.levels = {state.round->level};
+    f.menu.worldPresenter.setCanonicalLevels({state.round->level});
+    Network::Replication::PlayerState player;
+    player.playerId = 101; player.visible = false;
+    player.lifeState = Network::Replication::LifeState::Dead;
+    state.players = {player};
+    Network::Replication::ContinuingEffectState ring{17, "explosion-ring", 0, 0, 30};
+    ring.visual.geometry = {65536, 131072, 0, 16384, 32768, 0, 0, 0};
+    state.effects = {ring};
+    f.menu.worldPresenter.update(0, &state, {}, true);
+    const auto body = f.menu.worldPresenter.skinFor(player).getTexture();
+    const auto explosion = f.application.gameResources.getExplosionTextures();
+    const auto render = [&] {
+        f.recorder.quads.clear();
+        D6R_REQUIRE(f.menu.worldPresenter.render(state, {}, {}, 850, 700));
+    };
+    const auto draws = [&](Texture texture) {
+        return std::count_if(f.recorder.quads.begin(), f.recorder.quads.end(),
+            [texture](const auto &quad) { return quad.material.getTexture() == texture; });
+    };
+    render(); D6R_REQUIRE_EQ(0, draws(body)); D6R_REQUIRE(draws(explosion) > 0);
+    state.players.front().visible = true;
+    state.players.front().lifeState = Network::Replication::LifeState::Alive;
+    state.players.front().presentationAlpha = 51;
+    render(); D6R_REQUIRE(draws(body) > 0); D6R_REQUIRE(draws(explosion) > 0);
+}
+
+D6R_TEST_CASE("Retained final tables carry sticky section and column metadata through Return to lobby") {
+    namespace A = Server::Authoritative;
+    namespace R = Network::Replication;
+    ReviewMenuFixture f;
+    A::SessionResult result;
+    result.config.hostParticipantId = 1; result.config.seed = 1234; result.config.roundLimit = 2;
+    result.config.fixedLevel = "levels/duel_01.json";
+    result.config.playableLevels = {result.config.fixedLevel}; result.config.enabledWeapons = {"pistol"};
+    result.completedRounds = 2; result.finalNoWinner = true;
+    for (unsigned i = 0; i < 15; ++i) {
+        A::PlayerResultRow row;
+        row.playerId = UINT64_MAX - i; row.participantId = i + 1; row.rosterOrder = i;
+        row.displayName = i == 0 ? "ROUND RESULTS" : "Historical " + std::to_string(i);
+        row.departed = true; row.statistics.roundsPlayed = 2;
+        row.rounds.resize(2); for (auto &round: row.rounds) round.roundsPlayed = 1;
+        result.players.push_back(row);
+    }
+    for (unsigned number = 1; number <= 2; ++number) {
+        A::RoundResult round; round.roundNumber = number; round.level = result.config.fixedLevel; round.noWinner = true;
+        for (const auto &player: result.players) round.rosterOrder.push_back(player.playerId);
+        result.rounds.push_back(round);
+    }
+    const auto serialized = A::serializeSessionResult(result);
+    D6R_REQUIRE(serialized);
+    auto state = canonical(91, R::Phase::FinalSummary);
+    state.completedRounds = 2; state.result = {true, true, "Completed", *serialized};
+    D6R_REQUIRE(R::retainedResultView(state.result));
+    f.menu.runtime.current.canonical = state;
+    f.menu.runtime.current.host = true;
+    // Exercise the actual action queue without opening a socket or directory.
+    f.menu.runtime.current.publicSession = true;
+    f.menu.runtime.current.journey = Client::NetworkJourney::Summary;
+    f.menu.focus = 0; f.key(SDLK_RETURN);
+    D6R_REQUIRE_EQ(1u, f.menu.runtime.pendingGuestCommands.size());
+    const auto command = Network::HostComposition::deserialize(f.menu.runtime.pendingGuestCommands.front());
+    D6R_REQUIRE(command && command->kind == Network::HostComposition::Kind::ReturnToLobby);
+    state.phase = R::Phase::Lobby;
+    f.menu.runtime.current.canonical = state;
+    f.menu.runtime.current.journey = Client::NetworkJourney::Lobby;
+    const std::vector<std::tuple<unsigned, std::string, std::string>> sections{
+        {1, "OUTCOME WINNERS", "Outcome scope"}, {6, "CUMULATIVE RANKING", "Player / identity"},
+        {23, "MATCH SETTINGS", "Setting"}, {35, "ROUND 1", "Field"},
+        {55, "ROUND 1 PLAYER RESULTS", "Player / identity"}, {72, "ROUND 2", "Field"},
+        {92, "ROUND 2 PLAYER RESULTS", "Player / identity"}};
+    const auto textAt = [&](int y) {
+        for (const auto &quad: f.recorder.quads) if (quad.vertices[0].y == y) {
+            for (const auto &entry: f.font.fontCache.entryList)
+                if (entry.texture == quad.material.getTexture()) return entry.text;
+        }
+        return std::string();
+    };
+    std::set<std::string> values;
+    for (const auto &section: sections) {
+        f.menu.summaryScroll = std::get<0>(section);
+        std::string leftColumns, rightColumns;
+        for (int horizontal: {0, 8, 16, 10000, 20000}) {
+            f.menu.summaryHorizontal = horizontal;
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawResult(state, true);
+            D6R_REQUIRE_EQ(std::get<1>(section), textAt(252));
+            if (!horizontal) {
+                leftColumns = textAt(234);
+                D6R_REQUIRE(leftColumns.find(std::get<2>(section)) == 0);
+            } else if (horizontal == 8) {
+                // The first eight characters of every heading are ASCII.
+                D6R_REQUIRE(textAt(234).find(leftColumns.substr(8, 8)) == 0);
+            } else if (horizontal == 10000) rightColumns = textAt(234);
+            else if (horizontal == 20000) D6R_REQUIRE_EQ(rightColumns, textAt(234));
+            for (const auto &quad: f.recorder.quads)
+                if (quad.vertices[0].y == 234 || quad.vertices[0].y == 212)
+                    D6R_REQUIRE(quad.vertices[2].x <= 802);
+            for (const auto &draw: f.recorder.draws)
+                for (const auto &entry: f.font.fontCache.entryList)
+                    if (entry.texture == draw.material.getTexture()) values.insert(entry.text);
+        }
+    }
+    D6R_REQUIRE(std::any_of(values.begin(), values.end(), [](const auto &text) {
+        return text.find("18446744073709551615") != std::string::npos && text.find("Departed") != std::string::npos;
+    }));
+}
+
 D6R_TEST_CASE("Local shared final retains established outcomes across later deaths and isolates completed navigation") {
     char name[] = "duel6r-local-final-integration";
     char *arguments[] = {name};

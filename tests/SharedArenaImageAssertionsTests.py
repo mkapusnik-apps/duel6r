@@ -94,14 +94,14 @@ class SharedFinalTests(unittest.TestCase):
         colors = ((255, 0, 0), (0, 255, 0), (255, 255, 0), (255, 0, 255))
         for index, team in enumerate(order):
             if index:
-                fill(64, y + 3, 1144, 2, (255, 255, 255))
+                fill(80, y + 3, 1112, 2, (255, 255, 255))
                 y += 8
             count = players
             if teams:
-                fill(72, y + 5, 8, 8, colors[team])
+                fill(88, y + 5, 12, 8, colors[team])
                 count = 1 + sum(player % teams == team for player in range(players))
             for _ in range(count):
-                fill(88, y + 4, 30, 8, (255, 255, 255))
+                fill(104, y + 4, 30, 8, (255, 255, 255))
                 y += 18
         return frame
 
@@ -112,7 +112,7 @@ class SharedFinalTests(unittest.TestCase):
     def test_missing_row_is_rejected(self):
         frame = self.frame(15, 0)
         for y in range(210, 226):
-            offset = (y * images.WIDTH + 64) * 3
+            offset = (y * images.WIDTH + 80) * 3
             frame[offset:offset + 320 * 3] = bytes(320 * 3)
         with self.assertRaisesRegex(AssertionError, "identity row missing"):
             images.assert_shared_final_body(frame, "missing", 15, 0)
@@ -120,10 +120,22 @@ class SharedFinalTests(unittest.TestCase):
     def test_missing_separator_is_rejected(self):
         frame = self.frame()
         for y in range(303, 305):
-            offset = (y * images.WIDTH + 64) * 3
-            frame[offset:offset + 1144 * 3] = bytes(1144 * 3)
+            offset = (y * images.WIDTH + 80) * 3
+            frame[offset:offset + 1112 * 3] = bytes(1112 * 3)
         with self.assertRaisesRegex(AssertionError, "separator"):
             images.assert_shared_final_body(frame, "missing", 15, 4)
+
+    def test_missing_or_old_position_swatch_is_rejected(self):
+        for old_position in (False, True):
+            frame = self.frame()
+            for y in range(215, 223):
+                offset = (y * images.WIDTH + 88) * 3
+                frame[offset:offset + 12 * 3] = bytes(12 * 3)
+                if old_position:
+                    offset = (y * images.WIDTH + 72) * 3
+                    frame[offset:offset + 8 * 3] = bytes((255, 0, 0)) * 8
+            with self.assertRaisesRegex(AssertionError, "swatch missing"):
+                images.assert_shared_final_body(frame, "missing", 15, 4)
 
 
 if __name__ == "__main__":
