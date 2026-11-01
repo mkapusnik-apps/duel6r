@@ -1378,7 +1378,6 @@ D6R_TEST_CASE("Shared arena HUD projection does not repair unrelated malformed p
 D6R_TEST_CASE("Shared arena world projectile damage publishes expired health HUD in the same tick") {
     ProductionCanonicalFixture fixture(2);
     auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
-    auto &world = game.getRound().getWorld();
     auto &attacker = game.getPlayers().front();
     auto &victim = game.getPlayers().back();
     victim.setBonus(Duel6::BonusType::NONE, 0);
@@ -1393,6 +1392,9 @@ D6R_TEST_CASE("Shared arena world projectile damage publishes expired health HUD
     const float overshoot = -health.getTotal();
     // Publication alignment: tick 2 is a normal capture tick (30 Hz publication
     // over 60 Hz simulation). No tick occurs between the hit and inspection.
+    auto *match = fixture.controller.match();
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match->submit({match->currentTick(), 1, 1, 101,
+            ActionKind::PlayerInput, 0, MoveRight, 0}));
     D6R_REQUIRE(fixture.controller.advanceOneTick());
     D6R_REQUIRE(fixture.controller.captureReplication());
     const auto before = fixture.controller.currentSnapshot()->state;
@@ -1403,15 +1405,21 @@ D6R_TEST_CASE("Shared arena world projectile damage publishes expired health HUD
     const float life = victim.getLife();
     const auto damage = attacker.getPerson().getTotalDamage();
     const auto hits = attacker.getPerson().getHits();
-    attacker.getWeapon().shoot(attacker, Duel6::Orientation::Right, world);
-    D6R_REQUIRE_EQ(life, victim.getLife()); // No direct hitByShot injection.
+    const auto shots = attacker.getPerson().getShots();
+    const auto ammo = attacker.getAmmo();
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match->submit({match->currentTick(), 2, 1, 101,
+            ActionKind::PlayerInput, 0, Shoot, 0}));
+    D6R_REQUIRE_EQ(life, victim.getLife()); // No direct shot creation or hitByShot injection.
     D6R_REQUIRE(fixture.controller.advanceOneTick());
     D6R_REQUIRE(victim.isAlive() && victim.getLife() < life);
     D6R_REQUIRE_EQ(30.0f, life - victim.getLife());
     D6R_REQUIRE_EQ(damage + 30, attacker.getPerson().getTotalDamage());
     D6R_REQUIRE_EQ(hits + 1, attacker.getPerson().getHits());
+    D6R_REQUIRE_EQ(shots + 1, attacker.getPerson().getShots());
+    D6R_REQUIRE_EQ(ammo - 1, attacker.getAmmo());
     D6R_REQUIRE_EQ(-overshoot, health.getElapsed()); // Proves damage followed indicator update.
     D6R_REQUIRE_EQ(2.0f - overshoot, health.getTotal());
+    D6R_REQUIRE_EQ(0, match->canonicalWorldSnapshot()->players.back().hudIndicators[3].elapsed);
     D6R_REQUIRE(fixture.controller.captureReplication());
     const auto after = fixture.controller.currentSnapshot()->state;
     const auto update = publisher.publish(after);
