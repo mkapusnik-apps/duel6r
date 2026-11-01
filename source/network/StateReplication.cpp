@@ -1436,7 +1436,7 @@ namespace Duel6::Network::Replication {
                && value != 0 && value < found->second;
     }
 
-    static bool validateCanonicalStateUnchecked(const CanonicalState &state) {
+    static bool validateCanonicalStateUnchecked(const CanonicalState &state, CanonicalValidationDetail *detail) {
             if (state.sessionId == 0 || state.participants.empty() || !validPhase(state.phase)
                 || state.participants.size() > MaxReplicatedParticipants
                 || state.players.size() > MaxReplicatedPlayers
@@ -1485,9 +1485,18 @@ namespace Duel6::Network::Replication {
                 if (!validPlayerAnimation(player.animation)) return false;
                 if (player.animation.weaponVisible && ((player.lifeState != LifeState::Alive && player.lifeState != LifeState::Departed)
                     || player.heldWeapon.empty() || player.animation.pose == PlayerPose::Pick)) return false;
-                for (const auto &indicator: player.hudIndicators)
+                for (std::size_t index = 0; index < player.hudIndicators.size(); ++index) {
+                    const auto &indicator = player.hudIndicators[index];
                     if (indicator.elapsed < 0 || indicator.total < 0 || indicator.total > MaximumDuration
-                        || indicator.elapsed > indicator.total) return false;
+                        || indicator.elapsed > indicator.total) {
+                        if (detail) {
+                            detail->indicatorIndex = static_cast<int>(index);
+                            detail->elapsed = std::clamp(indicator.elapsed, -MaximumDuration, MaximumDuration);
+                            detail->total = std::clamp(indicator.total, -MaximumDuration, MaximumDuration);
+                        }
+                        return false;
+                    }
+                }
                 if (player.width < 0 || player.height < 0 || player.width > 4 * 65536 || player.height > 4 * 65536
                     || player.roundKills < 0 || player.roundKills > D6_NETWORK_ROUND_PLAYER_HISTORY) return false;
                 if (player.bonusDuration < 0 || player.bonusDuration > MaximumDuration
@@ -1684,9 +1693,11 @@ namespace Duel6::Network::Replication {
         return true;
     }
 
-    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state) noexcept {
+    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state,
+            CanonicalValidationDetail *detail) noexcept {
+        if (detail) *detail = {};
         try {
-            return validateCanonicalStateUnchecked(state)
+            return validateCanonicalStateUnchecked(state, detail)
                    ? CanonicalValidationOutcome::Valid : CanonicalValidationOutcome::Invalid;
         } catch (...) {
             return CanonicalValidationOutcome::InternalFailure;

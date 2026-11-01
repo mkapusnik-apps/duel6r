@@ -22,7 +22,8 @@ namespace Duel6::Network {
     enum class HostDiagnosticEvent {
         Begin = 1, ChildStarted, Status, StopSelected, ObserverException,
         StopRequested, EndRequested, ForceRequested, NativeExit, OwnershipLost,
-        ObservationError, BeforeReset, BackendBegin, BackendFailure, BackendOutcome
+        ObservationError, BeforeReset, BackendBegin, BackendFailure, BackendOutcome,
+        CanonicalIndicatorRejected
     };
     enum class HostDiagnosticFailure {
         UnclassifiedRuntime = 1, PresentationRejected, PresentationException,

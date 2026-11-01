@@ -307,7 +307,13 @@ namespace Duel6::Network::Replication {
     enum class ApplyResult { Applied, Invalid, ResynchronizationRequired, WaitingForSnapshot };
 
     enum class CanonicalValidationOutcome { Valid, Invalid, InternalFailure };
-    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state) noexcept;
+    struct CanonicalValidationDetail {
+        // First rejected HUD predicate only; no player identity or payload data.
+        int indicatorIndex = -1;
+        std::int64_t elapsed = 0, total = 0;
+    };
+    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state,
+            CanonicalValidationDetail *detail = nullptr) noexcept;
     bool validateCanonicalState(const CanonicalState &state) noexcept;
 
     class AuthoritativeStateReplicator final {

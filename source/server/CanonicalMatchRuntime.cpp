@@ -587,8 +587,24 @@ namespace Duel6::Server::Authoritative {
             const auto indicators = players[index].getIndicators().values();
             for (std::size_t indicator = 0; indicator < indicators.size(); ++indicator) {
                 if (!indicators[indicator]->isVisible()) continue;
-                if (!fixedValue(indicators[indicator]->getElapsed(), exported.hudIndicators[indicator].elapsed)
-                    || !fixedValue(indicators[indicator]->getTotal(), exported.hudIndicators[indicator].total)) return {};
+                Float32 elapsed = indicators[indicator]->getElapsed();
+                Float32 total = indicators[indicator]->getTotal();
+                if (!std::isfinite(elapsed) || !std::isfinite(total)) return {};
+                // Natural expiry retains a negative fade overshoot. A later show
+                // can reactivate it after Player::update (e.g. world shot damage).
+                // Preserve the live/local clock, including its delayed fade-in;
+                // project only this one-authority-tick transient to zero opacity.
+                // One Q16 unit allows float subtraction at the expiry boundary.
+                constexpr Float32 maximumOvershoot = 1.0f / FixedTickRate + 1.0f / 65536;
+                if (elapsed < 0 && elapsed >= -maximumOvershoot
+                    && total - elapsed >= Indicator::FADE_DURATION) {
+                    elapsed = 0;
+                    // At show(FADE_DURATION), total can be just below the fade
+                    // interval. Keeping that total would select fade-out instead.
+                    total = std::max(total, Indicator::FADE_DURATION);
+                }
+                if (!fixedValue(elapsed, exported.hudIndicators[indicator].elapsed)
+                    || !fixedValue(total, exported.hudIndicators[indicator].total)) return {};
             }
             if (!fixedValue(players[index].getDimensions().x, exported.width)
                 || !fixedValue(players[index].getDimensions().y, exported.height)) return {};

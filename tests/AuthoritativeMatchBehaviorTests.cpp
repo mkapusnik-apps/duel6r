@@ -43,6 +43,7 @@
 #include "tests/CanonicalMotionTrace.h"
 #include "source/Player.h"
 #include "source/Game.h"
+#include "tests/HostDiagnosticFixture.h"
 
 namespace {
 std::atomic<std::int64_t> allocationFailureCountdown{-1};
@@ -1286,6 +1287,197 @@ D6R_TEST_CASE("Shared arena direct explosive kill removes only the body across f
     }
     D6R_REQUIRE(recovered.takePresentationEvents().empty());
 }
+
+D6R_TEST_CASE("Shared arena expired HUD projection preserves local clocks opacity and layout at 60 and 90 Hz") {
+    ProductionCanonicalFixture fixture(2);
+    auto *player = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(101);
+    const auto dependencies = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))();
+    const auto opacity = [](const Duel6::Indicator &indicator) {
+        return std::clamp(indicator.getAlpha(), 0.0f, 1.0f);
+    };
+    const auto check = [&](const Duel6::Indicator &local) {
+        player->getIndicators().getHealth() = local;
+        const auto world = dependencies.worldSnapshot();
+        D6R_REQUIRE(world.valid && !world.players.empty());
+        const auto timers = world.players.front().hudIndicators[3];
+        D6R_REQUIRE(timers.elapsed >= 0 && timers.elapsed <= timers.total);
+        Duel6::Indicator projected;
+        projected.restore(float(timers.elapsed) / 65536, float(timers.total) / 65536);
+        // Visibility controls both bar stacking and name/ammo width allocation;
+        // zero opacity must NOT be projected to an inactive (0,0) pair.
+        D6R_REQUIRE_EQ(local.isVisible(), projected.isVisible());
+        if (local.isVisible()) D6R_REQUIRE_NEAR(opacity(local), opacity(projected), 2.0f / 65536);
+        const auto &untouched = player->getIndicators().getHealth();
+        D6R_REQUIRE_EQ(local.getElapsed(), untouched.getElapsed());
+        D6R_REQUIRE_EQ(local.getTotal(), untouched.getTotal());
+        auto state = fixture.controller.currentSnapshot()->state;
+        state.players.front().hudIndicators = world.players.front().hudIndicators;
+        D6R_REQUIRE(R::validateCanonicalState(state));
+    };
+    check(Duel6::Indicator{});
+    for (const float step: {1.0f / 60, 1.0f / 90}) {
+        for (const float requested: {0.0f, 0.03125f, 0.25f, 0.499f, 0.5f, 0.501f, 2.0f, 5.0f}) {
+            Duel6::Indicator local;
+            local.show(2);
+            for (unsigned tick = 0; tick < 200 && local.isVisible(); ++tick) local.update(step);
+            D6R_REQUIRE(!local.isVisible());
+            D6R_REQUIRE(local.getTotal() < 0); // Retain the original overshoot, not hide(false).
+            const float overshoot = -local.getTotal();
+            D6R_REQUIRE(overshoot <= step + 1.0f / 65536);
+            check(local);
+            local.show(requested);
+            if (requested >= Duel6::Indicator::FADE_DURATION) {
+                D6R_REQUIRE_EQ(-overshoot, local.getElapsed());
+                D6R_REQUIRE_EQ(requested - overshoot, local.getTotal());
+                D6R_REQUIRE_EQ(0.0f, opacity(local));
+            }
+            check(local); // Inspect BEFORE any extra update can heal the negative elapsed.
+            for (unsigned tick = 0; tick < 500 && local.isVisible(); ++tick) {
+                local.update(step);
+                check(local);
+            }
+            D6R_REQUIRE(!local.isVisible());
+            check(local);
+        }
+        // Intentional hide still preserves its existing fade, including short
+        // fades, immediate hide and repeated show while fading.
+        for (const float age: {0.0f, 0.125f, 0.5f, 1.75f}) {
+            Duel6::Indicator local;
+            local.show(2).update(age);
+            const float fade = local.getAlpha() * Duel6::Indicator::FADE_DURATION;
+            local.hide();
+            D6R_REQUIRE_EQ(fade, local.getTotal());
+            D6R_REQUIRE_EQ(0.0f, local.getElapsed());
+            check(local);
+            local.update(step);
+            check(local);
+            local.show();
+            check(local);
+            local.hide(false);
+            D6R_REQUIRE_EQ(0.0f, local.getTotal());
+            check(local);
+        }
+    }
+}
+
+D6R_TEST_CASE("Shared arena HUD projection does not repair unrelated malformed producer timers") {
+    ProductionCanonicalFixture fixture(2);
+    auto *player = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(101);
+    const auto dependencies = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))();
+    for (const auto &values: {std::pair<float, float>{-1, 2}, {-0.01f, 0.2f}, {3, 2}, {0, 90000},
+             {std::numeric_limits<float>::quiet_NaN(), 2}, {0, std::numeric_limits<float>::infinity()}}) {
+        player->getIndicators().getHealth().restore(values.first, values.second);
+        const auto world = dependencies.worldSnapshot();
+        if (!world.valid) continue; // Nonfinite scalars fail at the producer boundary.
+        auto state = fixture.controller.currentSnapshot()->state;
+        state.players.front().hudIndicators = world.players.front().hudIndicators;
+        D6R_REQUIRE(!R::validateCanonicalState(state));
+    }
+}
+
+D6R_TEST_CASE("Shared arena world projectile damage publishes expired health HUD in the same tick") {
+    ProductionCanonicalFixture fixture(2);
+    auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
+    auto &world = game.getRound().getWorld();
+    auto &attacker = game.getPlayers().front();
+    auto &victim = game.getPlayers().back();
+    victim.setBonus(Duel6::BonusType::NONE, 0);
+    // Adjacent players on the fixture's compact spawn row: the real pistol
+    // projectile reaches the victim on its first World::update.
+    const auto origin = attacker.getPosition();
+    victim.setHeadlessPosition(static_cast<int>(origin.x) + 1, static_cast<int>(origin.y));
+    auto &health = victim.getIndicators().getHealth();
+    health.hide(false).show(2);
+    while (health.isVisible()) health.update(1.0f / 60);
+    D6R_REQUIRE(health.getTotal() < 0);
+    const float overshoot = -health.getTotal();
+    // Publication alignment: tick 2 is a normal capture tick (30 Hz publication
+    // over 60 Hz simulation). No tick occurs between the hit and inspection.
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto before = fixture.controller.currentSnapshot()->state;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(before));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    const float life = victim.getLife();
+    const auto damage = attacker.getPerson().getTotalDamage();
+    const auto hits = attacker.getPerson().getHits();
+    attacker.getWeapon().shoot(attacker, Duel6::Orientation::Right, world);
+    D6R_REQUIRE_EQ(life, victim.getLife()); // No direct hitByShot injection.
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(victim.isAlive() && victim.getLife() < life);
+    D6R_REQUIRE_EQ(30.0f, life - victim.getLife());
+    D6R_REQUIRE_EQ(damage + 30, attacker.getPerson().getTotalDamage());
+    D6R_REQUIRE_EQ(hits + 1, attacker.getPerson().getHits());
+    D6R_REQUIRE_EQ(-overshoot, health.getElapsed()); // Proves damage followed indicator update.
+    D6R_REQUIRE_EQ(2.0f - overshoot, health.getTotal());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto after = fixture.controller.currentSnapshot()->state;
+    const auto update = publisher.publish(after);
+    D6R_REQUIRE(update);
+    const auto wire = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+    D6R_REQUIRE(wire && wire->update && observer.apply(*wire->update) == R::ApplyResult::Applied);
+    R::ReplicatedState recovered;
+    const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(full && full->snapshot && recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+    for (const auto *state: {&after, observer.state(), recovered.state()}) {
+        D6R_REQUIRE(R::validateCanonicalState(*state));
+        const auto &target = state->players.back();
+        D6R_REQUIRE_EQ(102u, target.playerId);
+        D6R_REQUIRE_EQ(static_cast<std::int64_t>(victim.getLife()), target.life);
+        D6R_REQUIRE_EQ(0, target.hudIndicators[3].elapsed);
+        D6R_REQUIRE(target.hudIndicators[3].total > 0);
+        Duel6::PlayerIndicators restored;
+        restored.restore(target.hudIndicators);
+        D6R_REQUIRE_EQ(health.isVisible(), restored.getHealth().isVisible());
+        D6R_REQUIRE_EQ(0.0f, restored.getHealth().getAlpha());
+    }
+    D6R_REQUIRE(recovered.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("Shared arena canonical validation distinguishes caught allocation failure") {
+    ProductionCanonicalFixture fixture(2);
+    const auto state = fixture.controller.currentSnapshot()->state;
+    R::CanonicalValidationDetail detail{3, -1, 2};
+    R::CanonicalValidationOutcome outcome;
+    {
+        ScopedAllocationFailure failure(0);
+        outcome = R::validateCanonicalStateDetailed(state, &detail);
+    }
+    D6R_REQUIRE(outcome == R::CanonicalValidationOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(-1, detail.indicatorIndex);
+}
+
+#ifdef __linux__
+D6R_TEST_CASE("Shared arena canonical rejection FIFO reports only bounded HUD detail") {
+    ProductionCanonicalFixture fixture(2);
+    Duel6::Test::HostDiagnosticFixture fifo;
+    const auto diagnostics = Duel6::Network::HostServiceDiagnostics::open(fifo.fifo.string());
+    D6R_REQUIRE(diagnostics);
+    // Inject malformed canonical data at the already-synchronized boundary.
+    auto *world = const_cast<CanonicalWorldSnapshot *>(fixture.controller.match()->canonicalWorldSnapshot());
+    D6R_REQUIRE(world && !world->players.empty());
+    world->players.front().hudIndicators[3] = {INT64_MIN, INT64_MAX};
+    auto replication = fixture.controller.replication;
+    D6R_REQUIRE(!replication.capture(*fixture.controller.match(), diagnostics.get()));
+    const auto records = fifo.drain();
+    D6R_REQUIRE_EQ(3u, records.size());
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticEvent::BackendFailure), records[0].event);
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticFailure::CanonicalValidationRejected), records[0].a);
+    D6R_REQUIRE_EQ(2, records[0].b); // Invalid, not InternalFailure.
+    D6R_REQUIRE_EQ(4, records[0].c); // Health index + 1, not a player identity.
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticEvent::CanonicalIndicatorRejected), records[1].event);
+    D6R_REQUIRE_EQ(3, records[1].a);
+    D6R_REQUIRE_EQ(-INT64_C(86400) * 65536, records[1].b);
+    D6R_REQUIRE_EQ(INT64_C(86400) * 65536, records[1].c);
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticFailure::CaptureMappingRejected), records[2].a);
+    for (const auto &record: records) D6R_REQUIRE_EQ(0u, record.dropped);
+    // Default/no-sink path does not produce diagnostic records.
+    D6R_REQUIRE(!replication.capture(*fixture.controller.match()));
+    D6R_REQUIRE(fifo.drain().empty());
+}
+#endif
 
 D6R_TEST_CASE("Shared arena post fade ammo pickup restores authoritative HUD in full delta and recovery") {
     ProductionCanonicalFixture fixture(1);

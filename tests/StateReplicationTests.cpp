@@ -2273,6 +2273,30 @@ D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and earlier pr
     }
 }
 
+D6R_TEST_CASE("REP-PRES HUD rejection detail is optional bounded first failure and resets") {
+    const auto valid = activeState();
+    R::CanonicalValidationDetail detail;
+    constexpr std::int64_t limit = INT64_C(86400) * 65536;
+    for (const auto &timers: {Duel6::HudIndicatorState{-1, 1}, {2, 1}, {0, -1},
+             {0, INT64_MAX}, {INT64_MIN, INT64_MAX}}) {
+        auto state = valid;
+        state.players.front().hudIndicators[2] = timers;
+        state.players.front().hudIndicators[5] = {-1, 1};
+        D6R_REQUIRE(R::validateCanonicalStateDetailed(state) == R::CanonicalValidationOutcome::Invalid);
+        D6R_REQUIRE(R::validateCanonicalStateDetailed(state, &detail) == R::CanonicalValidationOutcome::Invalid);
+        D6R_REQUIRE_EQ(2, detail.indicatorIndex);
+        D6R_REQUIRE_EQ(std::clamp(timers.elapsed, -limit, limit), detail.elapsed);
+        D6R_REQUIRE_EQ(std::clamp(timers.total, -limit, limit), detail.total);
+        D6R_REQUIRE(R::validateCanonicalStateDetailed(valid, &detail) == R::CanonicalValidationOutcome::Valid);
+        D6R_REQUIRE_EQ(-1, detail.indicatorIndex);
+        D6R_REQUIRE_EQ(0, detail.elapsed);
+        D6R_REQUIRE_EQ(0, detail.total);
+        state.sessionId = 0; // Earlier non-HUD failure must not report a later HUD predicate.
+        D6R_REQUIRE(R::validateCanonicalStateDetailed(state, &detail) == R::CanonicalValidationOutcome::Invalid);
+        D6R_REQUIRE_EQ(-1, detail.indicatorIndex);
+    }
+}
+
 D6R_TEST_CASE("REP-PRES current effect geometry color and age restore through delta recovery expiry and duplicate checks") {
     auto state = activeState();
     R::AuthoritativeStateReplicator publisher;

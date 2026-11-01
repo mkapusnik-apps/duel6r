@@ -598,9 +598,18 @@ namespace Duel6::Server::Authoritative {
             if (event.eventId == 0) return false;
             events.push_back(std::move(event));
         }
-        const bool valid = R::validateCanonicalState(state);
-        if (!valid && diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
-                static_cast<int>(Network::HostDiagnosticFailure::CanonicalValidationRejected));
+        R::CanonicalValidationDetail detail;
+        const auto validation = R::validateCanonicalStateDetailed(state, diagnostics ? &detail : nullptr);
+        const bool valid = validation == R::CanonicalValidationOutcome::Valid;
+        if (!valid && diagnostics) {
+            // b: 2=Invalid, 3=InternalFailure; c: 0=no HUD detail, 1..6=HUD index+1.
+            diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                    static_cast<int>(Network::HostDiagnosticFailure::CanonicalValidationRejected),
+                    static_cast<int>(validation) + 1, detail.indicatorIndex + 1);
+            if (detail.indicatorIndex >= 0)
+                diagnostics->record(Network::HostDiagnosticEvent::CanonicalIndicatorRejected,
+                        detail.indicatorIndex, detail.elapsed, detail.total);
+        }
         return valid;
     }
 
