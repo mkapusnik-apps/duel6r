@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -3653,6 +3654,183 @@ D6R_TEST_CASE("NET-AC-014 NET-AC-018 shutdown and runtime failure discard all re
 
     verifyDiscard(false);
     verifyDiscard(true);
+}
+
+D6R_TEST_CASE("Captured FS-G configuration publishes fifteen-player maximum-name Predator through natural completion") {
+    // Configuration-class coverage, not a replay of the unretained FS-G seed or
+    // inputs. One seed, shipped content, ordinary controls, no outcome/health/
+    // spawn/timer assignments. Do not replace the real world with a result fixture.
+    ProductionCanonicalResourceRoot resources;
+    const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
+    D6R_REQUIRE(content.valid() && content.content);
+    const auto &script = content.content->at("data/config.script");
+    FrozenGameplayConfig gameplay;
+    D6R_REQUIRE(parseFrozenGameplayConfig(std::string_view(
+            reinterpret_cast<const char *>(script.data()), script.size()), gameplay));
+    MatchConfig requested;
+    requested.seed = 424242;
+    requested.hostParticipantId = 1;
+    requested.mode = Mode::Predator;
+    requested.levelPlan = LevelPlan::Fixed;
+    requested.fixedLevel = "levels/duel_16.json";
+    requested.roundLimit = 1;
+    requested.quickLiquid = false;
+    requested.assistance = true;
+    requested.burnableTrees = true;
+    requested.enabledWeapons = gameplay.enabledWeapons;
+    requested.startingAmmoMinimum = gameplay.startingAmmoMinimum;
+    requested.startingAmmoMaximum = gameplay.startingAmmoMaximum;
+    for (const auto &entry: content.manifest)
+        if (entry.logicalPath.compare(0, 7, "levels/") == 0
+            && entry.logicalPath.size() > 5
+            && entry.logicalPath.compare(entry.logicalPath.size() - 5, 5, ".json") == 0)
+            requested.playableLevels.push_back(entry.logicalPath);
+    auto players = roster(15);
+    std::vector<R::ParticipantState> participants{
+        {1, true, R::ConnectionState::Connected, true, {}},
+        {2, false, R::ConnectionState::Connected, true, {}},
+        {3, false, R::ConnectionState::Connected, true, {}}};
+    for (std::size_t index = 0; index < players.size(); ++index) {
+        auto &player = players[index];
+        player.participantId = index == 0 ? 1 : index == 14 ? 3 : 2;
+        if (player.participantId == 2) {
+            player.displayName = "Guest " + std::to_string(index) + " ";
+            player.displayName.append(MaxDisplayNameBytes - player.displayName.size(), 'x');
+            D6R_REQUIRE_EQ(64u, player.displayName.size());
+        }
+        participants[player.participantId - 1].ownedPlayerIds.push_back(player.playerId);
+    }
+    D6R_REQUIRE_EQ(13u, participants[1].ownedPlayerIds.size());
+    const auto runtime = std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content);
+    AuthoritativeHostedMatchController controller(1,
+            (runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))());
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    R::ReplicatedState client;
+    bool deliveryValid = true;
+    std::size_t frames = 0, events = 0, pickupCreations = 0, maxPayload = 0;
+    // Apply and drain each frame immediately: never retain the entire long match.
+    D6R_REQUIRE(controller.restoreReplication(2, [&](auto payload) {
+        ++frames;
+        maxPayload = std::max(maxPayload, payload.size());
+        const auto frame = R::deserializeReplicationFrame(payload);
+        if (!frame || (!frame->snapshot && !frame->update)) deliveryValid = false;
+        else {
+            const auto applied = frame->snapshot ? client.apply(*frame->snapshot) : client.apply(*frame->update);
+            deliveryValid &= applied == R::ApplyResult::Applied;
+            const auto occurrences = client.takePresentationEvents();
+            events += occurrences.size();
+            for (const auto &event: occurrences)
+                if (event.type == "bonus-spawned" || event.type == "weapon-spawned") ++pickupCreations;
+        }
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    for (const auto &participant: participants)
+        D6R_REQUIRE(controller.setParticipantReady(participant.participantId, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+    D6R_REQUIRE(deliveryValid);
+    D6R_REQUIRE_EQ(60u, FixedTickRate);
+    D6R_REQUIRE_EQ(20u, Duel6::Network::Responsiveness::CanonicalUpdatesPerSecond);
+    D6R_REQUIRE_EQ(3u, Duel6::Network::Responsiveness::TicksPerCanonicalUpdate);
+    std::shared_ptr<Duel6::Network::HostServiceDiagnostics> diagnostics;
+#ifdef __linux__
+    Duel6::Test::HostDiagnosticFixture fifo;
+    diagnostics = Duel6::Network::HostServiceDiagnostics::open(fifo.fifo.string());
+    D6R_REQUIRE(diagnostics);
+#endif
+    constexpr Tick ObservationTicks = FixedTickRate * 181u; // Beyond the captured ~180.319s boundary.
+    constexpr Tick MaximumTicks = FixedTickRate * 900u;
+    Tick ticks = 0, lastPublicationTick = 0, activeTicks = 0;
+    std::size_t pacedPublications = 0;
+    std::uint64_t sequence = 1;
+    std::vector<std::uint32_t> previousInputs(players.size(), 0);
+    while (controller.match() && ticks < MaximumTicks) {
+        auto &match = *controller.match();
+        const auto beforePhase = match.phase();
+        const auto beforeVersion = client.version();
+        // Preserve a long quiet live world before ordinary combat. QuickLiquid
+        // is off, so completion needs combat; this is not a timer acceleration.
+        if (match.phase() == MatchPhase::ActiveRound && ticks >= ObservationTicks && ticks % 5u == 0) {
+            const auto &world = *match.canonicalWorldSnapshot();
+            for (std::size_t index = 0; index < players.size(); ++index) {
+                const auto &current = world.players[index];
+                if (!current.alive) continue;
+                const CanonicalPlayerSnapshot *target = nullptr;
+                std::int64_t nearest = std::numeric_limits<std::int64_t>::max();
+                for (const auto &candidate: world.players) {
+                    if (!candidate.alive || candidate.playerId == current.playerId) continue;
+                    if (current.playerId != match.roundDecision().predatorPlayerId
+                        && candidate.playerId != match.roundDecision().predatorPlayerId) continue;
+                    const auto distance = std::llabs(candidate.positionX - current.positionX)
+                            + std::llabs(candidate.positionY - current.positionY);
+                    if (distance < nearest) { nearest = distance; target = &candidate; }
+                }
+                if (!target) continue;
+                const auto horizontal = std::llabs(target->positionX - current.positionX);
+                std::uint32_t input = target->positionX < current.positionX ? MoveLeft : MoveRight;
+                const auto jumpPhase = (ticks + index * 17u) % 120u;
+                if ((target->positionY > current.positionY + 32768 || horizontal > 65536) && jumpPhase < 10u)
+                    input |= Jump;
+                if (jumpPhase >= 90u && jumpPhase < 100u) input = PickOrSwapWeapon;
+                if (horizontal < 4 * 65536 && (ticks / 30u + index) % 2u == 0) input |= Shoot;
+                if (input == previousInputs[index]) continue;
+                previousInputs[index] = input;
+                D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit({match.currentTick(), sequence++,
+                        players[index].participantId, current.playerId, ActionKind::PlayerInput, 0, input, 0}));
+            }
+        }
+        D6R_REQUIRE(controller.advanceOneTick());
+        ticks = match.currentTick();
+        if (beforePhase == MatchPhase::ActiveRound) ++activeTicks;
+        if (!controller.observeMatchOutcome(diagnostics.get())) {
+            std::string detail = "tick=" + std::to_string(ticks)
+                    + ";before-phase=" + std::to_string(static_cast<int>(beforePhase));
+#ifdef __linux__
+            for (const auto &record: fifo.drain())
+                detail += ";event=" + std::to_string(record.event) + ",a=" + std::to_string(record.a)
+                        + ",b=" + std::to_string(record.b) + ",c=" + std::to_string(record.c)
+                        + ",dropped=" + std::to_string(record.dropped);
+#endif
+            Duel6::Test::fail("captured configuration publication", __FILE__, __LINE__, detail);
+        }
+        D6R_REQUIRE(deliveryValid);
+        if (ticks % (60u * FixedTickRate) == 0)
+            std::cout << "Captured configuration progress: tick=" << ticks << ";frames=" << frames
+                      << ";events=" << events << ";pickup-creations=" << pickupCreations << '\n';
+        if (client.version() != beforeVersion) {
+            if (controller.match() && beforePhase == MatchPhase::ActiveRound
+                && controller.match()->phase() == beforePhase) {
+                D6R_REQUIRE_EQ(Tick(3), ticks - lastPublicationTick);
+                ++pacedPublications;
+            }
+            lastPublicationTick = ticks;
+        }
+    }
+    D6R_REQUIRE(activeTicks >= ObservationTicks);
+    D6R_REQUIRE(pacedPublications >= ObservationTicks / 3);
+    D6R_REQUIRE(pickupCreations > 0);
+    D6R_REQUIRE(controller.stage() == HostedMatchStage::FinalSummary);
+    D6R_REQUIRE(controller.currentSessionResult());
+    const auto &result = *controller.currentSessionResult();
+    D6R_REQUIRE(result.state == ResultState::Completed);
+    D6R_REQUIRE_EQ(1u, result.completedRounds);
+    D6R_REQUIRE_EQ(15u, result.players.size());
+    D6R_REQUIRE(client.state() && client.state()->phase == R::Phase::FinalSummary);
+    requireCumulativeScoreMatchesResult(*client.state(), result);
+    for (const auto &player: players)
+        D6R_REQUIRE_EQ(player.displayName, resultPlayer(result, player.playerId).displayName);
+    R::ReplicatedState recovered;
+    const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*controller.currentSnapshot()));
+    D6R_REQUIRE(full && full->snapshot && recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+    D6R_REQUIRE(recovered.takePresentationEvents().empty());
+    requireCumulativeScoreMatchesResult(*recovered.state(), result);
+    D6R_REQUIRE(controller.returnToLobby(1));
+    D6R_REQUIRE(deliveryValid && client.state()->phase == R::Phase::Lobby && client.state()->result.available);
+    requireCumulativeScoreMatchesResult(*client.state(), result);
+    std::cout << "Captured configuration: ticks=" << ticks << ";active-ticks=" << activeTicks
+              << ";paced-publications=" << pacedPublications << ";frames=" << frames
+              << ";events=" << events << ";pickup-creations=" << pickupCreations
+              << ";max-payload-bytes=" << maxPayload << ";completed-rounds=1\n";
 }
 
 D6R_TEST_CASE("REP-017 REP-025 production canonical one-round survival publishes FinalSummary and retained FollowingMatch result") {
