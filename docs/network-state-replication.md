@@ -92,9 +92,9 @@ This includes authoritative water type and surface, player hit and weapon-pick p
 
 ### Arena presentation wire fields
 
-Replication frame version 6 is paired with admission release ID `duel6r-network-r5`.
+Replication frame version 7 is paired with admission release ID `duel6r-network-r6`.
 Earlier release IDs are rejected during admission as a network-release mismatch;
-earlier replication frames are not decoded as version 6. The admission frame layout itself
+earlier replication frames are not decoded as version 7. The admission frame layout itself
 is unchanged.
 
 After the round outcome, both full and incremental round records append signed
@@ -160,6 +160,24 @@ Dimensions are bounded to 0–4 world units and round kills to the round player-
 limit. Conservative payload accounting includes 30 additional round bytes, 138
 additional bytes per player and a 256-byte allowance per effect; existing frame
 and aggregate payload limits remain in force.
+
+Version 7 adds the event types `bonus-spawned` and `weapon-spawned` in the existing
+presentation-event encoding (no field-layout change). The authoritative snapshot
+producer derives them from real bonus/weapon collections on first observation,
+before the corresponding `entity-spawned`; player/target/value fields are zero.
+The generic spawn/removal and any real consumption occurrences remain in causal
+order. This supplies kind establishment when cap eviction or collection removes
+a pickup entirely between the three simulation ticks separating publications.
+These creation events do not represent collection and trigger no pickup sound.
+
+Validation requires a fresh nonzero identity above the published live-entity
+high-water mark, no prior transient establishment or duplicate creation, and kind
+agreement with any endpoint entity. For entities absent from both endpoints, the
+existing bounded transient-kind history permits only matching lifecycle and
+consumption events; unknown generic references, kind conflicts and resurrection
+remain rejected transactionally. Full snapshots carry current entities, not past
+events, so recovery does not replay these occurrences. New events use the existing
+event-count, per-event/text payload accounting and history limits unchanged.
 
 - **REP-031** A full snapshot must declare the complete set of current replicated entities at its state version.
 - **REP-032** An incremental update must identify each entity creation, update, and removal that applies after its baseline.

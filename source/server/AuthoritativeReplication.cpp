@@ -623,10 +623,30 @@ namespace Duel6::Server::Authoritative {
                     static_cast<int>(Network::HostDiagnosticFailure::CaptureMappingRejected));
             *this = before; return std::nullopt;
         }
-        auto update = publisher.publish(state, std::move(events));
+        R::PublishRejectionDetail detail;
+        auto update = publisher.publish(state, std::move(events), diagnostics ? &detail : nullptr);
         if (!update) {
-            if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
-                    static_cast<int>(Network::HostDiagnosticFailure::PublicationRejected));
+            if (diagnostics) {
+                // Record before rollback. Only bounded numeric classification; no
+                // session/player/entity identities, event text or result payload.
+                diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                        static_cast<int>(Network::HostDiagnosticFailure::PublicationRejected),
+                        static_cast<int>(detail.reason), (detail.canonicalChecked ? static_cast<int>(detail.canonicalOutcome) + 1 : 0)
+                            + (publisher.lastPublishFailedInternally() ? 4 : 0));
+                diagnostics->record(Network::HostDiagnosticEvent::PublicationContext, match.currentTick(),
+                        static_cast<int>(before.state.phase) * 8 + static_cast<int>(state.phase), state.result.available);
+                if (detail.eventIndex >= 0)
+                    diagnostics->record(Network::HostDiagnosticEvent::PublicationEventRejected,
+                            detail.eventIndex, detail.eventType, static_cast<int>(detail.reference));
+                if (detail.reason == R::PublishRejection::PayloadLimit || detail.reason == R::PublishRejection::EventLimit)
+                    diagnostics->record(Network::HostDiagnosticEvent::PublicationBudgetRejected,
+                            std::min(detail.eventCount, R::MaxReplicatedEvents + 1), detail.payloadEstimate);
+                if (detail.reason == R::PublishRejection::TerminalResult)
+                    diagnostics->record(Network::HostDiagnosticEvent::PublicationResultRejected, detail.resultReason);
+                if (detail.canonical.indicatorIndex >= 0)
+                    diagnostics->record(Network::HostDiagnosticEvent::CanonicalIndicatorRejected,
+                            detail.canonical.indicatorIndex, detail.canonical.elapsed, detail.canonical.total);
+            }
             *this = before;
         }
         return update;

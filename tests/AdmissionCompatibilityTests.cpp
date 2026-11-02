@@ -690,7 +690,7 @@ namespace {
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
     D6R_REQUIRE_EQ(3u, Network::AdmissionProtocolVersion);
-    D6R_REQUIRE_EQ("duel6r-network-r5", std::string(Network::NetworkReleaseId));
+    D6R_REQUIRE_EQ("duel6r-network-r6", std::string(Network::NetworkReleaseId));
     const std::vector<std::string> exact{
         "d6r.compatibility-admission.v1", "d6r.gameplay-manifest.v1", "d6r.session-identity.v1"};
     D6R_REQUIRE(std::equal(exact.begin(), exact.end(), Network::RequiredAdmissionCapabilities.begin()));
@@ -711,6 +711,9 @@ D6R_TEST_CASE("AC-005 AC-006 AC-007 exact compatibility checks are case and whit
     const auto host = manifest({{"levels/a.json", 1}});
     Server::AdmissionPolicy policy(host, 1);
     auto request = requestFor(host);
+    request.networkReleaseId = "duel6r-network-r5";
+    D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);
+    request = requestFor(host);
     ++request.protocolVersion;
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::ProtocolIncompatible);
     request = requestFor(host); request.networkReleaseId = "DUEL6R-network-r1";

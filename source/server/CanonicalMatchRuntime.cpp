@@ -705,6 +705,9 @@ namespace Duel6::Server::Authoritative {
             if (!fixedValue(bonus.getPosition().x, entity.positionX)
                 || !fixedValue(bonus.getPosition().y, entity.positionY)) return {};
             result.pickups.push_back(entity); currentEntities.insert(entity.stableId);
+            // Preserve authoritative kind across paced captures, including cap
+            // eviction without consumption. This precedes the generic lifecycle.
+            if (!previousEntities.count(entity.stableId)) appendEvent("bonus-spawned", entity.stableId);
         }
         for (const LyingWeapon &weapon: world.getBonusList().getWeapons()) {
             CanonicalEntitySnapshot entity;
@@ -714,6 +717,7 @@ namespace Duel6::Server::Authoritative {
                 || !fixedValue(weapon.getPosition().y, entity.positionY)
                 || !fixedValue(weapon.remainingReloadTime, entity.secondaryValue)) return {};
             result.pickups.push_back(entity); currentEntities.insert(entity.stableId);
+            if (!previousEntities.count(entity.stableId)) appendEvent("weapon-spawned", entity.stableId);
         }
         std::uint64_t localId = 1;
         for (const Elevator &elevator: world.getElevatorList().values()) {

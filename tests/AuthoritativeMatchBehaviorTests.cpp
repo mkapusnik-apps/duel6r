@@ -43,6 +43,7 @@
 #include "tests/CanonicalMotionTrace.h"
 #include "source/Player.h"
 #include "source/Game.h"
+#include "source/Round.h"
 #include "tests/HostDiagnosticFixture.h"
 
 namespace {
@@ -293,12 +294,13 @@ struct ProductionCanonicalFixture {
     std::vector<std::uint32_t> previousInputs;
     std::uint8_t observedRound = 0;
 
-    explicit ProductionCanonicalFixture(std::uint8_t rounds, std::size_t playerCount = 2, bool quickLiquid = false)
-            : requested(canonicalConfig(rounds, resources.path(), quickLiquid)),
+    explicit ProductionCanonicalFixture(std::uint8_t rounds, std::size_t playerCount = 2, bool quickLiquid = false,
+            const std::string &resourceRoot = {}, Duel6::RandomSource *random = nullptr)
+            : requested(canonicalConfig(rounds, resourceRoot.empty() ? resources.path() : resourceRoot, quickLiquid)),
               players(roster(playerCount)),
-              content(Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build()),
+               content(Duel6::Network::CompatibilityManifestBuilder(resourceRoot.empty() ? resources.path() : resourceRoot, {}).build()),
                runtime(std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content)),
-               controller(1, (runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))()),
+               controller(1, runtimeDependencies(runtime, random)),
               previousInputs(players.size(), std::numeric_limits<std::uint32_t>::max()) {
         D6R_REQUIRE(content.valid());
         std::vector<R::ParticipantState> participants;
@@ -314,6 +316,26 @@ struct ProductionCanonicalFixture {
         D6R_REQUIRE(controller.setParticipantReady(1, true));
         D6R_REQUIRE(controller.setParticipantReady(2, true));
         D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+    }
+
+    static MatchRuntimeDependencies runtimeDependencies(const std::shared_ptr<CanonicalMatchRuntime> &runtime,
+                                                        Duel6::RandomSource *random) {
+        auto dependencies = (runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))();
+        if (random) {
+            const auto start = dependencies.worldStartWithRandom;
+            const auto tick = dependencies.worldTickWithRandom;
+            const auto end = dependencies.worldEndWithRandom;
+            dependencies.worldStartWithRandom = [start, random](auto &decision, auto &) {
+                Duel6::Math::RandomScope scope(*random);
+                return start(decision, *random);
+            };
+            dependencies.worldTickWithRandom = [tick, random](auto time, auto simulate, auto &) {
+                Duel6::Math::RandomScope scope(*random);
+                return tick(time, simulate, *random);
+            };
+            dependencies.worldEndWithRandom = [end, random](auto &) { end(*random); };
+        }
+        return dependencies;
     }
 
     static MatchConfig canonicalConfig(std::uint8_t rounds, const std::string &resourceRoot, bool quickLiquid = false) {
@@ -1375,6 +1397,156 @@ D6R_TEST_CASE("Shared arena HUD projection does not repair unrelated malformed p
     }
 }
 
+namespace {
+// A small real map with 49 isolated pickup cells and a separate player pocket.
+// Nine opposite-kind pickups leave exactly 40 eligible cells. The next pickup
+// survives (9 < 40/4); its occupancy makes the following spawn evict it.
+struct TransientPickupResources {
+    std::filesystem::path root = std::filesystem::temp_directory_path()
+            / ("duel6r-transient-pickup-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    TransientPickupResources() {
+        std::filesystem::create_directories(root);
+        std::filesystem::copy("data", root / "data", std::filesystem::copy_options::recursive);
+        std::filesystem::copy("levels", root / "levels", std::filesystem::copy_options::recursive);
+        std::ofstream level(root / "levels/duel_01.json", std::ios::trunc);
+        level << "{\"width\":112,\"height\":10,\"blocks\":[";
+        for (int y = 9; y >= 0; --y) for (int x = 0; x < 112; ++x) {
+            if (y != 9 || x != 0) level << ',';
+            const bool pocket = y >= 1 && y <= 2 && x >= 1 && x <= 6;
+            const bool pickup = y == 6 && x >= 10 && x <= 106 && x % 2 == 0;
+            level << (pocket || pickup ? 0 : 1);
+        }
+        level << "],\"elevators\":[]}";
+        D6R_REQUIRE(level.good());
+    }
+    ~TransientPickupResources() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+};
+
+struct PickupRandom final : Duel6::RandomSource {
+    DeterministicRandom fallback{424242};
+    bool weapon = true;
+    bool spawn = false;
+    std::vector<std::uint64_t> positionBounds;
+    std::uint64_t next(std::string_view purpose) override { return fallback.next(purpose); }
+    std::uint64_t bounded(std::uint64_t bound, std::string_view purpose) override {
+        if (purpose == "bonus-spawn-timing") return spawn ? 0 : bound - 1;
+        if (purpose == "pickup-kind") return weapon ? 1 : 0;
+        if (purpose == "pickup-position") { positionBounds.push_back(bound); return 0; }
+        if (purpose == "bonus-type") return 3; // Fast reload: applicable at full health.
+        if (purpose == "bonus-reroll") return 1;
+        return fallback.bounded(bound, purpose);
+    }
+};
+
+void transientPickupRegression(bool weapon, bool consume) {
+    TransientPickupResources resources;
+    PickupRandom random;
+    ProductionCanonicalFixture fixture(1, 2, false, resources.root.string(), &random);
+    auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
+    auto &world = game.getRound().getWorld();
+    auto &pickups = world.getBonusList();
+    game.getPlayers()[0].setHeadlessPosition(1, 1);
+    game.getPlayers()[1].setHeadlessPosition(4, 1);
+    random.weapon = !weapon;
+    for (int i = 0; i < 9; ++i) pickups.addRandomBonus();
+    D6R_REQUIRE_EQ(9u, pickups.getWeapons().size() + pickups.getBonuses().size());
+    // Synchronize and publish the setup at a real pacing boundary.
+    for (int i = 0; i < 3; ++i) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    const auto baseline = *fixture.controller.currentSnapshot();
+    const auto baselineBytes = R::serializeReplicationSnapshot(baseline);
+    const auto baselineTick = fixture.controller.match()->currentTick();
+    const auto payloadCount = fixture.payloads.size();
+    random.weapon = weapon;
+    random.spawn = true;
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE_EQ(40u, random.positionBounds.back());
+    D6R_REQUIRE_EQ(10u, pickups.getWeapons().size() + pickups.getBonuses().size());
+    const auto first = weapon ? pickups.getWeapons().front().getStableId() : pickups.getBonuses().front().getStableId();
+    const auto stable = (UINT64_C(1) << 48) | ((weapon ? UINT64_C(3) : UINT64_C(2)) << 40) | first;
+    const auto *born = fixture.controller.match()->canonicalWorldSnapshot();
+    D6R_REQUIRE(std::any_of(born->pickups.begin(), born->pickups.end(), [stable](const auto &e) { return e.stableId == stable; }));
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    D6R_REQUIRE_EQ(payloadCount, fixture.payloads.size());
+    if (consume) {
+        D6R_REQUIRE(!weapon); // Random weapons have a real 0.5s pickup lock: not consumable within three ticks.
+        random.spawn = false;
+        const auto position = pickups.getBonuses().front().getPosition();
+        auto &player = game.getPlayers().front();
+        player.setBonus(Duel6::BonusType::NONE, 0);
+        player.setHeadlessPosition(static_cast<int>(position.x), static_cast<int>(position.y));
+    }
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    if (!consume) D6R_REQUIRE_EQ(39u, random.positionBounds.back());
+    const auto *gone = fixture.controller.match()->canonicalWorldSnapshot();
+    D6R_REQUIRE(std::none_of(gone->pickups.begin(), gone->pickups.end(), [stable](const auto &e) { return e.stableId == stable; }));
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    D6R_REQUIRE_EQ(payloadCount, fixture.payloads.size());
+    random.spawn = false;
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE_EQ(baselineTick + Duel6::Network::Responsiveness::TicksPerCanonicalUpdate, fixture.controller.match()->currentTick());
+    const auto &events = fixture.controller.match()->canonicalWorldSnapshot()->events;
+    std::vector<std::string> occurrences;
+    for (const auto &event: events) if (event.entityId == stable) occurrences.push_back(event.kind);
+    D6R_REQUIRE_EQ(consume ? 4u : 3u, occurrences.size());
+    D6R_REQUIRE_EQ(std::string(weapon ? "weapon-spawned" : "bonus-spawned"), occurrences.front());
+    D6R_REQUIRE_EQ(std::string("entity-spawned"), occurrences[1]);
+    D6R_REQUIRE_EQ(std::string("entity-removed"), occurrences.back());
+    if (consume) D6R_REQUIRE_EQ(std::string("bonus-picked"), occurrences[2]);
+    // Inspect the actual mapping without committing it. No event list is fabricated.
+    auto mapping = fixture.controller.replication;
+    std::vector<R::PresentationEvent> mapped;
+    D6R_REQUIRE(mapping.updateFromMatch(*fixture.controller.match(), mapped, nullptr));
+    D6R_REQUIRE(R::validateCanonicalState(mapping.state));
+    const bool published = fixture.controller.observeMatchOutcome();
+    if (!published) {
+        D6R_REQUIRE_EQ(baselineBytes, R::serializeReplicationSnapshot(*fixture.controller.currentSnapshot()));
+        D6R_REQUIRE_EQ(payloadCount, fixture.payloads.size());
+    }
+    D6R_REQUIRE(published);
+    D6R_REQUIRE_EQ(payloadCount + 1, fixture.payloads.size());
+    const auto delta = R::deserializeReplicationFrame(fixture.payloads.back());
+    D6R_REQUIRE(delta && delta->update);
+    const auto creation = std::find_if(delta->update->events.begin(), delta->update->events.end(),
+            [weapon](const auto &event) { return event.type == (weapon ? "weapon-spawned" : "bonus-spawned"); });
+    D6R_REQUIRE(creation != delta->update->events.end());
+    const auto absent = [id = creation->entityId](const auto &state) {
+        return std::none_of(state.entities.begin(), state.entities.end(),
+                [id](const auto &entity) { return entity.entityId == id; });
+    };
+    D6R_REQUIRE(absent(baseline.state));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(baseline) == R::ApplyResult::Applied);
+    D6R_REQUIRE(observer.apply(*delta->update) == R::ApplyResult::Applied);
+    D6R_REQUIRE(absent(*observer.state()));
+    D6R_REQUIRE_EQ(delta->update->events.size(), observer.takePresentationEvents().size());
+    D6R_REQUIRE(observer.takePresentationEvents().empty());
+    const auto full = *fixture.controller.currentSnapshot();
+    const auto wire = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(full));
+    R::ReplicatedState recovered;
+    D6R_REQUIRE(wire && wire->snapshot && recovered.apply(*wire->snapshot) == R::ApplyResult::Applied);
+    // Entity/effect collections are identity-keyed; delta application emits them
+    // in identity order, whereas the producer groups entities by kind. Preserve
+    // all ordered roster/ranking/event fields while comparing complete values.
+    const auto normalized = [](R::FullSnapshot snapshot) {
+        std::sort(snapshot.state.entities.begin(), snapshot.state.entities.end(),
+                [](const auto &a, const auto &b) { return a.entityId < b.entityId; });
+        std::sort(snapshot.state.effects.begin(), snapshot.state.effects.end(),
+                [](const auto &a, const auto &b) { return a.effectId < b.effectId; });
+        return R::serializeReplicationSnapshot(snapshot);
+    };
+    D6R_REQUIRE_EQ(normalized(full), normalized({observer.version(), *observer.state(), full.authoritativeProducedAt}));
+    D6R_REQUIRE_EQ(normalized(full), normalized({recovered.version(), *recovered.state(), full.authoritativeProducedAt}));
+    D6R_REQUIRE(recovered.takePresentationEvents().empty());
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    D6R_REQUIRE_EQ(payloadCount + 1, fixture.payloads.size());
+}
+}
+
+D6R_TEST_CASE("Transient pickup real bonus cap eviction between paced publications") { transientPickupRegression(false, false); }
+D6R_TEST_CASE("Transient pickup real weapon cap eviction between paced publications") { transientPickupRegression(true, false); }
+D6R_TEST_CASE("Transient pickup real bonus consumption between paced publications") { transientPickupRegression(false, true); }
+
 D6R_TEST_CASE("Shared arena world projectile damage publishes expired health HUD in the same tick") {
     ProductionCanonicalFixture fixture(2);
     auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
@@ -1390,8 +1562,8 @@ D6R_TEST_CASE("Shared arena world projectile damage publishes expired health HUD
     while (health.isVisible()) health.update(1.0f / 60);
     D6R_REQUIRE(health.getTotal() < 0);
     const float overshoot = -health.getTotal();
-    // Publication alignment: tick 2 is a normal capture tick (30 Hz publication
-    // over 60 Hz simulation). No tick occurs between the hit and inspection.
+    // Explicit captures bracket tick 2 here, independently of normal 20 Hz
+    // publication over 60 Hz simulation. No tick occurs between hit and inspection.
     auto *match = fixture.controller.match();
     D6R_REQUIRE_EQ(ActionResult::Accepted, match->submit({match->currentTick(), 1, 1, 101,
             ActionKind::PlayerInput, 0, MoveRight, 0}));
@@ -1457,7 +1629,70 @@ D6R_TEST_CASE("Shared arena canonical validation distinguishes caught allocation
     D6R_REQUIRE_EQ(-1, detail.indicatorIndex);
 }
 
+D6R_TEST_CASE("Publisher failure detail retains canonical internal failure and clears on success") {
+    ProductionCanonicalFixture fixture(2);
+    const auto initial = fixture.controller.currentSnapshot()->state;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(initial));
+    auto attempted = initial;
+    R::PublishRejectionDetail detail;
+    {
+        ScopedAllocationFailure failure(0);
+        D6R_REQUIRE(!publisher.publish(std::move(attempted), {}, &detail));
+    }
+    D6R_REQUIRE(publisher.lastPublishFailedInternally());
+    D6R_REQUIRE(detail.reason == R::PublishRejection::CanonicalInternalFailure);
+    D6R_REQUIRE(detail.canonicalOutcome == R::CanonicalValidationOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(1u, publisher.version());
+    attempted = initial; attempted.players.front().hudIndicators[3] = {-1, 1};
+    D6R_REQUIRE(!publisher.publish(attempted, {}, &detail));
+    D6R_REQUIRE(!publisher.lastPublishFailedInternally());
+    D6R_REQUIRE(detail.reason == R::PublishRejection::CanonicalInvalid);
+    D6R_REQUIRE_EQ(3, detail.canonical.indicatorIndex);
+    D6R_REQUIRE(publisher.publish(initial, {}, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::None);
+    D6R_REQUIRE_EQ(-1, detail.canonical.indicatorIndex);
+}
+
 #ifdef __linux__
+D6R_TEST_CASE("Publisher failure FIFO records first event predicate and context before rollback only") {
+    ProductionCanonicalFixture fixture(2);
+    Duel6::Test::HostDiagnosticFixture fifo;
+    const auto diagnostics = Duel6::Network::HostServiceDiagnostics::open(fifo.fifo.string());
+    D6R_REQUIRE(diagnostics);
+    auto replication = fixture.controller.replication;
+    const auto before = R::serializeReplicationSnapshot(*replication.publisher.fullSnapshot());
+    auto *world = const_cast<CanonicalWorldSnapshot *>(fixture.controller.match()->canonicalWorldSnapshot());
+    // Diagnostic contract fixture only, not the real-operation pickup regression.
+    CanonicalEvent invalid;
+    invalid.sequence = world->events.empty() ? 1 : world->events.back().sequence + 1;
+    invalid.kind = "entity-spawned"; invalid.entityId = UINT64_C(0xffffffffffff);
+    world->events.push_back(invalid);
+    D6R_REQUIRE(!replication.capture(*fixture.controller.match(), diagnostics.get()));
+    D6R_REQUIRE_EQ(before, R::serializeReplicationSnapshot(*replication.publisher.fullSnapshot()));
+    const auto records = fifo.drain();
+    D6R_REQUIRE_EQ(3u, records.size());
+    using E = Duel6::Network::HostDiagnosticEvent;
+    D6R_REQUIRE_EQ(static_cast<int>(E::BackendFailure), records[0].event);
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticFailure::PublicationRejected), records[0].a);
+    D6R_REQUIRE_EQ(static_cast<int>(R::PublishRejection::EventReference), records[0].b);
+    D6R_REQUIRE_EQ(static_cast<int>(R::CanonicalValidationOutcome::Valid) + 1, records[0].c);
+    D6R_REQUIRE_EQ(static_cast<int>(E::PublicationContext), records[1].event);
+    D6R_REQUIRE_EQ(fixture.controller.match()->currentTick(), static_cast<std::uint64_t>(records[1].a));
+    D6R_REQUIRE_EQ(static_cast<int>(R::Phase::ActiveRound) * 9, records[1].b);
+    D6R_REQUIRE_EQ(0, records[1].c);
+    D6R_REQUIRE_EQ(static_cast<int>(E::PublicationEventRejected), records[2].event);
+    D6R_REQUIRE_EQ(0, records[2].a);
+    D6R_REQUIRE_EQ(6, records[2].b);
+    D6R_REQUIRE_EQ(static_cast<int>(R::EventReferenceRejection::UntypedUnknownEntity), records[2].c);
+    for (const auto &record: records) D6R_REQUIRE_EQ(0u, record.dropped);
+    D6R_REQUIRE(!replication.capture(*fixture.controller.match()));
+    D6R_REQUIRE(fifo.drain().empty());
+    world->events.pop_back();
+    D6R_REQUIRE(replication.capture(*fixture.controller.match(), diagnostics.get()));
+    D6R_REQUIRE(fifo.drain().empty());
+}
+
 D6R_TEST_CASE("Shared arena canonical rejection FIFO reports only bounded HUD detail") {
     ProductionCanonicalFixture fixture(2);
     Duel6::Test::HostDiagnosticFixture fifo;

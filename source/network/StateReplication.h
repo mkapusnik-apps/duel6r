@@ -316,11 +316,38 @@ namespace Duel6::Network::Replication {
             CanonicalValidationDetail *detail = nullptr) noexcept;
     bool validateCanonicalState(const CanonicalState &state) noexcept;
 
+    // Failure-only, numeric diagnostics; not part of the wire protocol. No identities
+    // or payload text. The optional output is reset on every publication attempt.
+    enum class PublishRejection {
+        None, RoundEntityReuse, CanonicalInternalFailure, Uninitialized, VersionExhausted,
+        CanonicalInvalid, TerminalResult, SessionChanged, ClockRegression,
+        ParticipantReuse, PlayerReuse, UnseenResultIdentity, SettingsChanged, ResultChanged,
+        RoundTransition, LobbyTransition, EntityCreationOrder, EventLimit,
+        ParticipantHistoryLimit, PlayerHistoryLimit, MatchHistoryLimit, RoundHistoryLimit,
+        InvalidEvent, DuplicateEvent, EventReplay, EventReference, TransientResurrection, PayloadLimit
+    };
+    enum class EventReferenceRejection {
+        None, UnknownPlayer, InvalidPickupCreation, PickupKindMismatch, TransientKindMismatch,
+        UntypedUnknownEntity, StaleEntity, TransientHistoryLimit
+    };
+    struct PublishRejectionDetail {
+        PublishRejection reason = PublishRejection::None;
+        bool canonicalChecked = false;
+        CanonicalValidationOutcome canonicalOutcome = CanonicalValidationOutcome::Valid;
+        CanonicalValidationDetail canonical;
+        int eventIndex = -1;
+        int eventType = 0; // 0 other, 1 shot, 2/3 picked bonus/weapon, 4/5 spawned bonus/weapon, 6/7 generic spawn/remove.
+        EventReferenceRejection reference = EventReferenceRejection::None;
+        int resultReason = 0;
+        std::size_t eventCount = 0, payloadEstimate = 0; // Estimate saturates at cap + 1.
+    };
+
     class AuthoritativeStateReplicator final {
     public:
         bool initialize(CanonicalState state);
         std::optional<IncrementalUpdate> publish(CanonicalState state,
-                                                 std::vector<PresentationEvent> events = {});
+                                                  std::vector<PresentationEvent> events = {},
+                                                  PublishRejectionDetail *detail = nullptr);
         std::optional<FullSnapshot> fullSnapshot() const;
         void discard() noexcept;
         StateVersion version() const noexcept;

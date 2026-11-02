@@ -2267,7 +2267,7 @@ D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and earlier pr
     }
     auto bytes = R::serializeReplicationSnapshot({1, state});
     // Four-byte identifier followed by the little-endian uint16 version.
-    for (const unsigned version: {3, 4, 5}) {
+    for (const unsigned version: {3, 4, 5, 6}) {
         bytes[4] = version; bytes[5] = 0;
         D6R_REQUIRE(!R::deserializeReplicationFrame(bytes));
     }
@@ -2940,6 +2940,150 @@ D6R_TEST_CASE("REP-012 REP-027 REP-030 REP-032 production combat events survive 
     D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
     D6R_REQUIRE(entity(*client.state(), 777) == nullptr);
     D6R_REQUIRE(client.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("Transient pickup typed creation preserves strict rejection and bounded histories") {
+    for (const bool weapon: {false, true}) {
+        const std::string type = weapon ? "weapon-spawned" : "bonus-spawned";
+        const auto initial = activeState();
+        auto next = initial; ++next.phaseTime;
+        const std::vector<R::PresentationEvent> valid{
+                {900, type, 0, 0, 777, 0}, {901, "entity-spawned", 0, 0, 777, 0},
+                {902, "entity-removed", 0, 0, 777, 0}};
+        const std::vector<std::vector<R::PresentationEvent>> attacks{
+                {{900, "entity-spawned", 0, 0, 777, 0}},
+                {{900, type, 0, 0, 777, 0}, {901, weapon ? "bonus-picked" : "weapon-picked", 101, 0, 777, 1}},
+                {{900, type, 0, 0, 777, 0}, {901, type, 0, 0, 777, 0}},
+                {{900, type, 0, 0, 0, 0}}, {{900, type, 0, 0, 50, 0}},
+                {{900, type, 101, 0, 777, 0}}, {{900, type, 0, 0, 777, 1}},
+                {{900, type, 0, 0, 777, 0}, {900, "entity-removed", 0, 0, 777, 0}}};
+        for (const auto &events: attacks) {
+            R::AuthoritativeStateReplicator publisher;
+            D6R_REQUIRE(publisher.initialize(initial));
+            const auto before = *publisher.fullSnapshot();
+            R::ReplicatedState client;
+            D6R_REQUIRE(client.apply(before) == R::ApplyResult::Applied);
+            D6R_REQUIRE(!publisher.publish(next, events));
+            auto attack = validUpdate(initial, next); attack.events = events;
+            D6R_REQUIRE(client.apply(attack) == R::ApplyResult::ResynchronizationRequired);
+            D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(before), R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+            D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(before), R::serializeReplicationSnapshot({1, *client.retainedState()}));
+            D6R_REQUIRE(client.takePresentationEvents().empty());
+            // Failed prefixes did not consume identities or occurrences.
+            D6R_REQUIRE(client.apply(before) == R::ApplyResult::Applied);
+            const auto accepted = publisher.publish(next, valid);
+            D6R_REQUIRE(accepted && client.apply(*accepted) == R::ApplyResult::Applied);
+            D6R_REQUIRE_EQ(valid.size(), client.takePresentationEvents().size());
+            auto replay = *accepted; replay.baseline = 2; replay.version = 3;
+            D6R_REQUIRE(!publisher.publish(next, valid));
+            D6R_REQUIRE(client.apply(replay) == R::ApplyResult::ResynchronizationRequired);
+            D6R_REQUIRE(client.takePresentationEvents().empty());
+        }
+        // A creation claiming the wrong kind cannot use a live endpoint to bypass validation.
+        auto live = next;
+        R::WorldEntityState entity;
+        entity.entityId = 777; entity.kind = weapon ? R::EntityKind::BonusPickup : R::EntityKind::WeaponPickup;
+        entity.type = weapon ? "shield" : "pistol"; entity.lifecycle = "available";
+        live.entities.push_back(entity);
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(initial));
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+        const std::vector<R::PresentationEvent> wrongKind{{900, type, 0, 0, 777, 0}};
+        D6R_REQUIRE(!publisher.publish(live, wrongKind));
+        auto mismatch = validUpdate(initial, live); mismatch.events = wrongKind;
+        D6R_REQUIRE(client.apply(mismatch) == R::ApplyResult::ResynchronizationRequired);
+        D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+        const auto accepted = publisher.publish(next, valid);
+        D6R_REQUIRE(accepted && client.apply(*accepted) == R::ApplyResult::Applied);
+        (void) client.takePresentationEvents();
+        auto resurrection = validUpdate(next, live); resurrection.baseline = 2; resurrection.version = 3;
+        D6R_REQUIRE(!publisher.publish(live));
+        D6R_REQUIRE(client.apply(resurrection) == R::ApplyResult::ResynchronizationRequired);
+        D6R_REQUIRE(client.apply({3, live}) == R::ApplyResult::Invalid);
+        D6R_REQUIRE_EQ(2u, publisher.version());
+        D6R_REQUIRE_EQ(2u, client.version());
+        D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.takePresentationEvents().empty());
+        // Exhaust the existing bounded transient history with fresh typed creations,
+        // never with generic assertions. The extra identity is rejected atomically.
+        R::AuthoritativeStateReplicator bounded;
+        D6R_REQUIRE(bounded.initialize(initial));
+        R::ReplicatedState boundedClient;
+        D6R_REQUIRE(boundedClient.apply(*bounded.fullSnapshot()) == R::ApplyResult::Applied);
+        R::Identity eventId = 1000, entityId = 1000;
+        for (std::size_t used = 0; used < R::MaxReplicatedIdentityHistory; used += R::MaxReplicatedEvents) {
+            std::vector<R::PresentationEvent> batch;
+            for (std::size_t i = 0; i < R::MaxReplicatedEvents; ++i)
+                batch.push_back({eventId++, type, 0, 0, entityId++, 0});
+            ++next.phaseTime;
+            const auto update = bounded.publish(next, batch);
+            D6R_REQUIRE(update && boundedClient.apply(*update) == R::ApplyResult::Applied);
+            (void) boundedClient.takePresentationEvents();
+        }
+        const auto full = *bounded.fullSnapshot();
+        R::PublishRejectionDetail detail;
+        D6R_REQUIRE(!bounded.publish(next, {{eventId, type, 0, 0, entityId, 0}}, &detail));
+        D6R_REQUIRE(detail.reason == R::PublishRejection::EventReference);
+        D6R_REQUIRE(detail.reference == R::EventReferenceRejection::TransientHistoryLimit);
+        D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(full), R::serializeReplicationSnapshot(*bounded.fullSnapshot()));
+        auto excess = validUpdate(next, next);
+        excess.baseline = full.version; excess.version = full.version + 1;
+        excess.events = {{eventId, type, 0, 0, entityId, 0}};
+        D6R_REQUIRE(boundedClient.apply(excess) == R::ApplyResult::ResynchronizationRequired);
+        D6R_REQUIRE_EQ(full.version, boundedClient.version());
+        D6R_REQUIRE(boundedClient.takePresentationEvents().empty());
+    }
+}
+
+D6R_TEST_CASE("Publisher failure detail preserves first reason clock result budgets and reset") {
+    const auto initial = activeState();
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(initial));
+    const auto before = R::serializeReplicationSnapshot(*publisher.fullSnapshot());
+    R::PublishRejectionDetail detail;
+    auto next = initial; --next.phaseTime;
+    const std::vector<R::PresentationEvent> unknown{{900, "entity-spawned", 0, 0, 777, 0}};
+    D6R_REQUIRE(!publisher.publish(next, unknown, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::ClockRegression);
+    D6R_REQUIRE_EQ(-1, detail.eventIndex);
+    next = initial; ++next.phaseTime;
+    D6R_REQUIRE(!publisher.publish(next, unknown, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::EventReference);
+    D6R_REQUIRE(detail.reference == R::EventReferenceRejection::UntypedUnknownEntity);
+    D6R_REQUIRE_EQ(0, detail.eventIndex); D6R_REQUIRE_EQ(6, detail.eventType);
+    auto terminal = completedResultWithDepartureLabels();
+    D6R_REQUIRE(replaceOnce(terminal.result.serialized, "\"displayName\":\"Guest\"", "\"displayName\":\"Other\""));
+    D6R_REQUIRE(R::validateCanonicalState(terminal));
+    D6R_REQUIRE(!publisher.publish(terminal, {}, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::TerminalResult);
+    D6R_REQUIRE_EQ(7, detail.resultReason);
+    D6R_REQUIRE_EQ(-1, detail.eventIndex);
+    std::vector<R::PresentationEvent> events;
+    for (std::size_t i = 0; i < R::MaxReplicatedEvents; ++i)
+        events.push_back({1000 + i, std::string(64, 'x'), 0, 0, 0, 0});
+    auto budgetState = next;
+    for (R::Identity id = 51; id < 651; ++id) {
+        auto entity = initial.entities.front(); entity.entityId = id;
+        budgetState.entities.push_back(entity);
+    }
+    D6R_REQUIRE(R::validateCanonicalState(budgetState));
+    D6R_REQUIRE(!publisher.publish(budgetState, events, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::PayloadLimit);
+    D6R_REQUIRE_EQ(R::MaxReplicatedResultBytes + 1, detail.payloadEstimate);
+    D6R_REQUIRE_EQ(R::MaxReplicatedEvents, detail.eventCount);
+    events.push_back({6000, "extra", 0, 0, 0, 0});
+    D6R_REQUIRE(!publisher.publish(next, events, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::EventLimit);
+    D6R_REQUIRE_EQ(0u, detail.payloadEstimate);
+    D6R_REQUIRE_EQ(before, R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(publisher.publish(next, {}, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::None);
+    D6R_REQUIRE(detail.canonicalOutcome == R::CanonicalValidationOutcome::Valid);
+    D6R_REQUIRE_EQ(-1, detail.eventIndex);
+    D6R_REQUIRE_EQ(0, detail.resultReason);
+    D6R_REQUIRE_EQ(0u, detail.payloadEstimate);
+    D6R_REQUIRE(!publisher.lastPublishFailedInternally());
 }
 
 D6R_TEST_CASE("PR83 transient typed spawn remove absent from both captures converges and cannot be recreated") {
