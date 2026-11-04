@@ -12,11 +12,15 @@ class Recording:
     def __init__(self, client, path, seconds):
         require(0 < seconds <= 600, "recording duration must be bounded")
         require(not path.exists(), "never overwrite an original recording")
+        client.verify_geometry()
         self.path, self.seconds = path, seconds
+        self.geometry = [client.canvas.width, client.canvas.height]
+        self.display = client.env["DISPLAY"]
         self.started = time.monotonic()
         self.utc = datetime.now(timezone.utc).isoformat()
         self.reason = "requested-duration"
         self.ready = threading.Event()
+        self.counters = {}
         self.log = path.with_suffix(".encoder.log").open("xb")
         self.process = subprocess.Popen([
             "ffmpeg", "-nostdin", "-n", "-v", "warning", "-progress", "pipe:1", "-stats_period", "0.1",
@@ -34,7 +38,12 @@ class Recording:
 
     def progress(self):
         for line in self.process.stdout:
-            if line.startswith("frame=") and int(line.split("=", 1)[1]) > 0:
+            key, _, value = line.strip().partition("=")
+            if key in ("frame", "dup_frames", "drop_frames", "out_time_us"):
+                # FFmpeg emits N/A until reordered packets have timestamps.
+                # This is explicitly unavailable, not zero drops or a parse crash.
+                self.counters[key] = None if value == "N/A" else int(value)
+            if key == "frame" and value != "N/A" and int(value) > 0:
                 self.ready.set()
 
     def watch(self):
@@ -59,20 +68,31 @@ class Recording:
         self.thread.join(timeout=1)
         if self.process.poll() is None:
             self.process.send_signal(signal.SIGINT)
+        forced = False
         try:
-            code = self.process.wait(timeout=10)
+            try:
+                code = self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                forced = True
+                self.process.kill()
+                code = self.process.wait(timeout=2)
         finally:
             self.log.close()
         self.reader.join(timeout=1)
+        if not self.reader.is_alive():
+            self.process.stdout.close()
         record(self.path.with_suffix(".recording.json"), {
             "original": str(self.path), "sha256": digest(self.path) if self.path.exists() else None,
             "started_monotonic": self.started, "finalized_monotonic": time.monotonic(),
             "started_utc": self.utc,
             "stop_reason": self.reason, "encoder_exit": code,
+            "forced_stop": forced, "geometry": self.geometry, "display": self.display,
+            "controller_receipt": "controller.json", "encoder_progress": self.counters,
             "codec": "libx264rgb", "crf": 18, "preset": "veryfast", "nominal_rate": "15",
             "capture": "full-display x11grab, lossy RGB, passthrough timestamps, no audio",
             "validation": "pending; run additive offline media validation separately",
         })
         require(self.path.exists() and self.path.stat().st_size < 104857600,
                 "missing/oversized original; preserve it but do not claim eligible coverage")
+        require(not forced, "encoder drain deadline; forced cleanup is not a valid recording")
         require(code in (0, 255), "encoder failure; preserve original and encoder log")

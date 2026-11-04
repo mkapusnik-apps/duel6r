@@ -7,11 +7,14 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest
 from tools.native_visual.media import validate, index
+from tools.native_visual.recording import Recording
+from NativeVisualToolsTests import native_window
 
 
 def probe90():
@@ -91,6 +94,80 @@ class DecoderTests(unittest.TestCase):
                           candidate="a"*40,provenance="test-only, no historical receipt",expected_sha=digest(source))
                 self.assertEqual(before,source.read_bytes())
                 self.assertFalse(json.loads((root/"rejected/assessment.json").read_text())["valid"])
+
+
+class RecordingTests(unittest.TestCase):
+    def test_actual_recorder_readiness_drain_and_immutable_finalization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                original=root/"original.mp4"
+                recorder=Recording(client,original,.4)
+                try:
+                    self.assertTrue(recorder.ready.wait(5),"no first encoded frame")
+                    self.assertEqual(0,recorder.process.wait(timeout=5))
+                finally:
+                    recorder.stop()
+                receipt=json.loads(original.with_suffix(".recording.json").read_text())
+                self.assertEqual(digest(original),receipt["sha256"])
+                self.assertFalse(receipt["forced_stop"])
+                self.assertEqual([850,700],receipt["geometry"])
+                before=original.read_bytes()
+                with self.assertRaises(ValueError): Recording(client,original,.4)
+                self.assertEqual(before,original.read_bytes())
+                subprocess.run(["ffmpeg","-v","error","-xerror","-i",str(original),"-f","null","-"],
+                               check=True,capture_output=True,timeout=10)
+
+    def test_actual_encoder_failure_and_partial_original_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                original=root/"interrupted.mp4"
+                recorder=Recording(client,original,5)
+                try:
+                    self.assertTrue(recorder.ready.wait(5))
+                finally:
+                    if recorder.process.poll() is None: recorder.process.kill()
+                    recorder.process.wait(timeout=3)
+                    with self.assertRaisesRegex(ValueError,"encoder failure"):
+                        recorder.stop()
+                self.assertTrue(original.exists())
+                receipt=json.loads(original.with_suffix(".recording.json").read_text())
+                self.assertEqual(-9,receipt["encoder_exit"])
+                self.assertEqual(digest(original),receipt["sha256"])
+
+    def test_missing_recorder_readiness_is_not_a_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                fake=root/"ffmpeg"; fake.write_text("#!/bin/sh\necho test-only encoder startup failure >&2\nexit 7\n")
+                fake.chmod(0o755); client.env["PATH"]=str(root)+":"+client.env["PATH"]
+                original=root/"absent.mp4"; recorder=Recording(client,original,1)
+                recorder.process.wait(timeout=3)
+                self.assertFalse(recorder.ready.is_set())
+                with self.assertRaises(ValueError): recorder.stop()
+                receipt=json.loads(original.with_suffix(".recording.json").read_text())
+                self.assertEqual(7,receipt["encoder_exit"]); self.assertIsNone(receipt["sha256"])
+
+    def test_actual_unresponsive_encoder_has_bounded_failed_drain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                fake=root/"ffmpeg"
+                fake.write_text("#!/usr/bin/python3\nimport pathlib,signal,sys,time\n"
+                    "signal.signal(signal.SIGINT,signal.SIG_IGN)\n"
+                    "pathlib.Path(sys.argv[-1]).write_bytes(b'test-only partial output')\n"
+                    "print('frame=1',flush=True)\nwhile True: time.sleep(1)\n")
+                fake.chmod(0o755); client.env["PATH"]=str(root)+":"+client.env["PATH"]
+                original=root/"forced.mp4"; recorder=Recording(client,original,30)
+                self.assertTrue(recorder.ready.wait(3))
+                started=time.monotonic()
+                with self.assertRaisesRegex(ValueError,"drain deadline"): recorder.stop()
+                self.assertLess(time.monotonic()-started,13)
+                self.assertIsNotNone(recorder.process.returncode)
+                receipt=json.loads(original.with_suffix(".recording.json").read_text())
+                self.assertTrue(receipt["forced_stop"])
+                self.assertEqual(digest(original),receipt["sha256"])
 
 
 if __name__=="__main__": unittest.main()

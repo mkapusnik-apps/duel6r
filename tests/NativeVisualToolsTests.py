@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Routine helper regressions. Synthetic frames are NOT game capture evidence."""
 import copy
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -98,6 +99,15 @@ class ScheduleTests(unittest.TestCase):
                     schedule.run([{"client":"g","action":"key","key":"Right","hold":1}])
                 self.assertEqual(["keydown","keyup"],[x[0] for x in client.events])
 
+    def test_modifier_chord_is_bounded_and_all_released(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clock=Clock(); client=FakeNative(clock)
+            Scheduler({"g":client},tmp,3,clock=clock,sleep=clock.sleep).run([
+                {"client":"g","action":"key","key":"Page_Down","modifiers":["Shift_L"],"hold":.1}])
+            self.assertEqual([("keydown","Shift_L"),("keydown","Page_Down"),
+                              ("keyup","Page_Down"),("keyup","Shift_L")],
+                             [(action,key) for action,key,_ in client.events])
+
     def test_reject_long_hold_missed_schedule_and_deadline_before_input(self):
         for steps in ([{"hold":2.01}], [{"hold":1,"at":0},{"hold":1,"at":0}], [{"hold":2}]):
             with tempfile.TemporaryDirectory() as tmp:
@@ -122,6 +132,21 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual([step,step],expand([{"macro":"setup"}],{"setup":[step,step]}))
         with self.assertRaises(ValueError): expand([{"macro":"a"}],{"a":[{"macro":"a"}]})
         with self.assertRaises(ValueError): expand([{"macro":"missing"}])
+
+    def test_one_failed_encoder_does_not_skip_other_finalization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            finalized=[]
+            class Encoder:
+                def __init__(self,name): self.name=name
+                def stop(self):
+                    finalized.append(self.name)
+                    if self.name=="failed": raise ValueError("test-only drain failure")
+            schedule=Scheduler({},tmp,5)
+            schedule.recordings={name:Encoder(name) for name in ("failed","other")}
+            with self.assertRaisesRegex(ValueError,"finalization failed"): schedule.run([])
+            self.assertEqual(["failed","other"],finalized)
+            receipt=json.loads((Path(tmp)/"actions.json").read_text())
+            self.assertEqual({"failed":"test-only drain failure"},receipt["recording_errors"])
 
 
 class IdentityTests(unittest.TestCase):
@@ -162,43 +187,98 @@ class IdentityTests(unittest.TestCase):
             self.assertEqual(before,path.read_bytes())
 
 
+class ControllerCLITests(unittest.TestCase):
+    def test_real_controller_private_test_runtime_normal_and_orphan_failure(self):
+        for leaking in (False,True):
+            with self.subTest(leaking=leaking), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp); runtime=root/"runtime"; runtime.mkdir()
+                identity=IdentityTests().runtime(runtime)
+                subprocess.run(["cc",str(Path(__file__).with_name("NativeVisualX11Fixture.c")),
+                                *(["-DTEST_LEAK"] if leaking else []),"-o",str(runtime/"duel6r"),"-lX11"],
+                               check=True,capture_output=True,timeout=20)
+                identity["application_sha256"]=digest(runtime/"duel6r")
+                identity["files"]["duel6r"]=identity["application_sha256"]
+                (root/"identity.json").write_text(json.dumps(identity))
+                (root/"recipe.json").write_text(json.dumps({"clients":[
+                    {"id":"fixture","geometry":[850,700],"names":["Test-only"]}],"budget_seconds":10,
+                    "states":{"fixture":[{"box":[5,5,5,5],"rgb":[0,0,0],"minimum":1}]},
+                    "steps":[{"action":"await","client":"fixture","state":"fixture"},
+                             {"action":"key","client":"fixture","key":"Escape"},
+                             {"action":"exit_wait","client":"fixture"}]}))
+                result=subprocess.run([sys.executable,"-B","-m","tools.native_visual.controller",
+                    "--runtime",str(runtime),"--identity",str(root/"identity.json"),
+                    "--recipe",str(root/"recipe.json"),"--output",str(root/"output")],
+                    cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=30)
+                completion=json.loads((root/"output/completion.json").read_text())
+                self.assertEqual(not leaking,result.returncode==0,(result.stdout,result.stderr))
+                self.assertEqual(not leaking,completion["normal_cleanup"])
+                self.assertTrue(completion["ownership"]["cleanup"])
+                verify_runtime(runtime,identity)
+
+
+@contextmanager
+def native_window(root):
+    """Private, test-only event observer. No game process or accepted evidence."""
+    binary=root/"events"
+    subprocess.run(["cc",str(Path(__file__).with_name("NativeVisualX11Fixture.c")),
+                    "-o",str(binary),"-lX11"],check=True,capture_output=True,timeout=20)
+    env=dict(os.environ,DISPLAY=":119")
+    with (root/"events.log").open("wb") as log:
+        display=subprocess.Popen(["Xvfb",":119","-screen","0","850x700x24","-noreset"],
+                                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        app=None
+        try:
+            for _ in range(40):
+                check=subprocess.run(["xdotool","getdisplaygeometry"],env=env,capture_output=True,timeout=1)
+                if check.returncode==0: break
+                time.sleep(.05)
+            app=subprocess.Popen([str(binary)],env=env,stdout=log)
+            for _ in range(40):
+                lines=(root/"events.log").read_text().splitlines()
+                if lines: break
+                time.sleep(.05)
+            client=Native(":119",int(lines[0]),Canvas(850,700))
+            client.command("xdotool","windowfocus",client.window)
+            yield client
+        finally:
+            if app is not None: app.terminate(); app.wait(timeout=3)
+            display.terminate(); display.wait(timeout=3)
+
+
 class NativeInputTests(unittest.TestCase):
     """Real X11 input into a test-only event window, not a game/preflight capture."""
     def test_native_hold_schedule_release_and_owned_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp); binary=root/"events"
-            subprocess.run(["cc",str(Path(__file__).with_name("NativeVisualX11Fixture.c")),
-                            "-o",str(binary),"-lX11"],check=True,capture_output=True,timeout=20)
-            env=dict(os.environ,DISPLAY=":119")
-            with (root/"events.log").open("wb") as log:
-                display=subprocess.Popen(["Xvfb",":119","-screen","0","850x700x24","-noreset"],
-                                         stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                app=None
-                try:
-                    for _ in range(40):
-                        check=subprocess.run(["xdotool","getdisplaygeometry"],env=env,capture_output=True)
-                        if check.returncode==0: break
-                        time.sleep(.05)
-                    app=subprocess.Popen([str(binary)],env=env,stdout=log)
-                    for _ in range(40):
-                        lines=(root/"events.log").read_text().splitlines()
-                        if lines: break
-                        time.sleep(.05)
-                    client=Native(":119",int(lines[0]),Canvas(850,700))
-                    client.command("xdotool","windowfocus",client.window)
-                    start=time.monotonic()
-                    schedule=Scheduler({"g":client},root,3)
-                    schedule.run([{"client":"g","action":"key","key":"Right","hold":.12,"at":.08},
-                                  {"client":"g","action":"key","key":"Left","hold":.06,"at":.35}])
-                    time.sleep(.1)
-                    events=[line.split() for line in (root/"events.log").read_text().splitlines()[1:]]
-                    self.assertEqual(["down","up","down","up"],[e[0] for e in events])
-                    self.assertGreaterEqual(float(events[1][1])-float(events[0][1]),.10)
-                    self.assertLess(float(events[1][1])-float(events[0][1]),.5)
-                    self.assertGreaterEqual(float(events[0][1])-start,.06)
-                finally:
-                    if app is not None: app.terminate(); app.wait(timeout=3)
-                    display.terminate(); display.wait(timeout=3)
+            root=Path(tmp)
+            with native_window(root) as client:
+                start=time.monotonic()
+                Scheduler({"g":client},root,3).run([
+                    {"client":"g","action":"key","key":"Right","hold":.12,"at":.08},
+                    {"client":"g","action":"key","key":"Left","hold":.06,"at":.35}])
+                time.sleep(.1)
+                events=[line.split() for line in (root/"events.log").read_text().splitlines()[1:]]
+                self.assertEqual(["down","up","down","up"],[e[0] for e in events])
+                self.assertGreaterEqual(float(events[1][1])-float(events[0][1]),.10)
+                self.assertLess(float(events[1][1])-float(events[0][1]),.5)
+                self.assertGreaterEqual(float(events[0][1])-start,.06)
+
+    def test_native_full_frame_geometry_and_release_after_delivered_press_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                png,rgb=client.frame()
+                self.assertTrue(png.startswith(b"\x89PNG")); self.assertEqual(850*700*3,len(rgb))
+                deliver=client.input
+                def broken(action,value):
+                    deliver(action,value)
+                    if action=="keydown": raise RuntimeError("lost response after actual native delivery")
+                client.input=broken
+                with self.assertRaises(RuntimeError):
+                    Scheduler({"g":client},root,3).run([
+                        {"client":"g","action":"key","key":"Right","hold":.12}])
+                time.sleep(.1)
+                events=[line.split()[0] for line in (root/"events.log").read_text().splitlines()[1:]]
+                self.assertEqual(["down","up"],events)
 
 
 if __name__=="__main__": unittest.main()

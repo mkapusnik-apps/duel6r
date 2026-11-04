@@ -73,6 +73,8 @@ Actions: `key` (one keysym), `click` (`point:[x,y]`), `text` (literal), `wait`
 (`clip`, `seconds`), `stop_record` (`clip`), `exit_wait`. Each key/click has an
 explicit positive `hold` up to 2s (default .08); release is attempted on errors.
 Use separate key pulses, not an assumed repeat-key hold, for navigation.
+For bounded chords use `modifiers:["Shift_L"]` (also Control_L / Alt_L); all
+modifiers are released in reverse order even after a failed press/response.
 `at` schedules an action at seconds from the local recipe start, with a bounded
 `late_tolerance` (default .1s). Missed deadlines fail; they are not silently shifted.
 This is a finite operator-selected sequence, **not a gameplay agent**. Choose
@@ -154,3 +156,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p 'NativeVis
 The existing Linux CTest registration includes helper tests; media tests are
 registered when FFmpeg/ffprobe are available. No game preflight, new capture
 campaign or conformance assessment is authorized merely by running these tests.
+
+For permitted developer browser checks, `tests/NativeVisualViewerFixture.py`
+serves clearly synthetic good/missing/hash/decode/gap/slow-delivery cases. Use
+only a task-owned Docker container and a loopback-published test port; stop it
+after inspection. This checks the tool, not the actual assessor's access or UX gate.

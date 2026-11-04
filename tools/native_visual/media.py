@@ -47,12 +47,14 @@ def validate(probe, expected_frames, seconds, rate):
                 for i in range(len(pts) - 1)), "uncovered/overlapping source content boundary")
     end = (pts[-1] + durations[-1]) * base
     require(abs(end - seconds) <= tolerance, "short or excess actual content coverage")
-    return {"width": width, "height": height, "time_base": str(base),
+    return {"width": width, "height": height, "time_base": f"{base.numerator}/{base.denominator}",
             "source_pts": pts, "source_durations": durations, "frame_count": len(frames),
             "content_end": str(end), "subframe_tolerance": str(tolerance),
             "max_gap_seconds": float(interval * Fraction(3, 2)),
             "max_pts_gap": str(max(gaps, default=Fraction(0))),
             "container_duration": probe.get("format", {}).get("duration"),
+            "stream": {key: stream.get(key, "unavailable") for key in
+                       ("codec_name", "pix_fmt", "r_frame_rate", "avg_frame_rate")},
             "limits": "Structural validation only; frame sampling is not display-update or visual conformance proof."}
 
 
@@ -67,7 +69,8 @@ def inspect(source, expected_frames, seconds, rate):
     probe = json.loads(command([
         "ffprobe", "-v", "error", "-select_streams", "v", "-show_streams", "-show_frames",
         "-show_format", "-show_entries",
-        "stream=width,height,time_base,nb_frames:frame=pts,pkt_duration,duration,width,height:format=duration",
+        "stream=width,height,time_base,nb_frames,codec_name,pix_fmt,r_frame_rate,avg_frame_rate:"
+        "frame=pts,pkt_duration,duration,width,height:format=duration",
         "-of", "json", str(source),
     ]))
     result = validate(probe, expected_frames, seconds, rate)

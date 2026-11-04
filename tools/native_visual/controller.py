@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -66,13 +67,19 @@ class Native:
     def point(self, x, y):
         self.command("xdotool", "mousemove", "--window", self.window, str(x), str(y))
 
-    def frame(self):
-        # One capture, not a reread of a stale file. No normalization of evidence.
+    def verify_geometry(self):
+        display = self.command("xdotool", "getdisplaygeometry").decode().split()
+        require(display == [str(self.canvas.width), str(self.canvas.height)],
+                "private display geometry changed")
         geometry = self.command("xdotool", "getwindowgeometry", "--shell", self.window).decode()
         geometry = dict(line.split("=", 1) for line in geometry.splitlines() if "=" in line)
         require([geometry.get(key) for key in ("X", "Y", "WIDTH", "HEIGHT")]
                 == ["0", "0", str(self.canvas.width), str(self.canvas.height)],
                 "client must fill its private display at native origin")
+
+    def frame(self):
+        # One capture, not a reread of a stale file. No normalization of evidence.
+        self.verify_geometry()
         png = self.command("import", "-window", self.window, "png:-", timeout=3)
         dimensions = subprocess.check_output(["identify", "-format", "%w %h", "png:-"], input=png, timeout=3)
         require(dimensions.decode().split() == [str(self.canvas.width), str(self.canvas.height)],
@@ -124,12 +131,19 @@ class Scheduler:
                 self.action(client, step, ordinal)
                 event["finished"] = self.clock() - self.started
         finally:
-            try:
-                # Encoder drains, full hashes and probes are outside the action schedule.
-                for recording in self.recordings.values():
+            active_error = sys.exc_info()[0] is not None
+            errors = {}
+            # One failed encoder must not prevent the others from finalizing.
+            # The original action exception also must not be hidden by teardown.
+            for name, recording in self.recordings.items():
+                try:
                     recording.stop()
-            finally:
-                record(self.output / "actions.json", {"started_monotonic": self.started, "events": self.events})
+                except Exception as error:
+                    errors[name] = str(error)
+            record(self.output / "actions.json", {"started_monotonic": self.started,
+                   "events": self.events, "recording_errors": errors})
+            if errors and not active_error:
+                raise ValueError("recorder finalization failed; see additive actions receipt")
 
     def action(self, client, step, ordinal):
         action = step["action"]
@@ -142,6 +156,8 @@ class Scheduler:
             self.recordings[clip] = Recording(client, self.output / (clip + ".mp4"), seconds)
             require(self.recordings[clip].ready.wait(min(5, self.remaining())),
                     "recorder produced no first frame before readiness deadline")
+            require(self.recordings[clip].process.poll() is None,
+                    "recording ended before action readiness; no subsequent coverage")
             self.remaining()
         elif action == "stop_record":
             self.recordings[step["clip"]].request_stop()
@@ -164,14 +180,32 @@ class Scheduler:
             else:
                 value = step["key"]
                 require(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_]+", value),
-                        "one explicit keysym per input; use separate steps for chords")
+                        "one explicit keysym; list modifiers separately")
                 down, up = "keydown", "keyup"
+            modifiers = step.get("modifiers", [])
+            require(isinstance(modifiers, list) and len(modifiers) <= 3
+                    and len(set(modifiers)) == len(modifiers)
+                    and all(key in ("Shift_L", "Control_L", "Alt_L") for key in modifiers),
+                    "invalid explicit modifiers")
+            pressed = []
+            release_errors = []
+            until = self.clock() + hold
             # Release even if sending the press, waiting or logging fails.
             try:
+                for modifier in modifiers:
+                    pressed.append(modifier)
+                    client.input("keydown", modifier)
                 client.input(down, value)
-                self.wait(hold)
+                self.wait(max(0, until - self.clock()))
             finally:
-                client.input(up, value)
+                active_error = sys.exc_info()[0] is not None
+                for release, key in [(up, value)] + [("keyup", key) for key in reversed(pressed)]:
+                    try:
+                        client.input(release, key)
+                    except Exception as error:
+                        release_errors.append(str(error))
+                if release_errors and not active_error:
+                    raise ValueError("native input release failed")
         elif action == "text":
             value = step["text"]
             require(isinstance(value, str) and len(value.encode()) <= 128
@@ -225,31 +259,39 @@ def execute(runtime, identity, recipe, output):
             name = item["id"]
             require(re.fullmatch(r"[a-z][a-z0-9-]{0,31}", name) and name not in clients, "invalid client ID")
             canvas = Canvas(*item["geometry"])
-            display = ":" + str(91 + index)
             root = output / name
             shutil.copytree(runtime, root)
+            verify_runtime(root, identity)
             seed_names(root, item["names"])
-            env = dict(PATH=os.environ["PATH"], LANG="C.UTF-8", DISPLAY=display,
+            env = dict(PATH=os.environ["PATH"], LANG="C.UTF-8",
                        SDL_AUDIODRIVER="dummy", LIBGL_ALWAYS_SOFTWARE="1", HOME=str(output / (name + "-home")))
             Path(env["HOME"]).mkdir()
             for key in ("XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME"):
                 env[key] = env["HOME"] + "/" + key.lower()
             log = (output / (name + ".log")).open("xb")
             try:
-                xvfb = subprocess.Popen(["Xvfb", display, "-screen", "0", f"{canvas.width}x{canvas.height}x24",
-                                          "+extension", "GLX", "+render", "-noreset"], env=env, stdout=log, stderr=log)
-                processes.append(xvfb)
-                end = time.monotonic() + 5
-                while True:
-                    require(xvfb.poll() is None, "private display exited")
-                    probe = subprocess.run(["xdotool", "getdisplaygeometry"], env=env,
-                                           capture_output=True, timeout=1)
-                    if probe.returncode == 0:
-                        require(probe.stdout.decode().split() == [str(canvas.width), str(canvas.height)],
-                                "unexpected display geometry")
-                        break
-                    require(time.monotonic() < end, "private display startup deadline")
-                    time.sleep(.05)
+                # Xvfb chooses an unused display and acknowledges its own startup.
+                # Never treat a response from someone else's :91 as our readiness.
+                reader, writer = os.pipe()
+                try:
+                    try:
+                        xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(writer), "-screen", "0",
+                            f"{canvas.width}x{canvas.height}x24", "+extension", "GLX", "+render", "-noreset"],
+                            env=env, stdout=log, stderr=log, pass_fds=(writer,))
+                        processes.append(xvfb)
+                    finally:
+                        os.close(writer)
+                    require(select.select([reader], [], [], 5)[0], "private display startup deadline")
+                    number = os.read(reader, 32).decode().strip()
+                    require(number.isdecimal() and xvfb.poll() is None, "private display startup failed")
+                    display = ":" + number
+                    env["DISPLAY"] = display
+                finally:
+                    os.close(reader)
+                probe = subprocess.run(["xdotool", "getdisplaygeometry"], env=env,
+                                       capture_output=True, timeout=1)
+                require(probe.returncode == 0 and probe.stdout.decode().split()
+                        == [str(canvas.width), str(canvas.height)], "unexpected display geometry")
                 app = subprocess.Popen([str(root / "duel6r")], cwd=root, env=env, stdout=log, stderr=log)
                 processes.append(app)
                 end = time.monotonic() + 15
@@ -273,16 +315,29 @@ def execute(runtime, identity, recipe, output):
             expand(recipe["steps"], recipe.get("macros")))
     finally:
         # Recipes must exit normally themselves; fallback is independently reaped.
-        normal = all(process.poll() == 0 for process in processes[1::2])
+        normal = (len(processes) == len(recipe["clients"]) * 2
+                  and all(process.poll() == 0 for process in processes[1::2]))
+        wait_errors = []
         for process in reversed(processes):
             if process.poll() is None:
                 process.terminate()
+        for process in reversed(processes):
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                wait_errors.append("owned process did not exit; outer process owner must finish cleanup")
         recipe_hash = hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
         record(output / "controller.json", {"runtime": str(runtime), "identity": identity,
                "recipe_sha256": recipe_hash, "normal_application_exit": normal,
+               "wait_errors": wait_errors,
+               "clients": {name: {"display": client.env["DISPLAY"], "window": client.window,
+                                  "pid": client.process.pid,
+                                  "geometry": [client.canvas.width, client.canvas.height]}
+                           for name, client in clients.items()},
                "note": "new capture/tool receipt, not a reconstructed historical receipt"})
         verify_runtime(runtime, identity)
-    require(normal, "recipe did not close each application normally; fallback cleanup is not a normal pass")
+    require(normal and not wait_errors,
+            "recipe did not close normally; fallback cleanup is not a normal pass")
 
 
 def main():
@@ -309,7 +364,10 @@ def main():
                "--output", str(args.output.resolve()), "--worker"]
     result = run_owned(command, budget + 90, args.output / "process.jsonl")
     verify_runtime(args.runtime, identity)
-    require(result["cleanup"] and result["phase"] == "exited" and result["exit"] == 0,
+    normal = (result["cleanup"] and result["phase"] == "exited" and result["exit"] == 0
+              and len(result["reaped"]) == 1 and not result.get("forced", False))
+    record(args.output / "completion.json", {"normal_cleanup": normal, "ownership": result})
+    require(normal,
             "controller failed or required fallback; see preserved receipts")
 
 

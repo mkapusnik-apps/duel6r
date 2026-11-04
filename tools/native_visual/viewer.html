@@ -22,7 +22,7 @@ body{font:16px system-ui;background:#eee;color:#111;margin:16px}button,select{fo
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let data, ordinal = 0, playing = false, timer, generation = 0, busy = false;
+let data, ordinal = 0, playing = false, timer, generation = 0, busy = false, scheduleStall = 0;
 function status(text) { $("status").textContent = text; }
 function fail(error) {
   playing = false; clearTimeout(timer); $("error").textContent = String(error);
@@ -64,21 +64,24 @@ async function show(target) {
       ordinal = target;
       $("position").textContent = "Source ordinal " + ordinal + " / " + (data.frames.length-1)
         + " (zero-based); exact PTS " + item.pts + " ticks × time base " + data.validation.time_base;
-      status((playing ? "Playing without skips" : "Paused") + "; last load stall " + (performance.now()-started).toFixed(1) + " ms");
+      status((playing ? "Playing without skips" : "Paused") + "; last load stall " + (performance.now()-started).toFixed(1)
+        + " ms; scheduler stall " + scheduleStall.toFixed(1) + " ms");
       requestAnimationFrame(scale);
       return true;
     } catch(error) { URL.revokeObjectURL(url); throw error; }
   } catch(error) { fail(error); return false; }
   finally { busy = false; controls(); }
 }
-function pause() { playing = false; clearTimeout(timer); status("Paused"); controls(); }
+function pause() { playing = false; ++generation; clearTimeout(timer); status("Paused"); controls(); }
 async function advance() {
   if (!playing) return;
   if (ordinal === data.frames.length-1) { pause(); status("End of original — no wrap"); return; }
   const [num, den] = data.validation.time_base.split("/").map(Number);
   const delay = (data.frames[ordinal+1].pts - data.frames[ordinal].pts) * num / den * 1000;
+  const due = performance.now() + delay;
   timer = setTimeout(async () => {
     if (!playing) return;
+    scheduleStall = Math.max(0, performance.now() - due);
     if (await show(ordinal+1)) advance(); // wait for each exact frame; never catch up by skipping
   }, delay);
 }
