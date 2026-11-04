@@ -9,12 +9,14 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest
-from tools.native_visual.media import validate, index
+from tools.native_visual.media import validate, index, inspect
 from tools.native_visual.recording import Recording
 from NativeVisualToolsTests import native_window
+from NativeVisualViewerFixture import create_vfr_b_frames
 
 
 def probe90():
@@ -105,16 +107,7 @@ class DecoderTests(unittest.TestCase):
                         "-video_track_timescale","1000000",str(path)],check=True,capture_output=True,timeout=30)
 
     def create_vfr_b_frames(self,path):
-        pts=[0,99722,121728,187409,299776,330000]
-        expression=str(pts[-1])
-        for ordinal,value in reversed(list(enumerate(pts[:-1]))):
-            expression=f"if(eq(N,{ordinal}),{value},{expression})"
-        subprocess.run(["ffmpeg","-nostdin","-v","error","-f","lavfi","-i","testsrc=size=32x24:rate=15",
-                        "-frames:v","6","-vf",f"settb=expr=1/1000000,setpts='{expression}'",
-                        "-fps_mode","passthrough","-enc_time_base","1/1000000",
-                        "-c:v","libx264rgb","-crf","18","-bf","2","-b_strategy","0","-threads","1",
-                        "-video_track_timescale","1000000",str(path)],check=True,capture_output=True,timeout=30)
-        return pts
+        return create_vfr_b_frames(path)
 
     def test_real_full_decode_exact_ordinal_mapping_and_immutable_input(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,6 +170,90 @@ class DecoderTests(unittest.TestCase):
             self.assertEqual("unknown",assessment["qualification"]["boundary"]["status"])
             self.assertTrue(assessment["input_unchanged"])
             self.assertEqual(before,source.read_bytes())
+
+    def test_explicit_inspection_preserves_rejections_unknown_lifetime_hashes_and_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); source=root/"vfr.mp4"; pts=self.create_vfr_b_frames(source)
+            before=source.read_bytes(); receipt=root/"old.json"; receipt.write_text('{"valid":false,"historical":true}')
+            options=dict(expected_frames=9,seconds="3/5",rate="15",candidate="a"*40,
+                         provenance=str(receipt),expected_sha=digest(source))
+            with self.assertRaises(ValueError): index(source,root/"strict",**options)
+            index(source,root/"inspection",inspection_only=True,**options)
+            strict=json.loads((root/"strict/assessment.json").read_text())
+            data=json.loads((root/"inspection/index.json").read_text())
+            assessment=json.loads((root/"inspection/assessment.json").read_text())
+            for item in (data,assessment):
+                self.assertFalse(item["valid"]); self.assertFalse(item["qualification_valid"])
+                self.assertTrue(item["inspection_only"]); self.assertTrue(item["inspection_available"])
+                self.assertTrue(item["decode_valid"])
+                self.assertEqual(strict["error"],item["qualification_error"])
+                self.assertEqual(strict["qualification"],item["qualification"])
+                self.assertEqual(9,item["qualification"]["count"]["expected_frames"])
+                self.assertEqual(6,item["qualification"]["count"]["decoded_frames"])
+                self.assertIsNone(item["qualification"]["boundary"]["valid"])
+                self.assertEqual("unknown",item["qualification"]["boundary"]["status"])
+                self.assertEqual(2,item["media_index_version"])
+            self.assertEqual(pts,[frame["pts"] for frame in data["frames"]])
+            self.assertEqual(list(range(6)),[frame["ordinal"] for frame in data["frames"]])
+            self.assertEqual({"frame_count":9,"seconds":"3/5","rate":"15"},data["validation"]["requested"])
+            self.assertIsNone(data["validation"]["content_end"])
+            self.assertIsNone(data["frames"][-1]["duration"])
+            self.assertEqual([None,None,None,None,112367,None],[frame["gap_before_ticks"] for frame in data["frames"]])
+            for frame in data["frames"]: self.assertEqual(frame["sha256"],digest(root/"inspection"/frame["path"]))
+            self.assertFalse(strict["inspection_available"])
+            self.assertFalse((root/"strict/index.json").exists())
+            self.assertTrue(assessment["input_unchanged"])
+            self.assertEqual(before,source.read_bytes())
+            self.assertEqual('{"valid":false,"historical":true}',receipt.read_text())
+            with self.assertRaises(FileExistsError): index(source,root/"inspection",inspection_only=True,**options)
+
+    def test_inspection_does_not_allow_corrupt_truncated_or_wrong_hash_originals(self):
+        for case in ("corrupt","truncated","hash"):
+            with self.subTest(case=case),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp); source=root/"original.mp4"; self.create(source)
+                if case=="corrupt": source.write_bytes(b"not a video")
+                if case=="truncated": source.write_bytes(source.read_bytes()[:400])
+                before=source.read_bytes()
+                with self.assertRaises(ValueError):
+                    index(source,root/"inspection",inspection_only=True,expected_frames=6,seconds="2/5",rate="15",
+                          candidate="a"*40,provenance="Synthetic only",expected_sha="0"*64 if case=="hash" else digest(source))
+                self.assertFalse((root/"inspection/index.json").exists())
+                if case!="hash":
+                    assessment=json.loads((root/"inspection/assessment.json").read_text())
+                    self.assertFalse(assessment["inspection_available"])
+                    self.assertIsNot(assessment["decode_valid"],True)
+                self.assertEqual(before,source.read_bytes())
+
+    def test_inspection_refuses_missing_noninteger_nonmonotonic_and_inconsistent_mappings(self):
+        for case in ("missing","string","float","unsafe","equal","backward","count","timebase"):
+            with self.subTest(case=case):
+                probe=probe90()
+                if case=="missing": del probe["frames"][1]["pts"]
+                if case=="string": probe["frames"][1]["pts"]="66666"
+                if case=="float": probe["frames"][1]["pts"]=66666.5
+                if case=="unsafe": probe["frames"][1]["pts"]=2**53
+                if case=="equal": probe["frames"][1]["pts"]=0
+                if case=="backward": probe["frames"][1]["pts"]=-1
+                if case=="count": probe["streams"][0]["nb_frames"]="1349"
+                if case=="timebase": probe["streams"][0]["time_base"]="1/9007199254740992"
+                with mock.patch("tools.native_visual.media.command",side_effect=[json.dumps(probe).encode(),b""]):
+                    with self.assertRaises(ValueError): inspect(Path("synthetic.mp4"),1350,"90","15",inspection_only=True)
+
+    def test_cli_distinguishes_qualified_index_nonqualifying_inspection_and_fatal_rejection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); source=root/"original.mp4"; self.create(source)
+            for name,frames,flag,code in (("qualified",6,False,0),("strict",9,False,1),("inspection",9,True,2)):
+                args=[sys.executable,"-B","-m","tools.native_visual.media",str(source),str(root/name),
+                      "--sha256",digest(source),"--candidate","a"*40,"--provenance","Synthetic only",
+                      "--frames",str(frames),"--seconds","2/5" if frames==6 else "3/5"]
+                if flag: args.append("--inspection-only")
+                result=subprocess.run(args,capture_output=True,text=True,timeout=30)
+                self.assertEqual(code,result.returncode,result.stderr)
+                if code!=1:
+                    status=json.loads(result.stdout)
+                    self.assertEqual("inspection_available",status["operation"])
+                    self.assertTrue(status["inspection_available"])
+                    self.assertEqual(code==0,status["qualification_valid"])
 
 
 class RecordingTests(unittest.TestCase):

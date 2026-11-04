@@ -9,6 +9,13 @@ import subprocess
 from .common import digest, record, require, sha
 
 
+class QualificationRejected(ValueError):
+    """Decoded metadata failed strict qualification; never implies safe mapping."""
+    def __init__(self, message, validation):
+        super().__init__(message)
+        self.validation = validation
+
+
 def validate(probe, expected_frames, seconds, rate, checks=None):
     """Integer source timestamps, not rounded container duration, own coverage."""
     seconds, rate = Fraction(seconds), Fraction(rate)
@@ -35,9 +42,16 @@ def validate(probe, expected_frames, seconds, rate, checks=None):
     pts, durations = [], []
     for frame in frames:
         require((int(frame["width"]), int(frame["height"])) == (width, height), "frame dimensions changed")
-        pts.append(int(frame["pts"]))
+        require(type(frame.get("pts")) is int and abs(frame["pts"]) <= 2**53 - 1,
+                "missing/noninteger/unsafe source PTS")
+        pts.append(frame["pts"])
         duration = frame.get("duration", frame.get("pkt_duration"))
-        durations.append(None if duration in (None, "N/A") else int(duration))
+        if duration in (None, "N/A"):
+            durations.append(None)
+        else:
+            require(type(duration) is int and abs(duration) <= 2**53 - 1,
+                    "noninteger/unsafe source duration")
+            durations.append(duration)
     interval = 1 / rate
     tolerance = interval / 2 + base  # Strictly sub-frame; never excuse a missing frame.
     require(tolerance < interval, "time base too coarse for sub-frame validation")
@@ -70,16 +84,19 @@ def validate(probe, expected_frames, seconds, rate, checks=None):
                           "missing_duration_frames": missing, "content_end": None if end is None else str(end),
                           "subframe_tolerance": str(tolerance), "errors": boundary_errors}
     errors = count_errors + ([] if cadence_valid else ["nonmonotonic timestamps or source PTS gap"]) + boundary_errors
-    require(not errors, "; ".join(errors))
-    return {"width": width, "height": height, "time_base": f"{base.numerator}/{base.denominator}",
-            "source_pts": pts, "source_durations": durations, "frame_count": len(frames),
-            "content_end": str(end), "subframe_tolerance": str(tolerance),
-            "max_gap_seconds": float(interval * Fraction(3, 2)),
-            "max_pts_gap": str(max(gaps, default=Fraction(0))),
-            "container_duration": probe.get("format", {}).get("duration"),
-            "stream": {key: stream.get(key, "unavailable") for key in
-                       ("codec_name", "pix_fmt", "r_frame_rate", "avg_frame_rate")},
-            "limits": "Structural validation only; frame sampling is not display-update or visual conformance proof."}
+    result = {"width": width, "height": height, "time_base": f"{base.numerator}/{base.denominator}",
+             "source_pts": pts, "source_durations": durations, "frame_count": len(frames),
+             "content_end": None if end is None or durations[-1] <= 0 else str(end), "subframe_tolerance": str(tolerance),
+             "requested": {"frame_count": expected_frames, "seconds": str(seconds), "rate": str(rate)},
+             "max_gap_seconds": float(interval * Fraction(3, 2)),
+             "max_pts_gap": str(max(gaps, default=Fraction(0))),
+             "container_duration": probe.get("format", {}).get("duration"),
+             "stream": {key: stream.get(key, "unavailable") for key in
+                        ("codec_name", "pix_fmt", "r_frame_rate", "avg_frame_rate")},
+             "limits": "Structural validation only; frame sampling is not display-update or visual conformance proof."}
+    if errors:
+        raise QualificationRejected("; ".join(errors), result)
+    return result
 
 
 def command(args, timeout=180):
@@ -89,9 +106,9 @@ def command(args, timeout=180):
     return result.stdout
 
 
-def inspect(source, expected_frames, seconds, rate, diagnostics=None):
+def inspect(source, expected_frames, seconds, rate, diagnostics=None, *, inspection_only=False):
     diagnostics = diagnostics if diagnostics is not None else {}
-    diagnostics.update(decode_valid=None, qualification={}, failure_stage="probe")
+    diagnostics.update(decode_valid=None, qualification_valid=False, qualification={}, failure_stage="probe")
     probe = json.loads(command([
         "ffprobe", "-v", "error", "-select_streams", "v", "-show_streams", "-show_frames",
         "-show_format", "-show_entries",
@@ -114,12 +131,30 @@ def inspect(source, expected_frames, seconds, rate, diagnostics=None):
         raise
     diagnostics["decode_valid"] = True
     diagnostics["failure_stage"] = "qualification"
-    result = validate(probe, expected_frames, seconds, rate, diagnostics["qualification"])
+    try:
+        result = validate(probe, expected_frames, seconds, rate, diagnostics["qualification"])
+        diagnostics["qualification_valid"] = True
+    except QualificationRejected as error:
+        diagnostics["qualification_error"] = str(error)
+        if not inspection_only:
+            raise
+        result = error.validation
+    # Inspection can disclose a count/cadence/boundary rejection, but cannot
+    # project ordinals from missing, nonmonotonic or inconsistent source data.
+    diagnostics["failure_stage"] = "mapping"
+    pts = result["source_pts"]
+    require(0 < len(pts) <= 72000 and all(0 < b - a <= 2**53 - 1 for a, b in zip(pts, pts[1:])),
+            "empty/oversized/nonmonotonic source PTS mapping")
+    require(base.numerator <= 2**53 - 1 and base.denominator <= 2**53 - 1,
+            "unsafe source time base for exact viewer mapping")
+    reported = probe["streams"][0].get("nb_frames", "N/A")
+    require(reported == "N/A" or int(reported) == len(pts), "stream/decoded source mapping count mismatch")
     diagnostics["failure_stage"] = None
     return result
 
 
-def index(source, output, *, expected_frames, seconds, rate, candidate, provenance, expected_sha):
+def index(source, output, *, expected_frames, seconds, rate, candidate, provenance, expected_sha,
+          inspection_only=False):
     source = Path(source).resolve(strict=True)
     sha(candidate, 40)
     sha(expected_sha)
@@ -129,30 +164,41 @@ def index(source, output, *, expected_frames, seconds, rate, candidate, provenan
     output.mkdir(parents=True, exist_ok=False)
     original = {"path": str(source), "sha256": expected_sha, "bytes": source.stat().st_size,
                 "candidate": candidate, "provenance": provenance}
-    diagnostics = {"decode_valid": None, "qualification": {}, "failure_stage": "probe"}
+    diagnostics = {"decode_valid": None, "qualification": {}, "failure_stage": "probe",
+                   "inspection_only": inspection_only, "inspection_available": False, "media_index_version": 2}
     try:
-        result = inspect(source, expected_frames, seconds, rate, diagnostics)
+        result = inspect(source, expected_frames, seconds, rate, diagnostics, inspection_only=inspection_only)
         diagnostics["failure_stage"] = "index"
         frames = output / "frames"
         frames.mkdir()
-        command(["ffmpeg", "-v", "error", "-xerror", "-i", str(source), "-map", "0:v:0",
-                 "-an", "-fps_mode", "passthrough", "-threads", "1", "-start_number", "0", str(frames / "%06d.png")])
+        command(["ffmpeg", "-v", "error", "-xerror", "-err_detect", "explode", "-i", str(source), "-map", "0:v:0",
+                  "-an", "-fps_mode", "passthrough", "-enc_time_base", result["time_base"],
+                  "-threads", "1", "-start_number", "0", str(frames / "%06d.png")])
         paths = sorted(frames.glob("*.png"))
-        require(len(paths) == expected_frames, "decode/index frame count mismatch")
+        require(len(paths) == result["frame_count"], "decode/index source frame count mismatch")
         mapping = []
+        base = Fraction(result["time_base"])
+        maximum_gap = Fraction(3, 2) / Fraction(rate)
         for ordinal, path in enumerate(paths):
             require(path.name == f"{ordinal:06d}.png", "missing ordinal")
+            gap = result["source_pts"][ordinal] - result["source_pts"][ordinal-1] if ordinal else 0
+            duration = result["source_durations"][ordinal]
             mapping.append({"ordinal": ordinal, "pts": result["source_pts"][ordinal],
-                            "duration": result["source_durations"][ordinal],
+                            "duration": duration if duration is not None and duration > 0 else None,
+                            "gap_before_ticks": gap if gap * base > maximum_gap else None,
                             "path": path.relative_to(output).as_posix(), "sha256": digest(path)})
         require(digest(source) == expected_sha, "input changed during indexing")
-        record(output / "index.json", {"original": original, "validation": result, "frames": mapping,
-               "derivatives": "Full-frame PNG decodes for inspection, not original lossless screenshots."})
         shutil.copyfile(Path(__file__).with_name("viewer.html"), output / "viewer.html")
-        diagnostics["failure_stage"] = None
-        record(output / "assessment.json", {"original": original, "valid": True, **diagnostics})
+        diagnostics["inspection_available"] = True
+        diagnostics["failure_stage"] = None if diagnostics["qualification_valid"] else "qualification"
+        record(output / "index.json", {"original": original, "validation": result, "frames": mapping,
+               "derivatives": "Full-frame PNG decodes for inspection, not original lossless screenshots.",
+               "valid": diagnostics["qualification_valid"], **diagnostics})
+        record(output / "assessment.json", {"original": original, "valid": diagnostics["qualification_valid"],
+               "input_unchanged": True, **diagnostics})
         return result
     except Exception as error:
+        diagnostics["inspection_available"] = False
         record(output / "assessment.json", {"original": original, "valid": False,
                 "error": str(error), "input_unchanged": digest(source) == expected_sha, **diagnostics})
         raise
@@ -168,10 +214,17 @@ def main():
     parser.add_argument("--frames", type=int, required=True)
     parser.add_argument("--seconds", required=True)
     parser.add_argument("--rate", default="15")
+    parser.add_argument("--inspection-only", action="store_true",
+                        help="allow safe full-frame inspection of nonqualifying media; exit 2 is not a verification pass")
     args = parser.parse_args()
     index(args.source, args.output, expected_frames=args.frames, seconds=args.seconds, rate=args.rate,
-          candidate=args.candidate, provenance=args.provenance, expected_sha=args.sha256)
+          candidate=args.candidate, provenance=args.provenance, expected_sha=args.sha256,
+          inspection_only=args.inspection_only)
+    assessment = json.loads((args.output / "assessment.json").read_text())
+    print(json.dumps({"operation": "inspection_available", "inspection_available": True,
+                      "qualification_valid": assessment["valid"], "inspection_only": args.inspection_only}))
+    return 0 if assessment["valid"] else 2
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

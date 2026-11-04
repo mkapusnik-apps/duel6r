@@ -10,6 +10,7 @@ body{font:16px system-ui;background:#eee;color:#111;margin:16px}button,select{fo
 </style>
 <h1>Original-frame / PTS inspection</h1>
 <pre id="identity">Loading provenance…</pre>
+<pre id="qualification" role="note">Qualification UNKNOWN — loading; no acceptance claim.</pre>
 <fieldset><legend>Frame navigation (controls are outside the image)</legend>
 <button id="previous" disabled>Previous</button><button id="next" disabled>Next</button>
 <button id="play" disabled>Play</button><button id="pause" disabled>Pause</button>
@@ -63,7 +64,9 @@ async function show(target) {
       if (old.startsWith("blob:")) URL.revokeObjectURL(old);
       ordinal = target;
       $("position").textContent = "Source ordinal " + ordinal + " / " + (data.frames.length-1)
-        + " (zero-based); exact PTS " + item.pts + " ticks × time base " + data.validation.time_base;
+        + " (zero-based); exact PTS " + item.pts + " ticks × time base " + data.validation.time_base
+        + "; source lifetime: " + (item.duration === null ? "UNKNOWN" : item.duration + " ticks")
+        + (item.gap_before_ticks === null ? "" : "; NONQUALIFYING cadence gap before this frame: " + item.gap_before_ticks + " ticks");
       status((playing ? "Playing without skips" : "Paused") + "; last load stall " + (performance.now()-started).toFixed(1)
         + " ms; scheduler stall " + scheduleStall.toFixed(1) + " ms");
       requestAnimationFrame(scale);
@@ -75,7 +78,10 @@ async function show(target) {
 function pause() { playing = false; ++generation; clearTimeout(timer); status("Paused"); controls(); }
 async function advance() {
   if (!playing) return;
-  if (ordinal === data.frames.length-1) { pause(); status("End of original — no wrap"); return; }
+  if (ordinal === data.frames.length-1) {
+    pause(); status("Last source ordinal — no wrap; last-frame end/lifetime "
+      + (data.frames[ordinal].duration === null ? "UNKNOWN (not inferred)" : "as recorded; no coverage acceptance claim")); return;
+  }
   const [num, den] = data.validation.time_base.split("/").map(Number);
   const delay = (data.frames[ordinal+1].pts - data.frames[ordinal].pts) * num / den * 1000;
   const due = performance.now() + delay;
@@ -97,20 +103,45 @@ $("panel").onkeydown = event => {
   if (!playing && !busy && event.key === "ArrowRight") show(ordinal+1);
 };
 function validateIndex(value) {
-  if (value.receipt_version !== 1 || !value.original || !value.frames?.length) throw Error("Unsupported/missing provenance index");
+  if (value.receipt_version !== 1 || value.media_index_version !== 2 || !value.original || !value.frames?.length)
+    throw Error("Unsupported/missing provenance index");
+  const qualification = value.qualification;
+  if (value.decode_valid !== true || value.inspection_available !== true || typeof value.valid !== "boolean"
+    || value.valid !== value.qualification_valid || typeof value.inspection_only !== "boolean"
+    || (!value.valid && (!value.inspection_only || typeof value.qualification_error !== "string" || !value.qualification_error))
+    || !qualification?.count || !qualification?.cadence || !qualification?.boundary
+    || (value.valid && ![qualification.count,qualification.cadence,qualification.boundary].every(check => check.valid === true)))
+    throw Error("Invalid inspection/qualification status");
   if (!/^[a-f0-9]{64}$/.test(value.original.sha256) || !/^[a-f0-9]{40}$/.test(value.original.candidate)
     || value.validation.frame_count !== value.frames.length
     || !(value.validation.width>0 && value.validation.height>0)
     || !Number.isFinite(value.validation.max_gap_seconds) || value.validation.max_gap_seconds<=0)
     throw Error("Invalid original identity/dimensions/coverage contract");
   const [num,den] = value.validation.time_base.split("/").map(Number);
-  if (!(num>0 && den>0)) throw Error("Invalid source time base");
+  if (!(Number.isSafeInteger(num) && Number.isSafeInteger(den) && num>0 && den>0)) throw Error("Invalid source time base");
+  if (value.validation.source_pts?.length !== value.frames.length || value.validation.source_durations?.length !== value.frames.length)
+    throw Error("Incomplete source PTS/lifetime mapping");
+  let annotatedGaps = 0;
   value.frames.forEach((item,i) => {
     if (item.ordinal !== i || !Number.isSafeInteger(item.pts) || !/^[a-f0-9]{64}$/.test(item.sha256)
+      || item.pts !== value.validation.source_pts[i]
       || item.path !== "frames/" + String(i).padStart(6,"0") + ".png") throw Error("Missing/invalid ordinal mapping " + i);
-    if (i && (item.pts<=value.frames[i-1].pts || (item.pts-value.frames[i-1].pts)*num/den > Number(value.validation.max_gap_seconds)))
-      throw Error("Nonmonotonic/gapped source PTS at " + i);
+    const duration = value.validation.source_durations[i];
+    if ((duration !== null && !Number.isSafeInteger(duration))
+      || item.duration !== (duration !== null && duration>0 ? duration : null)) throw Error("Invalid source lifetime at " + i);
+    const gap = i ? item.pts-value.frames[i-1].pts : 0;
+    if (i && (!Number.isSafeInteger(gap) || gap<=0)) throw Error("Nonmonotonic/unsafe source PTS at " + i);
+    if (i && gap*num/den > value.validation.max_gap_seconds) {
+      if (!value.inspection_only || value.valid || qualification.cadence.valid !== false || item.gap_before_ticks !== gap)
+        throw Error("Unannotated/non-inspection source PTS gap at " + i);
+      ++annotatedGaps;
+    } else if (item.gap_before_ticks !== null) throw Error("Inconsistent source PTS gap annotation at " + i);
   });
+  if (annotatedGaps !== qualification.cadence.gaps_over_limit) throw Error("Cadence annotations disagree with qualification");
+  if (qualification.boundary.valid === null && (qualification.boundary.status !== "unknown" || value.validation.content_end !== null))
+    throw Error("Unknown source boundary must not claim an end");
+  if (value.frames.at(-1).duration === null && value.validation.content_end !== null)
+    throw Error("Unknown last-frame lifetime must not claim an end");
 }
 (async () => {
   try {
@@ -121,7 +152,16 @@ function validateIndex(value) {
     $("identity").textContent = "Original: " + original.path + "\nSHA-256: " + original.sha256
       + "\nCandidate: " + original.candidate + "\nProvenance: " + original.provenance
       + "\nSource dimensions: " + data.validation.width + " × " + data.validation.height
-      + "\nTool: " + data.tool + " — receipt version " + data.receipt_version;
+      + "\nTool: " + data.tool + " — receipt version " + data.receipt_version + "; media index " + data.media_index_version;
+    const boundary = data.qualification.boundary;
+    $("qualification").textContent = (data.valid ? "STRUCTURAL QUALIFICATION ONLY" : "NONQUALIFYING — inspection only")
+      + "; no temporal or visual acceptance claim.\nBoundary: " + (boundary.valid === null ? "UNKNOWN" : boundary.valid ? "known" : "REJECTED")
+      + "; actual coverage end: " + (data.validation.content_end ?? "UNKNOWN (not inferred)")
+      + "; last-frame lifetime: " + (data.frames.at(-1).duration === null ? "UNKNOWN (not inferred)" : data.frames.at(-1).duration + " ticks")
+      + "\nCadence gaps over limit: " + data.qualification.cadence.gaps_over_limit
+      + " (annotated; playback uses actual PTS without skipping/interpolation)."
+      + "\nRequested contract: " + JSON.stringify(data.validation.requested)
+      + (data.valid ? "" : "\nOriginal qualification rejection: " + data.qualification_error);
     await show(0);
   } catch(error) { fail(error); }
 })();

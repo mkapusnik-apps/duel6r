@@ -137,8 +137,9 @@ python3 -B -m tools.native_visual.media /evidence/original.mp4 /work/new-inspect
 Use the actual application's producer SHA (for #180 captures:
 `8b1e4a32fb70465df5c5828cb7701f7f35a80fed`), not the later documentation commit.
 Mark unavailable historical receipt references explicitly; do not fabricate one.
-Original files and receipts are never rewritten. Outputs use receipt version 1
-and tool ID `native-visual/1`, with independent original and derivative hashes.
+Original files and receipts are never rewritten. New outputs use receipt version 1,
+media index version 2 and tool-family ID `native-visual/1`, with independent
+original and derivative hashes; they do not reconstruct historical receipts.
 
 The requested duration/rate must agree with the expected decoded count. Full
 decode, strict integer PTS ordering, actual frame durations, stable dimensions,
@@ -156,6 +157,21 @@ Missing actual frame durations mean unsupported/unknown coverage (`boundary.vali
 is null), not automatic corruption. No nominal-FPS or container-duration-only
 substitute is used. Unknown boundaries still fail the overall `valid` gate;
 successful decode never waives wrong counts, cadence gaps or coverage limits.
+
+For explicitly permitted partial-reference **inspection only**, add
+`--inspection-only` and use a new output directory. This can create an index for
+a fully decodable original with safe, complete, strictly increasing source
+ordinal/PTS mapping even when qualification fails. The requested contract and
+original rejection diagnostics remain unchanged: `valid=false`,
+`qualification_valid=false`, `inspection_available=true`. Missing/noninteger or
+nonmonotonic PTS, inconsistent mapping counts, corruption and hash mismatches
+still fail. CLI exit **0** means qualified indexing, **2** means nonqualifying
+inspection is available (not verification success), and **1** means rejection
+or an operation failure. The CLI also emits the operation/qualification flags
+for an available index. Unknown frame lifetimes/coverage end remain null, never
+inferred from nominal FPS. The viewer permanently shows NONQUALIFYING/UNKNOWN
+status and rejection diagnostics; explicitly annotated cadence gaps are played
+using actual PTS intervals without skips/interpolation or temporal acceptance.
 
 Serve the new inspection directory read-only through an approved local HTTP
 runtime and open `viewer.html` (secure context / localhost for SHA-256 checking).
@@ -181,6 +197,8 @@ registered when FFmpeg/ffprobe are available. No game preflight, new capture
 campaign or conformance assessment is authorized merely by running these tests.
 
 For permitted developer browser checks, `tests/NativeVisualViewerFixture.py`
-serves clearly synthetic good/missing/hash/decode/gap/slow-delivery cases. Use
-only a task-owned Docker container and a loopback-published test port; stop it
-after inspection. This checks the tool, not the actual assessor's access or UX gate.
+serves clearly synthetic good/missing/hash/decode/gap/slow-delivery and
+nonqualifying `inspection-gap` cases. Use only an approved task-owned reachable
+origin and stop its runtime after inspection. A Docker daemon host's loopback
+is not necessarily OpenCode's loopback. Offline schema/static viewer tests do
+not prove browser behavior or the actual assessor's access/UX acceptance.

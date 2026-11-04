@@ -14,6 +14,20 @@ from tools.native_visual.common import digest
 from tools.native_visual.media import index
 
 
+def create_vfr_b_frames(path):
+    """Genuine variable source PTS/B-frame input; not historical capture evidence."""
+    pts = [0,99722,121728,187409,299776,330000]
+    expression = str(pts[-1])
+    for ordinal,value in reversed(list(enumerate(pts[:-1]))):
+        expression = f"if(eq(N,{ordinal}),{value},{expression})"
+    subprocess.run(["ffmpeg","-nostdin","-v","error","-f","lavfi","-i","testsrc=size=32x24:rate=15",
+                    "-frames:v","6","-vf",f"settb=expr=1/1000000,setpts='{expression}'",
+                    "-fps_mode","passthrough","-enc_time_base","1/1000000",
+                    "-c:v","libx264rgb","-crf","18","-bf","2","-b_strategy","0","-threads","1",
+                    "-video_track_timescale","1000000",str(path)],check=True,capture_output=True,timeout=30)
+    return pts
+
+
 def prepare(root):
     root.mkdir(parents=True, exist_ok=False)
     original = root / "test-only-original.mp4"
@@ -37,6 +51,11 @@ def prepare(root):
     path = root / "gap/index.json"
     data = json.loads(path.read_text()); data["frames"][1]["pts"] = data["frames"][0]["pts"]
     path.write_text(json.dumps(data))
+    partial = root / "test-only-vfr.mp4"
+    create_vfr_b_frames(partial)
+    index(partial, root / "inspection-gap", expected_frames=9, seconds="3/5", rate="15", candidate="0"*40,
+          provenance="Synthetic nonqualifying viewer regression only; NOT application evidence",
+          expected_sha=digest(partial), inspection_only=True)
 
 
 def main():
