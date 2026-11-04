@@ -8,6 +8,7 @@ import sys
 
 WIDTH = 1280
 HEIGHT = 900
+TEAM_NAMES = ("Alpha", "Bravo", "Charlie", "Delta")
 
 
 def fail(message):
@@ -122,7 +123,7 @@ def assert_shared_viewport(data, label):
 def ranking_geometry(players, teams):
     longest = 3
     if teams:
-        longest = max(longest, len(("Alpha", "Bravo", "Charlie", "Delta")[teams - 1]))
+        longest = max(longest, *(len(name) for name in TEAM_NAMES[:teams]))
     width = (longest + 6) * 8
     return WIDTH - width - 3, width, players + teams
 
@@ -157,7 +158,7 @@ def score_geometry(players, teams, team_separators=True):
     rows = players + teams
     longest = 3
     if teams:
-        longest = max(longest, len(("Alpha", "Bravo", "Charlie", "Delta")[teams - 1]))
+        longest = max(longest, *(len(name) for name in TEAM_NAMES[:teams]))
     width = (longest + 6 + 20) * 16
     separator_height = 8 if teams and team_separators else 0
     height = 96 + 32 * rows + separator_height * max(0, teams - 1)
@@ -169,11 +170,14 @@ def score_geometry(players, teams, team_separators=True):
     return WIDTH // 2 - width // 2, width, first_y, height
 
 
+def team_rule_fraction(data, left, width, y):
+    values = region_pixels(data, left, y, left + width, y + 1)
+    return fraction(values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85)
+
+
 def assert_team_separators(data, label, left, width, separators):
     def rule_fraction(y):
-        values = region_pixels(data, left, y, left + width, y + 1)
-        return fraction(values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85)
-
+        return team_rule_fraction(data, left, width, y)
     for index, top in enumerate(separators, 1):
         rule = min(rule_fraction(top), rule_fraction(top + 1))
         clear_above = max(rule_fraction(y) for y in range(top - 3, top))
@@ -326,11 +330,29 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
         assert_no_team_separators(data, label, left, width, centers)
     else:
         first_y, height = geometry[2:]
+        separators = []
+        gutters = set()
+        if team_separators:
+            # Discover the full-width rules independently of team-color pixels.
+            # Their centered2px lines anchor the unpainted8px gutters, whose
+            # translucent arena background can otherwise resemble a team row.
+            previous_rule_y = None
+            for y in range(first_y - 16, first_y + height - 80):
+                if team_rule_fraction(data, left, width, y) >= 0.85:
+                    if previous_rule_y != y - 1:
+                        separators.append(y)
+                    previous_rule_y = y
+            if len(separators) != teams - 1:
+                fail(f"{label}: expected {teams - 1} separator positions, got {separators}")
+            assert_team_separators(data, label, left, width, separators)
+            gutters = {y for top in separators for y in range(top - 3, top + 5)}
         # Ranking order can change when team point totals tie, and a 15-player
         # roster does not divide evenly among four teams. Locate the rendered
         # parent-row bands rather than assuming either team order or group size.
         parent_rows = []
         for y in range(first_y - 16, first_y + height - 80):
+            if y in gutters:
+                continue
             values = region_pixels(data, left + 2, y, left + width - 2, y + 1)
             parent_fractions = parent_team_fractions(values)
             color = max(parent_fractions, key=parent_fractions.get)
@@ -343,10 +365,8 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
         if len(groups) != teams or len(set(groups)) != teams:
             fail(f"{label}: expected {teams} score group headers, got {groups}")
         if team_separators:
-            separators = [parent_rows[index][0] - 5 for index in range(1, len(parent_rows))]
-            if len(separators) != teams - 1:
-                fail(f"{label}: expected {teams - 1} separator positions, got {separators}")
-            assert_team_separators(data, label, left, width, separators)
+            if [row[0] - 5 for row in parent_rows[1:]] != separators:
+                fail(f"{label}: score group headers do not follow their separator gutters")
         header_y = (parent_rows[0][0] + parent_rows[0][1]) // 2 - 64
 
     header = region_median(data, WIDTH // 2 - 80, header_y - 8,

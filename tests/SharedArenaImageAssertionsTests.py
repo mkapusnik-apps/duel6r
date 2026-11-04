@@ -79,6 +79,72 @@ class ScoreClosureTests(unittest.TestCase):
             images.assert_score_overlay_closed(
                 self.frame((0, 0, 0)), self.frame((0, 0, 255)), "bad-reference", 2, 0)
 
+    def paint_box(self, frame, left, top, width, height, color):
+        for y in range(top, top + height):
+            offset = (y * images.WIDTH + left) * 3
+            frame[offset:offset + width * 3] = bytes(color) * width
+
+    def uneven_four_team_frame(self):
+        frame = self.frame((0, 0, 255))
+        left, width, first_row, _ = images.score_geometry(15, 4)
+        # Production draws32px rows with a1px backing offset. Order reflects
+        # a real sorted scoreboard, not the roster's alphabetical team order.
+        top = first_row - 17
+        colors = {"Alpha":(255,0,0), "Bravo":(0,255,0),
+                  "Charlie":(255,255,0), "Delta":(255,0,255)}
+        headers = []
+        rules = []
+        for index, team in enumerate(("Bravo", "Alpha", "Delta", "Charlie")):
+            headers.append((top, team))
+            self.paint_box(frame, left, top, width, 32, colors[team])
+            top += 32 * (1 + (3 if team == "Delta" else 4))
+            if index < 3:
+                # Magenta arena/lava visible in both3px sides of the gutter
+                # must not create extra Delta headers or extend a real one.
+                self.paint_box(frame, left, top, width, 8, (210,40,210))
+                rules.append(top + 3)
+                self.paint_box(frame, left, top + 3, width, 2, (200,200,200))
+                top += 8
+        self.paint_title(frame, 15, 4)
+        return frame, left, width, headers, rules
+
+    def test_four_team_geometry_includes_charlie_not_only_delta(self):
+        self.assertEqual((1173,104,19),images.ranking_geometry(15,4))
+        self.assertEqual((376,528,166,728),images.score_geometry(15,4))
+
+    def test_magenta_separator_gutters_do_not_create_headers(self):
+        frame, _, _, _, _ = self.uneven_four_team_frame()
+        groups, _, _ = images.assert_score_overlay(frame,"magenta-gutters",15,4)
+        self.assertEqual(["Bravo","Alpha","Delta","Charlie"],groups)
+
+    def test_missing_duplicate_and_extra_genuine_headers_still_fail(self):
+        for kind in ("missing","duplicate","extra"):
+            with self.subTest(kind=kind):
+                frame, left, width, headers, _ = self.uneven_four_team_frame()
+                if kind=="missing":
+                    self.paint_box(frame,left,headers[2][0],width,32,(0,0,255))
+                elif kind=="duplicate":
+                    self.paint_box(frame,left,headers[2][0],width,32,(255,0,0))
+                else:
+                    self.paint_box(frame,left,headers[0][0]+64,width,32,(255,0,0))
+                with self.assertRaisesRegex(AssertionError,"expected 4 score group headers"):
+                    images.assert_score_overlay(frame,kind,15,4)
+
+    def test_missing_short_thick_and_extra_separator_rules_still_fail(self):
+        for kind in ("missing","short","thick","extra"):
+            with self.subTest(kind=kind):
+                frame, left, width, headers, rules = self.uneven_four_team_frame()
+                if kind=="missing":
+                    self.paint_box(frame,left,rules[1],width,2,(210,40,210))
+                elif kind=="short":
+                    self.paint_box(frame,left,rules[1],width//2,2,(210,40,210))
+                elif kind=="thick":
+                    self.paint_box(frame,left,rules[1]+2,width,1,(200,200,200))
+                else:
+                    self.paint_box(frame,left,headers[0][0]+64,width,2,(200,200,200))
+                with self.assertRaisesRegex(AssertionError,"separator"):
+                    images.assert_score_overlay(frame,kind,15,4)
+
 
 if __name__ == "__main__":
     unittest.main()
