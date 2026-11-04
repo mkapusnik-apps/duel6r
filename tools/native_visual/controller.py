@@ -15,6 +15,7 @@ import time
 from .common import record, require, verify_runtime
 from .recognition import Canvas, STATES, recognize
 from .recording import Recording
+from .input_guard import hold_input
 
 # Reuse the repository's existing process owner, without altering its contract.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
@@ -61,8 +62,41 @@ class Native:
     def command(self, *args, timeout=5):
         return subprocess.check_output(args, env=self.env, stderr=subprocess.PIPE, timeout=timeout)
 
-    def input(self, action, value):
-        self.command("xdotool", action, "--window", self.window, value)
+    def prepare_input(self, deadline):
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, "native focus deadline expired")
+        self.command("xdotool", "windowfocus", self.window, timeout=remaining)
+
+    def input(self, action, value, *, deadline):
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, "native input deadline expired")
+        # XTEST on this private display: release must not target a Window that
+        # Escape may already have destroyed. Do not suppress other X11 errors.
+        try:
+            self.command("xdotool", action, value, timeout=remaining)
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("native press acknowledgement deadline exceeded") from error
+
+    def release_all(self, releases, *, deadline):
+        processes, errors = [], []
+        # A delayed acknowledgement for one release cannot block dispatch of
+        # modifier/button releases. All children remain in the owned process tree.
+        for action, value in releases:
+            try:
+                processes.append(subprocess.Popen(["xdotool", action, value], env=self.env,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+            except OSError as error:
+                errors.append(str(error))
+        for process in processes:
+            try:
+                _, stderr = process.communicate(timeout=max(0, deadline - time.monotonic()))
+                if process.returncode:
+                    errors.append(stderr.decode(errors="replace")[-500:] or "native release command failed")
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+                errors.append("native release acknowledgement deadline exceeded")
+        return errors
 
     def point(self, x, y):
         self.command("xdotool", "mousemove", "--window", self.window, str(x), str(y))
@@ -187,25 +221,12 @@ class Scheduler:
                     and len(set(modifiers)) == len(modifiers)
                     and all(key in ("Shift_L", "Control_L", "Alt_L") for key in modifiers),
                     "invalid explicit modifiers")
-            pressed = []
-            release_errors = []
-            until = self.clock() + hold
-            # Release even if sending the press, waiting or logging fails.
+            timing = {}
             try:
-                for modifier in modifiers:
-                    pressed.append(modifier)
-                    client.input("keydown", modifier)
-                client.input(down, value)
-                self.wait(max(0, until - self.clock()))
+                hold_input(client, down, up, value, modifiers, hold, self.deadline,
+                           self.clock, self.wait, timing)
             finally:
-                active_error = sys.exc_info()[0] is not None
-                for release, key in [(up, value)] + [("keyup", key) for key in reversed(pressed)]:
-                    try:
-                        client.input(release, key)
-                    except Exception as error:
-                        release_errors.append(str(error))
-                if release_errors and not active_error:
-                    raise ValueError("native input release failed")
+                self.events[-1]["input"] = timing
         elif action == "text":
             value = step["text"]
             require(isinstance(value, str) and len(value.encode()) <= 128

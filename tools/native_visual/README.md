@@ -72,9 +72,20 @@ Actions: `key` (one keysym), `click` (`point:[x,y]`), `text` (literal), `wait`
 (`seconds`), `await` (`state`, timeout at most 10s), `capture`, `record`
 (`clip`, `seconds`), `stop_record` (`clip`), `exit_wait`. Each key/click has an
 explicit positive `hold` up to 2s (default .08); release is attempted on errors.
+The bound includes native delivery and release acknowledgements, not just a
+sleep. A separate release guard runs even if a delivered press's response stalls.
+Its release target is capped at 1.9s, reserving 100ms within the common 2s ceiling
+for all releases; requested holds near 2s are therefore shortened. Press commands
+share the release target deadline, and releases share the final deadline. Any
+acknowledgement or release overrun fails the action and stops later steps; a
+successful action requires confirmed releases inside that bound. This is not a
+hard-real-time guarantee under an unresponsive OS/X server. Input uses XTEST only
+on the controller's owned private display, so normal Escape-on-KeyPress may
+destroy its window without preventing key release. Other release errors still fail.
 Use separate key pulses, not an assumed repeat-key hold, for navigation.
-For bounded chords use `modifiers:["Shift_L"]` (also Control_L / Alt_L); all
-modifiers are released in reverse order even after a failed press/response.
+For bounded chords use `modifiers:["Shift_L"]` (also Control_L / Alt_L).
+Release requests are dispatched in reverse modifier order even after a failed
+press/response; waits share one deadline and do not serialize delayed responses.
 `at` schedules an action at seconds from the local recipe start, with a bounded
 `late_tolerance` (default .1s). Missed deadlines fail; they are not silently shifted.
 This is a finite operator-selected sequence, **not a gameplay agent**. Choose

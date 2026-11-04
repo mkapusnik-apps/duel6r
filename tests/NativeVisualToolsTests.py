@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Routine helper regressions. Synthetic frames are NOT game capture evidence."""
 import copy
+import ctypes
 from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -71,9 +73,16 @@ class Clock:
 class FakeNative:
     canvas = Canvas(850,700)
     def __init__(self, clock, broken=False): self.clock, self.broken, self.events = clock, broken, []
-    def input(self, action, value):
+    def prepare_input(self, deadline): pass
+    def input(self, action, value, *, deadline):
         self.events.append((action,value,self.clock()))
         if self.broken and action == "keydown": raise RuntimeError("press transport failure")
+    def release_all(self, releases, *, deadline):
+        errors=[]
+        for action,value in releases:
+            try: self.input(action,value,deadline=deadline)
+            except Exception as error: errors.append(str(error))
+        return errors
     def point(self,x,y): self.events.append(("point",(x,y),self.clock()))
     def frame(self): return b"test", GeometryTests().frame((850,700))
 
@@ -85,7 +94,7 @@ class ScheduleTests(unittest.TestCase):
             schedule=Scheduler({"guest":client},tmp,10,clock=clock,sleep=clock.sleep)
             schedule.run([{"client":"guest","action":"key","key":"Right","hold":2,"at":1},
                           {"client":"guest","action":"key","key":"Left","hold":.1,"at":4}])
-            self.assertEqual([("keydown","Right",11),("keyup","Right",13),
+            self.assertEqual([("keydown","Right",11),("keyup","Right",12.9),
                               ("keydown","Left",14),("keyup","Left",14.1)],client.events)
             self.assertEqual(1,json.loads((Path(tmp)/"actions.json").read_text())["receipt_version"])
 
@@ -213,6 +222,11 @@ class ControllerCLITests(unittest.TestCase):
                 self.assertEqual(not leaking,result.returncode==0,(result.stdout,result.stderr))
                 self.assertEqual(not leaking,completion["normal_cleanup"])
                 self.assertTrue(completion["ownership"]["cleanup"])
+                if not leaking:
+                    actions=json.loads((root/"output/actions.json").read_text())["events"]
+                    self.assertEqual("exit_wait",actions[-1]["action"])
+                    self.assertIn("finished",actions[-1])
+                    self.assertIn("down",(root/"output/fixture.log").read_text())
                 verify_runtime(runtime,identity)
 
 
@@ -238,10 +252,13 @@ def native_window(root):
                 if lines: break
                 time.sleep(.05)
             client=Native(":119",int(lines[0]),Canvas(850,700))
+            client.process=app
             client.command("xdotool","windowfocus",client.window)
             yield client
         finally:
-            if app is not None: app.terminate(); app.wait(timeout=3)
+            if app is not None:
+                if app.poll() is None: app.terminate()
+                app.wait(timeout=3)
             display.terminate(); display.wait(timeout=3)
 
 
@@ -269,8 +286,8 @@ class NativeInputTests(unittest.TestCase):
                 png,rgb=client.frame()
                 self.assertTrue(png.startswith(b"\x89PNG")); self.assertEqual(850*700*3,len(rgb))
                 deliver=client.input
-                def broken(action,value):
-                    deliver(action,value)
+                def broken(action,value,*,deadline):
+                    deliver(action,value,deadline=deadline)
                     if action=="keydown": raise RuntimeError("lost response after actual native delivery")
                 client.input=broken
                 with self.assertRaises(RuntimeError):
@@ -279,6 +296,103 @@ class NativeInputTests(unittest.TestCase):
                 time.sleep(.1)
                 events=[line.split()[0] for line in (root/"events.log").read_text().splitlines()[1:]]
                 self.assertEqual(["down","up"],events)
+
+    def test_keypress_exit_releases_without_targeting_destroyed_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                Scheduler({"g":client},root,3).run([
+                    {"client":"g","action":"key","key":"Escape","hold":.15},
+                    {"client":"g","action":"exit_wait"}])
+                self.assertEqual(0,client.process.wait(timeout=1))
+                with self.assertRaises(subprocess.CalledProcessError):
+                    client.command("xdotool","getwindowgeometry",client.window)
+                self.assertFalse(keys_down(client.env["DISPLAY"],["Escape"])["Escape"])
+                receipt=json.loads((root/"actions.json").read_text())
+                self.assertIn("finished",receipt["events"][-1])
+
+    def test_delivered_press_with_three_second_ack_delay_fails_and_releases_in_time(self):
+        for hold in (.15,2):
+            with self.subTest(hold=hold), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp)
+                with native_window(root) as client:
+                    shadow_xdotool(root,client,"delay-press")
+                    started=time.monotonic()
+                    with self.assertRaisesRegex(ValueError,"acknowledgement deadline"):
+                        Scheduler({"g":client},root,5).run([
+                            {"client":"g","action":"key","key":"Right","modifiers":["Shift_L"],"hold":hold},
+                            {"client":"g","action":"key","key":"Left"}])
+                    self.assertLess(time.monotonic()-started,2.5)
+                    self.assertTrue((root/"delivered").exists())
+                    events=[line.split() for line in (root/"events.log").read_text().splitlines()[1:]]
+                    for key in ("Right","Shift_L"):
+                        downs=[float(e[1]) for e in events if e[0]=="down" and e[2]==key]
+                        ups=[float(e[1]) for e in events if e[0]=="up" and e[2]==key]
+                        self.assertEqual(1,len(downs),events); self.assertEqual(1,len(ups),events)
+                        self.assertLessEqual(ups[0]-downs[0],2.0)
+                    self.assertFalse(any(keys_down(client.env["DISPLAY"],["Right","Shift_L"]).values()))
+                    receipt=json.loads((root/"actions.json").read_text())
+                    self.assertEqual(1,len(receipt["events"]))
+                    self.assertNotIn("finished",receipt["events"][0])
+
+    def test_other_release_errors_are_not_hidden(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                shadow_xdotool(root,client,"release-error")
+                with self.assertRaisesRegex(ValueError,"release failed"):
+                    Scheduler({"g":client},root,3).run([
+                        {"client":"g","action":"key","key":"Right","modifiers":["Shift_L"],"hold":.15}])
+                self.assertFalse(any(keys_down(client.env["DISPLAY"],["Right","Shift_L"]).values()))
+
+    def test_delayed_release_ack_does_not_block_other_modifier_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                shadow_xdotool(root,client,"delay-release")
+                started=time.monotonic()
+                with self.assertRaises(ValueError):
+                    Scheduler({"g":client},root,3).run([
+                        {"client":"g","action":"key","key":"Right","modifiers":["Shift_L"],"hold":.15}])
+                self.assertLess(time.monotonic()-started,1)
+                self.assertFalse(any(keys_down(client.env["DISPLAY"],["Right","Shift_L"]).values()))
+                events=[line.split() for line in (root/"events.log").read_text().splitlines()[1:]]
+                for key in ("Right","Shift_L"):
+                    down=next(float(e[1]) for e in events if e[0]=="down" and e[2]==key)
+                    up=next(float(e[1]) for e in events if e[0]=="up" and e[2]==key)
+                    self.assertLessEqual(up-down,2.0)
+
+
+def shadow_xdotool(root,client,mode):
+    """Real native delivery, then a delayed/error response from the test transport."""
+    real=shutil.which("xdotool")
+    path=root/"xdotool"
+    path.write_text("#!/usr/bin/python3\nimport pathlib,subprocess,sys,time\n"
+        f"code=subprocess.call([{real!r},*sys.argv[1:]])\n"
+        "if code: sys.exit(code)\n"
+        f"if {mode!r}=='delay-press' and sys.argv[1:]==['keydown','Right']:\n"
+        f" pathlib.Path({str(root/'delivered')!r}).write_text('native down delivered')\n time.sleep(3)\n"
+        f"if {mode!r}=='delay-release' and sys.argv[1]=='keyup': time.sleep(3)\n"
+        f"if {mode!r}=='release-error' and sys.argv[1]=='keyup': sys.exit(7)\n")
+    path.chmod(0o755)
+    client.env["PATH"]=str(root)+":"+client.env["PATH"]
+
+
+def keys_down(display, names):
+    """Read the actual private X server keyboard state, including after Window destruction."""
+    x=ctypes.CDLL("libX11.so.6")
+    x.XOpenDisplay.argtypes=[ctypes.c_char_p]; x.XOpenDisplay.restype=ctypes.c_void_p
+    x.XStringToKeysym.argtypes=[ctypes.c_char_p]; x.XStringToKeysym.restype=ctypes.c_ulong
+    x.XKeysymToKeycode.argtypes=[ctypes.c_void_p,ctypes.c_ulong]; x.XKeysymToKeycode.restype=ctypes.c_ubyte
+    x.XQueryKeymap.argtypes=[ctypes.c_void_p,ctypes.c_void_p]
+    x.XCloseDisplay.argtypes=[ctypes.c_void_p]
+    connection=x.XOpenDisplay(display.encode())
+    if not connection: raise RuntimeError("test display unavailable")
+    try:
+        bits=(ctypes.c_ubyte*32)(); x.XQueryKeymap(connection,bits)
+        codes={name:x.XKeysymToKeycode(connection,x.XStringToKeysym(name.encode())) for name in names}
+        return {name:bool(bits[code//8] & (1<<(code%8))) for name,code in codes.items()}
+    finally: x.XCloseDisplay(connection)
 
 
 if __name__=="__main__": unittest.main()
