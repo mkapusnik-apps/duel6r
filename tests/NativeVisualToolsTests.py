@@ -7,16 +7,18 @@ import json
 import os
 from pathlib import Path
 import select
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest, record, verify_runtime
-from tools.native_visual.controller import Scheduler, expand, seed_names, Native
+from tools.native_visual.controller import Scheduler, expand, seed_names, Native, probe_display_geometry
 from tools.native_visual.recognition import Canvas, MAIN, ENTRY, GEOMETRIES, recognize
 
 
@@ -197,6 +199,39 @@ class IdentityTests(unittest.TestCase):
 
 
 class ControllerCLITests(unittest.TestCase):
+    def test_geometry_probe_success_is_single_and_strict(self):
+        env={"DISPLAY":":23"}
+        with patch("tools.native_visual.controller.subprocess.run",return_value=
+                   subprocess.CompletedProcess([],0,b"850 700\n",b"")) as run:
+            probe_display_geometry(":23",4242,Canvas(850,700),env)
+        run.assert_called_once_with(["xdotool","getdisplaygeometry"],env=env,
+                                    capture_output=True,timeout=1)
+
+    def test_geometry_probe_failure_context_is_bounded_without_retry(self):
+        cases=(subprocess.CompletedProcess([],0,b"1280 720\n",b""),
+               subprocess.CompletedProcess([],7,b"wrong\n"*100,b"error\n"*100),
+               subprocess.TimeoutExpired(["xdotool","getdisplaygeometry"],1,
+                                         output=b"partial\n",stderr=b"unfinished\n"),
+               FileNotFoundError(2,"not found","xdotool"))
+        for result in cases:
+            with self.subTest(result=type(result).__name__), patch(
+                    "tools.native_visual.controller.subprocess.run") as run:
+                if isinstance(result,Exception): run.side_effect=result
+                else: run.return_value=result
+                with self.assertRaisesRegex(ValueError,"unexpected display geometry: ") as raised:
+                    probe_display_geometry(":23",4242,Canvas(850,700),{"DISPLAY":":23"})
+                run.assert_called_once()
+                message=str(raised.exception)
+                self.assertNotIn("\n",message)
+                details=json.loads(message.split(": ",1)[1])
+                self.assertEqual((":23",4242,"850x700"),
+                                 (details["display"],details["xvfb_pid"],details["expected"]))
+                self.assertEqual(getattr(result,"returncode",None),details["probe_rc"])
+                self.assertEqual((getattr(result,"stdout",None) or b"")[:160].decode(),
+                                 details["probe_stdout"])
+                self.assertEqual((getattr(result,"stderr",None) or b"")[:160].decode(),
+                                 details["probe_stderr"])
+
     def test_real_controller_private_test_runtime_normal_and_orphan_failure(self):
         for leaking in (False,True):
             with self.subTest(leaking=leaking), tempfile.TemporaryDirectory() as tmp:
@@ -318,7 +353,7 @@ class NativeInputTests(unittest.TestCase):
                 with native_window(root) as client:
                     shadow_xdotool(root,client,"delay-press")
                     started=time.monotonic()
-                    with self.assertRaisesRegex(ValueError,"acknowledgement deadline"):
+                    with self.assertRaises(ValueError) as raised:
                         Scheduler({"g":client},root,5).run([
                             {"client":"g","action":"key","key":"Right","modifiers":["Shift_L"],"hold":hold},
                             {"client":"g","action":"key","key":"Left"}])
@@ -331,6 +366,7 @@ class NativeInputTests(unittest.TestCase):
                         self.assertEqual(1,len(downs),events); self.assertEqual(1,len(ups),events)
                         self.assertLessEqual(ups[0]-downs[0],2.0)
                     self.assertFalse(any(keys_down(client.env["DISPLAY"],["Right","Shift_L"]).values()))
+                    self.assertRegex(str(raised.exception),"acknowledgement deadline")
                     receipt=json.loads((root/"actions.json").read_text())
                     self.assertEqual(1,len(receipt["events"]))
                     self.assertNotIn("finished",receipt["events"][0])
@@ -340,10 +376,18 @@ class NativeInputTests(unittest.TestCase):
             root=Path(tmp)
             with native_window(root) as client:
                 shadow_xdotool(root,client,"release-error")
-                with self.assertRaisesRegex(ValueError,"release failed"):
+                with self.assertRaises(ValueError) as raised:
                     Scheduler({"g":client},root,3).run([
                         {"client":"g","action":"key","key":"Right","modifiers":["Shift_L"],"hold":.15}])
+                self.assertTrue((root/"delivered").exists())
+                events=[line.split() for line in (root/"events.log").read_text().splitlines()[1:]]
+                for key in ("Right","Shift_L"):
+                    downs=[float(e[1]) for e in events if e[0]=="down" and e[2]==key]
+                    ups=[float(e[1]) for e in events if e[0]=="up" and e[2]==key]
+                    self.assertEqual(1,len(downs),events); self.assertEqual(1,len(ups),events)
+                    self.assertLessEqual(ups[0]-downs[0],2.0)
                 self.assertFalse(any(keys_down(client.env["DISPLAY"],["Right","Shift_L"]).values()))
+                self.assertRegex(str(raised.exception),"release failed")
 
     def test_delayed_release_ack_does_not_block_other_modifier_release(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -367,15 +411,59 @@ def shadow_xdotool(root,client,mode):
     """Real native delivery, then a delayed/error response from the test transport."""
     real=shutil.which("xdotool")
     path=root/"xdotool"
-    path.write_text("#!/usr/bin/python3\nimport pathlib,subprocess,sys,time\n"
-        f"code=subprocess.call([{real!r},*sys.argv[1:]])\n"
-        "if code: sys.exit(code)\n"
-        f"if {mode!r}=='delay-press' and sys.argv[1:]==['keydown','Right']:\n"
-        f" pathlib.Path({str(root/'delivered')!r}).write_text('native down delivered')\n time.sleep(3)\n"
-        f"if {mode!r}=='delay-release' and sys.argv[1]=='keyup': time.sleep(3)\n"
-        f"if {mode!r}=='release-error' and sys.argv[1]=='keyup': sys.exit(7)\n")
+    # No Python interpreter/import startup inside the shared press deadline.
+    # Mark delivery only after real xdotool succeeds; ACK faults remain after it.
+    path.write_text("#!/bin/sh\n"
+        f"{shlex.quote(real)} \"$@\"\n"
+        "code=$?\n[ \"$code\" -eq 0 ] || exit \"$code\"\n"
+        "if [ \"$#\" -eq 2 ] && [ \"$1\" = keydown ] && [ \"$2\" = Right ]; then\n"
+        f" printf '%s\\n' 'native down delivered' > {shlex.quote(str(root/'delivered'))}\n"
+        f" if [ {shlex.quote(mode)} = delay-press ]; then exec sleep 3; fi\n"
+        "fi\n"
+        "if [ \"$1\" = keyup ]; then\n"
+        f" if [ {shlex.quote(mode)} = delay-release ]; then exec sleep 3; fi\n"
+        f" if [ {shlex.quote(mode)} = release-error ]; then exit 7; fi\n"
+        "fi\nexit 0\n")
     path.chmod(0o755)
     client.env["PATH"]=str(root)+":"+client.env["PATH"]
+
+
+class FaultShimTests(unittest.TestCase):
+    def test_faults_follow_delivery_and_keep_three_second_delay_argument(self):
+        for mode in ("delay-press","delay-release","release-error"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix="shim space ") as tmp:
+                root=Path(tmp)
+                real=root/"real xdotool"
+                real.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "
+                                +shlex.quote(str(root/"native-calls"))+"\n")
+                real.chmod(0o755)
+                # Unit-only sleep observer; actual X11 tests retain real sleep 3.
+                sleep=root/"sleep"
+                sleep.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" > "
+                                 +shlex.quote(str(root/"sleep-argument"))+"\n")
+                sleep.chmod(0o755)
+                client=Native(":unused",1,Canvas(850,700))
+                with patch.object(shutil,"which",return_value=str(real)):
+                    shadow_xdotool(root,client,mode)
+                down=subprocess.run([str(root/"xdotool"),"keydown","Right"],env=client.env,timeout=1)
+                self.assertEqual(0,down.returncode)
+                self.assertTrue((root/"delivered").exists())
+                up=subprocess.run([str(root/"xdotool"),"keyup","Right"],env=client.env,timeout=1)
+                self.assertEqual(7 if mode=="release-error" else 0,up.returncode)
+                self.assertEqual(["keydown Right","keyup Right"],(root/"native-calls").read_text().splitlines())
+                if mode!="release-error": self.assertEqual("3\n",(root/"sleep-argument").read_text())
+                else: self.assertFalse((root/"sleep-argument").exists())
+
+    def test_native_error_is_not_replaced_by_fault_or_delivery_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); real=root/"real-xdotool"
+            real.write_text("#!/bin/sh\nexit 9\n"); real.chmod(0o755)
+            client=Native(":unused",1,Canvas(850,700))
+            with patch.object(shutil,"which",return_value=str(real)):
+                shadow_xdotool(root,client,"delay-press")
+            result=subprocess.run([str(root/"xdotool"),"keydown","Right"],env=client.env,timeout=1)
+            self.assertEqual(9,result.returncode)
+            self.assertFalse((root/"delivered").exists())
 
 
 def keys_down(display, names):

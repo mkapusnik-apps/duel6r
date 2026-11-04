@@ -270,6 +270,32 @@ class Scheduler:
             raise ValueError("unknown finite action: " + str(action))
 
 
+def probe_display_geometry(display, xvfb_pid, canvas, env):
+    """One strict startup probe; preserve bounded context if it fails."""
+    error = None
+    try:
+        probe = subprocess.run(["xdotool", "getdisplaygeometry"], env=env,
+                               capture_output=True, timeout=1)
+        if (probe.returncode == 0 and probe.stdout.decode(errors="replace").split()
+                == [str(canvas.width), str(canvas.height)]):
+            return
+        code, stdout, stderr = probe.returncode, probe.stdout, probe.stderr
+        failure = "geometry-or-command"
+    except subprocess.TimeoutExpired as cause:
+        error = cause
+        code, stdout, stderr = None, cause.stdout or b"", cause.stderr or b""
+        failure = "timeout"
+    except OSError as cause:
+        error = cause
+        code, stdout, stderr = None, b"", b""
+        failure = "launch-errno-" + str(cause.errno)
+    details = {"display": display, "xvfb_pid": xvfb_pid,
+               "expected": f"{canvas.width}x{canvas.height}", "probe_rc": code,
+               "probe_stdout": stdout[:160].decode(errors="replace"),
+               "probe_stderr": stderr[:160].decode(errors="replace"), "failure": failure}
+    raise ValueError("unexpected display geometry: " + json.dumps(details, sort_keys=True)) from error
+
+
 def execute(runtime, identity, recipe, output):
     """Worker runs under OwnedProcessRunner; all processes are its descendants."""
     runtime = verify_runtime(runtime, identity)
@@ -309,10 +335,7 @@ def execute(runtime, identity, recipe, output):
                     env["DISPLAY"] = display
                 finally:
                     os.close(reader)
-                probe = subprocess.run(["xdotool", "getdisplaygeometry"], env=env,
-                                       capture_output=True, timeout=1)
-                require(probe.returncode == 0 and probe.stdout.decode().split()
-                        == [str(canvas.width), str(canvas.height)], "unexpected display geometry")
+                probe_display_geometry(display, xvfb.pid, canvas, env)
                 app = subprocess.Popen([str(root / "duel6r")], cwd=root, env=env, stdout=log, stderr=log)
                 processes.append(app)
                 end = time.monotonic() + 15
