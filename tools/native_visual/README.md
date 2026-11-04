@@ -173,6 +173,14 @@ inferred from nominal FPS. The viewer permanently shows NONQUALIFYING/UNKNOWN
 status and rejection diagnostics; explicitly annotated cadence gaps are played
 using actual PTS intervals without skips/interpolation or temporal acceptance.
 
+For a slower full-frame PNG export, explicitly set `--export-timeout 600`
+(seconds; default **180**, finite **>0 and <=1800**). It changes only the PNG
+export deadline, not probe/full-decode budgets, requested capture coverage or
+qualification rules. New indexes/assessments record `png_export_timeout_seconds`.
+A timeout remains a failed operation with preserved partial output, never an
+automatic retry or a usable inspection index; use a new output directory for
+an explicitly authorized attempt with a different budget.
+
 Serve the new inspection directory read-only through an approved local HTTP
 runtime and open `viewer.html` (secure context / localhost for SHA-256 checking).
 The viewer shows one complete full-frame PNG decode, no overlay controls,

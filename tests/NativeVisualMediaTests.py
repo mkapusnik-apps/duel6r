@@ -256,6 +256,79 @@ class DecoderTests(unittest.TestCase):
                     self.assertEqual(code==0,status["qualification_valid"])
 
 
+class ExportBudgetTests(unittest.TestCase):
+    def options(self,source):
+        return dict(expected_frames=6,seconds="2/5",rate="15",candidate="a"*40,
+                    provenance="Synthetic export-budget regression only",expected_sha=digest(source))
+
+    def test_invalid_budgets_fail_before_probe_or_output_creation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); source=root/"original.mp4"; DecoderTests.create(self,source)
+            for number,budget in enumerate((0,-1,1800.01,10**1000,float("inf"),float("-inf"),float("nan"),None,True,"600")):
+                with self.subTest(budget=budget),mock.patch("tools.native_visual.media.command") as command:
+                    output=root/str(number)
+                    with self.assertRaisesRegex(ValueError,"PNG export timeout must be finite"):
+                        index(source,output,export_timeout=budget,**self.options(source))
+                    command.assert_not_called()
+                    self.assertFalse(output.exists())
+
+    def test_default_decimal_and_upper_bound_reach_only_png_export_phase(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); source=root/"original.mp4"; DecoderTests.create(self,source)
+            for number,budget in enumerate((None,1.25,600,1800)):
+                with self.subTest(budget=budget),mock.patch("tools.native_visual.media.subprocess.run",wraps=subprocess.run) as run:
+                    output=root/str(number)
+                    index(source,output,**({} if budget is None else {"export_timeout":budget}),**self.options(source))
+                    expected=180 if budget is None else budget
+                    self.assertEqual([180,180,expected],[call.kwargs["timeout"] for call in run.call_args_list])
+                    self.assertEqual("ffprobe",run.call_args_list[0].args[0][0])
+                    self.assertEqual("-",run.call_args_list[1].args[0][-1])
+                    self.assertTrue(run.call_args_list[2].args[0][-1].endswith("%06d.png"))
+                    for name in ("index.json","assessment.json"):
+                        receipt=json.loads((output/name).read_text())
+                        self.assertEqual(expected,receipt["png_export_timeout_seconds"])
+                        self.assertTrue(receipt["valid"])
+
+    def test_export_timeout_is_fatal_once_with_receipt_and_immutable_original(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); source=root/"original.mp4"; DecoderTests.create(self,source)
+            before=source.read_bytes(); actual_run=subprocess.run
+            def deadline(args,**kwargs):
+                if args[-1].endswith("%06d.png"):
+                    raise subprocess.TimeoutExpired(args,kwargs["timeout"])
+                return actual_run(args,**kwargs)
+            with mock.patch("tools.native_visual.media.subprocess.run",side_effect=deadline) as run:
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    index(source,root/"failed",export_timeout=600,**self.options(source))
+                self.assertEqual(600,caught.exception.timeout)
+                self.assertEqual(3,run.call_count)  # probe, decode, one export attempt; no retry.
+            receipt=json.loads((root/"failed/assessment.json").read_text())
+            self.assertEqual(600,receipt["png_export_timeout_seconds"])
+            self.assertEqual("index",receipt["failure_stage"])
+            self.assertFalse(receipt["inspection_available"])
+            self.assertFalse(receipt["valid"])
+            self.assertTrue(receipt["decode_valid"])
+            self.assertTrue(receipt["input_unchanged"])
+            self.assertEqual(before,source.read_bytes())
+
+    def test_cli_accepts_explicit_budget_and_refuses_nonfinite_or_out_of_bounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); source=root/"original.mp4"; DecoderTests.create(self,source)
+            for number,budget in enumerate(("600","nan","inf","0","1801")):
+                output=root/str(number)
+                args=[sys.executable,"-B","-m","tools.native_visual.media",str(source),str(output),
+                      "--sha256",digest(source),"--candidate","a"*40,"--provenance","Synthetic only",
+                      "--frames","6","--seconds","2/5","--export-timeout",budget]
+                result=subprocess.run(args,capture_output=True,text=True,timeout=30)
+                self.assertEqual(0 if budget=="600" else 1,result.returncode,result.stderr)
+                if budget=="600":
+                    self.assertTrue(json.loads(result.stdout)["qualification_valid"])
+                    self.assertEqual(600,json.loads((output/"assessment.json").read_text())["png_export_timeout_seconds"])
+                else:
+                    self.assertIn("PNG export timeout must be finite",result.stderr)
+                    self.assertFalse(output.exists())
+
+
 class RecordingTests(unittest.TestCase):
     def test_actual_recorder_readiness_drain_and_immutable_finalization(self):
         with tempfile.TemporaryDirectory() as tmp:

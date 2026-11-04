@@ -2,6 +2,7 @@
 import argparse
 from fractions import Fraction
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -154,7 +155,9 @@ def inspect(source, expected_frames, seconds, rate, diagnostics=None, *, inspect
 
 
 def index(source, output, *, expected_frames, seconds, rate, candidate, provenance, expected_sha,
-          inspection_only=False):
+          inspection_only=False, export_timeout=180):
+    require(type(export_timeout) in (int, float) and 0 < export_timeout <= 1800 and math.isfinite(export_timeout),
+            "PNG export timeout must be finite, greater than 0 and at most 1800 seconds")
     source = Path(source).resolve(strict=True)
     sha(candidate, 40)
     sha(expected_sha)
@@ -165,7 +168,8 @@ def index(source, output, *, expected_frames, seconds, rate, candidate, provenan
     original = {"path": str(source), "sha256": expected_sha, "bytes": source.stat().st_size,
                 "candidate": candidate, "provenance": provenance}
     diagnostics = {"decode_valid": None, "qualification": {}, "failure_stage": "probe",
-                   "inspection_only": inspection_only, "inspection_available": False, "media_index_version": 2}
+                   "inspection_only": inspection_only, "inspection_available": False, "media_index_version": 2,
+                   "png_export_timeout_seconds": export_timeout}
     try:
         result = inspect(source, expected_frames, seconds, rate, diagnostics, inspection_only=inspection_only)
         diagnostics["failure_stage"] = "index"
@@ -173,7 +177,7 @@ def index(source, output, *, expected_frames, seconds, rate, candidate, provenan
         frames.mkdir()
         command(["ffmpeg", "-v", "error", "-xerror", "-err_detect", "explode", "-i", str(source), "-map", "0:v:0",
                   "-an", "-fps_mode", "passthrough", "-enc_time_base", result["time_base"],
-                  "-threads", "1", "-start_number", "0", str(frames / "%06d.png")])
+                  "-threads", "1", "-start_number", "0", str(frames / "%06d.png")], timeout=export_timeout)
         paths = sorted(frames.glob("*.png"))
         require(len(paths) == result["frame_count"], "decode/index source frame count mismatch")
         mapping = []
@@ -216,10 +220,12 @@ def main():
     parser.add_argument("--rate", default="15")
     parser.add_argument("--inspection-only", action="store_true",
                         help="allow safe full-frame inspection of nonqualifying media; exit 2 is not a verification pass")
+    parser.add_argument("--export-timeout", type=float, default=180,
+                        help="PNG export phase only: finite seconds >0 and <=1800 (default: 180)")
     args = parser.parse_args()
     index(args.source, args.output, expected_frames=args.frames, seconds=args.seconds, rate=args.rate,
           candidate=args.candidate, provenance=args.provenance, expected_sha=args.sha256,
-          inspection_only=args.inspection_only)
+          inspection_only=args.inspection_only, export_timeout=args.export_timeout)
     assessment = json.loads((args.output / "assessment.json").read_text())
     print(json.dumps({"operation": "inspection_available", "inspection_available": True,
                       "qualification_valid": assessment["valid"], "inspection_only": args.inspection_only}))
