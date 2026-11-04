@@ -5,6 +5,7 @@ from fractions import Fraction
 import json
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import tempfile
 import time
@@ -14,6 +15,7 @@ from unittest import mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest
 from tools.native_visual.media import validate, index, inspect
+from tools.native_visual.mp4_timing import recover
 from tools.native_visual.recording import Recording
 from NativeVisualToolsTests import native_window
 from NativeVisualViewerFixture import create_vfr_b_frames
@@ -100,6 +102,92 @@ class BoundaryTests(unittest.TestCase):
         self.assertIsNone(checks["boundary"]["valid"])
 
 
+class SourceTrackTimingTests(unittest.TestCase):
+    """Small synthetic timing tables, not encoded content/acquisition receipts."""
+    def fixture(self, root, *, cap=0, edit_length=400, rate=1, edit_count=1):
+        def box(kind, body): return struct.pack('>I4s',len(body)+8,kind)+body
+        def integers(*values): return struct.pack('>'+'I'*len(values),*values)
+        full=bytes(4)
+        durations=[66000,68000,66000,67000,66000,67000]
+        dts=[0,66000,134000,200000,267000,333000]
+        pts=[0,200000,66000,134000,333000,267000]
+        shift=134000
+        offsets=[p+shift-d for p,d in zip(pts,dts)]
+        ftyp=box(b'ftyp',b'isom'+integers(512)+b'isomiso2avc1')
+        mdat=box(b'mdat',bytes(60))
+        stts=box(b'stts',full+integers(6)+b''.join(integers(1,d) for d in durations))
+        ctts=box(b'ctts',full+integers(6)+b''.join(integers(1,d) for d in offsets))
+        stsd=box(b'stsd',full+integers(1)+box(b'avc1',bytes(6)+b'\0\1'+bytes(70)))
+        stsz=box(b'stsz',full+integers(10,6))
+        dref=box(b'dref',full+integers(1)+box(b'url ',b'\0\0\0\1'))
+        minf=box(b'minf',box(b'dinf',dref)+box(b'stbl',stsd+stts+ctts+stsz))
+        mdhd=box(b'mdhd',full+integers(0,0,1000000,400000+cap)+bytes(4))
+        hdlr=box(b'hdlr',full+integers(0)+b'vide'+bytes(12))
+        elst=box(b'elst',full+integers(edit_count,edit_length,shift)+struct.pack('>hh',rate,0))
+        tkhd=box(b'tkhd',full+integers(0,0,1,0,400)+bytes(60))
+        trak=box(b'trak',tkhd+box(b'edts',elst)+box(b'mdia',mdhd+hdlr+minf))
+        mvhd=box(b'mvhd',full+integers(0,0,1000,400)+bytes(80))
+        path=root/'timing.mp4';path.write_bytes(ftyp+mdat+box(b'moov',mvhd+trak))
+        stream=dict(index=0,id='0x1',codec_name='h264',time_base='1/1000000',
+                    start_pts=0,duration_ts=400000,nb_frames='6',width=32,height=24)
+        packets=[dict(stream_index=0,pts=p,dts=d-shift,pos=str(len(ftyp)+8+i*10),
+                      size='10',flags='K__' if i==0 else '___') for i,(p,d) in enumerate(zip(pts,dts))]
+        normal=dict(streams=[stream],packets=packets)
+        raw=copy.deepcopy(normal);raw['streams'][0]['start_pts']=shift
+        for p in raw['packets']:p['pts']+=shift;p['dts']+=shift
+        decoded=dict(streams=[copy.deepcopy(stream)],frames=[dict(pts=p,width=32,height=24) for p in sorted(pts)],
+                     format=dict(duration='89.999500'))
+        return path,decoded,normal,raw,durations
+
+    def recover(self, fixture):
+        source,decoded,normal,raw,_=fixture
+        return recover(source,decoded,lambda args:json.dumps(raw if '-ignore_editlist' in args else normal).encode())
+
+    def test_reordered_vfr_uses_source_decode_lifetimes_not_last_packet_or_format(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture=self.fixture(Path(tmp));source,decoded,normal,raw,_=fixture
+            timing=self.recover(fixture)
+            self.assertEqual([66000,66000,67000,68000,67000,66000],timing['durations'])
+            result=validate(decoded,6,'2/5','15',source_timing=timing)
+            self.assertEqual(Fraction(399,1000),Fraction(result['content_end']))
+            for value in ('3','9000',None):
+                decoded['format']['duration']=value
+                self.assertEqual(result['content_end'],validate(decoded,6,'2/5','15',source_timing=self.recover(fixture))['content_end'])
+            self.assertEqual(4,max(range(6),key=lambda i:normal['packets'][i]['pts']))
+
+    def test_missing_conflicting_packet_mapping_and_source_metadata_reject(self):
+        cases=('missing-dts','float-pts','order','count','map','flags','packet-duration','stream-cap','frame-duration')
+        for case in cases:
+            with self.subTest(case=case),tempfile.TemporaryDirectory() as tmp:
+                fixture=self.fixture(Path(tmp));source,decoded,normal,raw,_=fixture
+                if case=='missing-dts':raw['packets'][2].pop('dts')
+                if case=='float-pts':normal['packets'][2]['pts']=66000.0
+                if case=='order':raw['packets'][1],raw['packets'][2]=raw['packets'][2],raw['packets'][1]
+                if case=='count':normal['packets'].pop()
+                if case=='map':decoded['frames'][1]['pts']+=1
+                if case=='flags':raw['packets'][1]['flags']=normal['packets'][1]['flags']='_D'
+                if case=='packet-duration':normal['packets'][1]['duration']=68000
+                if case=='stream-cap':raw['streams'][0]['duration_ts']-=1
+                if case=='frame-duration':decoded['frames'][1]['duration']=1
+                with self.assertRaises((ValueError,KeyError)):self.recover(fixture)
+
+    def test_capped_mdhd_clipped_nonunit_multiple_edits_and_truncated_tables_reject(self):
+        for options in (dict(cap=-1),dict(edit_length=200),dict(rate=0),dict(edit_count=2)):
+            with self.subTest(options=options),tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(ValueError):self.recover(self.fixture(Path(tmp),**options))
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture=self.fixture(Path(tmp));source=fixture[0];source.write_bytes(source.read_bytes()[:-1])
+            with self.assertRaises(ValueError):self.recover(fixture)
+
+    def test_longer_mdhd_does_not_replace_stts_or_presentation_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture=self.fixture(Path(tmp),cap=134000)
+            timing=self.recover(fixture)
+            self.assertEqual(400000,timing['stts_sum'])
+            self.assertEqual(534000,timing['mdhd_duration'])
+            self.assertEqual('399/1000',validate(fixture[1],6,'2/5','15',source_timing=timing)['content_end'])
+
+
 class DecoderTests(unittest.TestCase):
     def create(self,path,frames=6):
         subprocess.run(["ffmpeg","-nostdin","-v","error","-f","lavfi","-i","testsrc=size=32x24:rate=15",
@@ -157,7 +245,7 @@ class DecoderTests(unittest.TestCase):
             self.assertGreaterEqual(probe["streams"][0]["has_b_frames"],1)
             self.assertEqual(pts,[frame["pts"] for frame in probe["frames"]])
             before=source.read_bytes()
-            with self.assertRaisesRegex(ValueError,"unsupported/unknown boundary"):
+            with self.assertRaisesRegex(ValueError,"source PTS gap"):
                 index(source,root/"rejected",expected_frames=6,seconds="2/5",rate="15",
                       candidate="a"*40,provenance="Synthetic B-frame VFR regression only",expected_sha=digest(source))
             assessment=json.loads((root/"rejected/assessment.json").read_text())
@@ -166,12 +254,13 @@ class DecoderTests(unittest.TestCase):
             self.assertEqual("qualification",assessment["failure_stage"])
             self.assertTrue(assessment["qualification"]["count"]["valid"])
             self.assertFalse(assessment["qualification"]["cadence"]["valid"])
-            self.assertIsNone(assessment["qualification"]["boundary"]["valid"])
-            self.assertEqual("unknown",assessment["qualification"]["boundary"]["status"])
+            self.assertFalse(assessment["qualification"]["boundary"]["valid"])
+            self.assertEqual("known",assessment["qualification"]["boundary"]["status"])
+            self.assertEqual(6,assessment["qualification"]["boundary"]["source_timing"]["sample_count"])
             self.assertTrue(assessment["input_unchanged"])
             self.assertEqual(before,source.read_bytes())
 
-    def test_explicit_inspection_preserves_rejections_unknown_lifetime_hashes_and_receipt(self):
+    def test_explicit_inspection_preserves_rejections_source_lifetimes_hashes_and_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); source=root/"vfr.mp4"; pts=self.create_vfr_b_frames(source)
             before=source.read_bytes(); receipt=root/"old.json"; receipt.write_text('{"valid":false,"historical":true}')
@@ -190,14 +279,15 @@ class DecoderTests(unittest.TestCase):
                 self.assertEqual(strict["qualification"],item["qualification"])
                 self.assertEqual(9,item["qualification"]["count"]["expected_frames"])
                 self.assertEqual(6,item["qualification"]["count"]["decoded_frames"])
-                self.assertIsNone(item["qualification"]["boundary"]["valid"])
-                self.assertEqual("unknown",item["qualification"]["boundary"]["status"])
+                self.assertFalse(item["qualification"]["boundary"]["valid"])
+                self.assertEqual("known",item["qualification"]["boundary"]["status"])
                 self.assertEqual(2,item["media_index_version"])
             self.assertEqual(pts,[frame["pts"] for frame in data["frames"]])
             self.assertEqual(list(range(6)),[frame["ordinal"] for frame in data["frames"]])
             self.assertEqual({"frame_count":9,"seconds":"3/5","rate":"15"},data["validation"]["requested"])
-            self.assertIsNone(data["validation"]["content_end"])
-            self.assertIsNone(data["frames"][-1]["duration"])
+            self.assertIsNotNone(data["validation"]["content_end"])
+            self.assertIsInstance(data["frames"][-1]["duration"],int)
+            self.assertGreater(data["frames"][-1]["duration"],0)
             self.assertEqual([None,None,None,None,112367,None],[frame["gap_before_ticks"] for frame in data["frames"]])
             for frame in data["frames"]: self.assertEqual(frame["sha256"],digest(root/"inspection"/frame["path"]))
             self.assertFalse(strict["inspection_available"])

@@ -17,7 +17,7 @@ class QualificationRejected(ValueError):
         self.validation = validation
 
 
-def validate(probe, expected_frames, seconds, rate, checks=None):
+def validate(probe, expected_frames, seconds, rate, checks=None, source_timing=None):
     """Integer source timestamps, not rounded container duration, own coverage."""
     seconds, rate = Fraction(seconds), Fraction(rate)
     require(0 < seconds <= 600 and 0 < rate <= 120, "invalid capture contract")
@@ -54,6 +54,12 @@ def validate(probe, expected_frames, seconds, rate, checks=None):
                     "noninteger/unsafe source duration")
             durations.append(duration)
     interval = 1 / rate
+    if source_timing is not None:
+        recovered = source_timing['durations']
+        require(len(recovered) == len(durations) and all(type(d) is int and 0 < d <= 2**53-1 for d in recovered),
+                'invalid recovered source durations')
+        require(all(d is None or d == actual for d, actual in zip(durations, recovered)), 'conflicting source durations')
+        durations = recovered
     tolerance = interval / 2 + base  # Strictly sub-frame; never excuse a missing frame.
     require(tolerance < interval, "time base too coarse for sub-frame validation")
     gaps = [(b - a) * base for a, b in zip(pts, pts[1:])]
@@ -77,13 +83,15 @@ def validate(probe, expected_frames, seconds, rate, checks=None):
         if not all(abs((pts[i] + durations[i] - pts[i + 1]) * base) <= tolerance
                    for i in range(len(pts) - 1)):
             boundary_errors.append("uncovered/overlapping source content boundary")
-        end = (pts[-1] + durations[-1]) * base
+        end = max((p + d) * base for p, d in zip(pts, durations))
         if abs(end - seconds) > tolerance:
             boundary_errors.append("short or excess actual content coverage")
         boundary_valid = not boundary_errors
     checks["boundary"] = {"valid": boundary_valid, "status": "unknown" if boundary_valid is None else "known",
                           "missing_duration_frames": missing, "content_end": None if end is None else str(end),
                           "subframe_tolerance": str(tolerance), "errors": boundary_errors}
+    if source_timing is not None:
+        checks['boundary']['source_timing'] = {key: value for key,value in source_timing.items() if key != 'durations'}
     errors = count_errors + ([] if cadence_valid else ["nonmonotonic timestamps or source PTS gap"]) + boundary_errors
     result = {"width": width, "height": height, "time_base": f"{base.numerator}/{base.denominator}",
              "source_pts": pts, "source_durations": durations, "frame_count": len(frames),
@@ -132,8 +140,15 @@ def inspect(source, expected_frames, seconds, rate, diagnostics=None, *, inspect
         raise
     diagnostics["decode_valid"] = True
     diagnostics["failure_stage"] = "qualification"
+    source_timing = None
+    if any(frame.get('duration', frame.get('pkt_duration')) in (None, 'N/A') for frame in probe['frames']):
+        from .mp4_timing import recover
+        try:
+            source_timing = recover(Path(source), probe, command)
+        except (ValueError, KeyError, OSError, TypeError, IndexError) as error:
+            diagnostics['source_timing_unavailable'] = str(error)
     try:
-        result = validate(probe, expected_frames, seconds, rate, diagnostics["qualification"])
+        result = validate(probe, expected_frames, seconds, rate, diagnostics["qualification"], source_timing)
         diagnostics["qualification_valid"] = True
     except QualificationRejected as error:
         diagnostics["qualification_error"] = str(error)

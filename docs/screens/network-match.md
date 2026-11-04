@@ -173,7 +173,7 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - The artifact setup must include local persons whose available profile appearances differ from the default network player skin.
 - The artifact must not show a profile-selected player appearance or a profile-selection control.
 - The artifact must show ranking, round progress, event text, and player status without status overlap.
-- The artifact must show `Host`, `LAN session`, `Connected`, `Session only scores`, and `Optional scripts disabled`.
+- The AP-N representative artifact must show `Guest`, `LAN session`, `Connected`, `Session only scores`, and `Optional scripts disabled`.
 - The artifact must show the exact text `Network connection degraded.` during a sustained budget breach.
 - The artifact must use a level with no locally usable named background and must visibly show the expected built-in fallback for the recorded identity tuple and eligible background list.
 - The artifact must not show reconnect, disconnect, pause, or host-end copy.

@@ -1,5 +1,43 @@
 # Screenshot coverage and assessment
 
+## Shared-arena verification follow-up
+
+This current addendum supersedes **only AP-N's representative role and the bounded temporal inspection disposition** in the [immutable arena-parity/shared-final matrix at cb54f21d](https://github.com/mkapusnik-apps/duel6r/blob/cb54f21d30ac3732775652a57020b920bbefdde9/docs/design/screenshots/README.md#L310-L502). That unmerged #180 baseline remains the owner of the full matrix, unchanged accepted representatives, original media identities, producing environments and remaining criteria; it is not claimed to be integrated application behavior on this branch. Source application remains `8b1e4a32fb70465df5c5828cb7701f7f35a80fed`. All unaffected evidence keeps its true producer, including carried FS-L; none is relabeled as the tooling checkpoint.
+
+### AP-N representative role alignment
+
+The user approved **Guest + narrow alignment**: AP-N is the actual receiving **Guest**, full1280 × 900 client, six players, Fixed Duel16, Deathmatch, observed Normal orientation, QuickOn and AssistanceOn. The corresponding [NET-05 observable acceptance](../../screens/network-match.md#observable-acceptance-and-evidence) changes only this representative's role from Host to Guest. All other requirements remain unchanged. Required actual Invisibility affects body and held weapon and includes an opaque comparison; `Network connection degraded.` must persist while complete received canonical updates continue. Disclose the actual transport condition. No injected quality/canonical state or simulated message is evidence. Zero Host RTT alone does not establish that Host degradation is impossible: state age also contributes to quality. This alignment requires no new Host behavior, feature, ID or wireframe.
+
+### Accepted bounded temporal inspection
+
+Product assessed mapped source-frame derivatives alongside the completed bounded temporal inspection. These are **19 source-ordinal PNG inspection derivatives, not original lossless native canonical screenshots**. The five original MP4s remain unchanged at the immutable baseline:
+
+| Original / source path at cb54f21d | Accepted active interval: zero-based ordinals / PTS seconds |
+|---|---|
+| [Local c16](https://github.com/mkapusnik-apps/duel6r/blob/cb54f21d30ac3732775652a57020b920bbefdde9/docs/design/screenshots/PLAY-01/evidence/arena-parity/c16.mp4) | 270–375 /18.000068–25.000101 |
+| [Host c19](https://github.com/mkapusnik-apps/duel6r/blob/cb54f21d30ac3732775652a57020b920bbefdde9/docs/design/screenshots/NET-05/evidence/arena-parity-host/c19.mp4) | 346–450 /23.066305–29.999753 |
+| [Guest c19](https://github.com/mkapusnik-apps/duel6r/blob/cb54f21d30ac3732775652a57020b920bbefdde9/docs/design/screenshots/NET-05/evidence/arena-parity-guest/c19.mp4) | 196–300 /13.066691–20.000065 |
+
+Observed texture-cycle duration pairs in seconds are Local **0.665576/0.666463**, Host **0.665128/0.733279**, Guest **0.666717/0.668844**; red-shape cycles are approximately **2.93335s** in all three. The longer Host retained interval is not normalized. Different blue-water heights, backgrounds and phases do not establish equal-state whole-world parity or certify perceptual smoothness.
+
+Continuous [Host c18](https://github.com/mkapusnik-apps/duel6r/blob/cb54f21d30ac3732775652a57020b920bbefdde9/docs/design/screenshots/NET-05/evidence/arena-parity-host/c18.mp4) ordinals **470–519**, PTS **31.332626–34.600039**, and [Guest c18](https://github.com/mkapusnik-apps/duel6r/blob/cb54f21d30ac3732775652a57020b920bbefdde9/docs/design/screenshots/NET-05/evidence/arena-parity-guest/c18.mp4) **236–285**, PTS **15.733250–19.000773**, show the two previously accepted **QuickOn** rises without an extra middle rise. They are not QuickOff or initial-eight-second evidence.
+
+| Original | First outcome / frozen / next initialization: ordinal@PTS seconds | Presented active / frozen durations, seconds |
+|---|---|---|
+| Local c16 | 882@58.801107 /897@59.800277 /972@64.800322 | 0.999170 /5.000045 |
+| Host c19 | 1003@66.866522 /1018@67.869038 /1093@72.866557 | 1.002516 /4.997519 |
+| Guest c19 | 853@56.867990 /868@57.866944 /943@62.869691 | 0.998954 /5.002747 |
+
+These brackets describe presentation, not exact simulation ticks. Water, platform and corpse state freeze while curtain/countdown presentation continues; initialization shows fresh actors, low water and resumed motion. This does **not** close all transient-effect clearing or recovery. Assigned observed PTS adjacencies span **53.841–78.628ms**; sub-frame behavior is unknown and loading stalls are not animation time.
+
+Inspection used tooling `5d86f2b8e9e62f6747b399abedc75fd83922ae62` against the original8b application recordings. **At inspection time all five strict qualifications were false with unknown last-frame boundaries**; c18 counts remained Host1801/1800 and Guest1747/1800. Those historical5d index/qualification records remain unchanged. Any later additive source-timing qualification is a distinct tool-source assessment, not retroactive acceptance of those indexes or GPU acquisition timing.
+
+Product-supplied evidence identities, not recomputed here: temporal observations JSON SHA-256 `424d43523cd4a699af86b0361c88f7dc824d4883809ca590250847d88b2ef7f3`; source-frame curation `7c3e5850c5b17aa7b50a7df451a7e33cf03b59fed7eba68b82d09b65e9bfecb3`; freeze summary `69200734bda2da026300586fe9dc79c7f59bfbf679d6c7745dbc3e1c9be2f583`.
+
+### Remaining coverage
+
+**The whole visual gate and #181 are not closed.** AP-N's revised actual-Guest representative, FS-N's different-final-winner/cumulative-leader scenario, FS-G's Host-Predator/14-prey winners/departed identity/64-byte names at Guest720, and the true850 horizontal rightmost extreme remain pending. Keep accepted top/bottom and all other unaffected representatives at their immutable baseline scope. QuickOff, green water, controlled movement/crouch/weapon pick/hit/splash/idle, carried-player elevator contact, ignition-through-burn completion and in-progress-effect recovery remain uncovered where the baseline says so. No requirement, complete event chain, all-effect clearing, native-platform obligation or canonical capture release is waived by this bounded acceptance.
+
 ## NET-10 current copy-removal matrix
 
 **Current scoped visual conformance: satisfied for all three supplied Linux originals. Capture release: completed after team-declared functional closure at `f994fa64b84558eb1e4cedc8283ab60aa6dbd22c`.** This three-row matrix owns current NET-10 results, NET-10-E empty, and NET-10-U unavailable coverage. Earlier artifacts and assessments below retain their original source/state scope; they do not establish the new copy requirement. All unaffected representatives and provenance remain unchanged.

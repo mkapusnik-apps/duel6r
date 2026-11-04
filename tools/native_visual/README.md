@@ -153,9 +153,19 @@ motion, effect-age, display-update-sampling or full visual acceptance claim.
 New additive assessments report `decode_valid` separately from strict count,
 cadence and boundary qualification. Full decode preserves the source timebase
 and passthrough timestamps, avoiding default null-muxer output rounding errors.
-Missing actual frame durations mean unsupported/unknown coverage (`boundary.valid`
-is null), not automatic corruption. No nominal-FPS or container-duration-only
-substitute is used. Unknown boundaries still fail the overall `valid` gate;
+When FFprobe omits frame and packet durations for a single unfragmented AVC MP4,
+the validator can recover source sample lifetimes from complete positive STTS,
+raw integer packet DTS deltas and the checked STTS sum. CTTS, packet identity,
+counts and decoded presentation PTS must match exactly. Only no edit or one
+unit-rate edit preserving every whole presentation sample with a constant
+PTS/DTS shift is supported. A capped mdhd/stream duration, conflicting timing,
+clipped/dropped samples or unsupported tables remain UNKNOWN, not guessed.
+The source-table reader is deliberately bounded and is not a general demuxer.
+Neither nominal FPS nor format.duration supplies a lifetime or coverage end;
+composition reorder is resolved before taking the maximum presentation end.
+These are declared media sample times, not GPU acquisition timestamps.
+Missing unsupported actual durations mean unknown coverage (`boundary.valid`
+is null), not automatic corruption. Unknown boundaries still fail `valid`;
 successful decode never waives wrong counts, cadence gaps or coverage limits.
 
 For explicitly permitted partial-reference **inspection only**, add

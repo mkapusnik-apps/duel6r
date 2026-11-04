@@ -13,7 +13,37 @@ resource_dir="${RESOURCE_DIR:-${build_dir}}"
 test_root="${TEST_ROOT:-${build_dir}/round-summary-progress}"
 display="${DISPLAY:-:94}"
 
+# Diagnostic-only selection; the ordinary CTest still executes every scenario.
+first_only="${D6R_ROUND_SUMMARY_FIRST_ONLY:-0}"
+[[ "$first_only" == 0 || "$first_only" == 1 ]] || exit 2
+trace() {
+    local monotonic rest
+    [[ -d "$test_root" ]] || return 0
+    read -r monotonic rest </proc/uptime
+    printf 'monotonic=%s phase=%s\n' "$monotonic" "$*" >>"${test_root}/phase.log"
+}
+
+observe_frame() {
+    trace "capture-begin $1"
+    import -window root "ppm:$1"
+    trace "capture-end $1"
+}
+
+preserve_candidates() {
+    local candidate destination
+    # Promote only observations already acquired, after failure, never recapture
+    # or run image classification in the application's transition window.
+    for candidate in "${test_root}"/*/*-candidate-*.ppm; do
+        [[ -f "$candidate" ]] || continue
+        destination="${candidate%.ppm}.png"
+        if convert "$candidate" "$destination"; then
+            d6r_record_full_screenshot "$destination"
+        fi
+    done
+}
+
 fail() {
+    trace "failure $*"
     echo "round-summary-progress: FAIL: $*" >&2
     exit 1
 }
@@ -33,6 +63,8 @@ xvfb_pid=""
 app_pid=""
 tab_held=false
 cleanup() {
+    local status=$?
+    if (( status != 0 )); then preserve_candidates; fi
     if [[ "$tab_held" == true ]]; then
         xdotool keyup Tab >/dev/null 2>&1 || true
         tab_held=false
@@ -228,7 +260,9 @@ hold_active_tab() {
     # Keep the live score state enabled across the winner transition. This is
     # intentionally keydown rather than a completed key press: the regression
     # only occurred when displayScoreTab was still true as the round ended.
+    trace "input-begin Tab-down"
     xdotool keydown --window "$window_id" Tab
+    trace "input-end Tab-down"
     tab_held=true
     # Collect distinct early render opportunities without PNG compression or
     # semantic analysis consuming the live round. A fixed 250 ms observation
@@ -236,7 +270,7 @@ hold_active_tab() {
     for index in {1..8}; do
         fail_if_app_exited "active Tab rendering"
         candidate_path="$(printf '%s/active-tab-candidate-%02d.ppm' "$scenario_dir" "$index")"
-        import -window root "ppm:${candidate_path}"
+        observe_frame "$candidate_path"
         sleep 0.15
     done
 }
@@ -269,7 +303,9 @@ PY
 }
 
 release_active_tab() {
+    trace "input-begin Tab-up"
     xdotool keyup --window "$window_id" Tab
+    trace "input-end Tab-up"
     tab_held=false
 }
 
@@ -289,6 +325,7 @@ except (OSError, ValueError):
 PY
         )"
         if [[ "$actual" == "$expected" ]]; then
+            trace "observed-rounds=$actual expected=$expected total=$total"
             local tab_was_held="$tab_held"
             # Persistence is updated when the winner is established. Capture
             # several distinct render opportunities immediately, before the
@@ -300,7 +337,7 @@ PY
                 candidate_path="$(printf '%s/summary-candidate-%02d.ppm' "$scenario_dir" "$index")"
                 # PPM avoids PNG compression consuming the live six-second
                 # summary interval under software-rendered container load.
-                import -window root "ppm:${candidate_path}"
+                observe_frame "$candidate_path"
                 candidate_paths+=("$candidate_path")
                 if (( index < 6 )); then
                     # Preserve the original observation spacing while keeping
@@ -311,8 +348,8 @@ PY
 
             # Complete input and next-round observation while the captured
             # winner state is still live. Delayed analysis can outlast the
-            # automatic transition and would make Tab key-up toggle the next
-            # round's score panel instead of being ignored by the winner state.
+            # automatic transition. Application dispatches key-down only; this
+            # ordering is retained for diagnosis, not a claim that key-up toggles.
             if [[ "$tab_was_held" == true ]]; then
                 release_active_tab
                 capture_next_round
@@ -381,12 +418,14 @@ PY
 }
 
 capture_next_round() {
+    trace "input-begin F1"
     xdotool key --window "$window_id" F1
+    trace "input-end F1"
     local candidate_paths=()
     for index in {1..6}; do
         fail_if_app_exited "${scenario_dir##*/} next-round rendering"
         candidate_path="$(printf '%s/next-round-candidate-%02d.ppm' "$scenario_dir" "$index")"
-        import -window root "ppm:${candidate_path}"
+        observe_frame "$candidate_path"
         candidate_paths+=("$candidate_path")
         if (( index < 6 )); then
             sleep 0.15
@@ -456,6 +495,18 @@ hold_active_tab
 wait_for_summary 1 5
 stop_scenario
 select_active_tab_frame
+
+if [[ "$first_only" == 1 ]]; then
+    python3 - "$workspace_dir" "$test_root" "${resource_dir}/data/font.ttf" <<'PY'
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location('assertions', sys.argv[1] + '/tests/RoundSummaryProgressImageAssertions.py')
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.assert_first(sys.argv[2], sys.argv[3])
+PY
+    exit 0
+fi
 
 start_scenario resumed 2 5 y
 wait_for_summary 3 5

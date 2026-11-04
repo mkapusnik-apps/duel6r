@@ -22,12 +22,12 @@ class ScoreClosureTests(unittest.TestCase):
     def frame(self, color):
         return bytearray(bytes(color) * (images.WIDTH * images.HEIGHT))
 
-    def paint_title(self, frame, players, teams):
+    def paint_title(self, frame, players, teams, ink_offset=0):
         # Fixture layout comes from the score table geometry; runtime tests also
         # exercise all real layouts, including uneven team membership.
         geometry = images.score_geometry(players, teams)
         first_row = geometry[2] if teams else geometry[2][0]
-        header_y = first_row - 64
+        header_y = first_row - 64 + ink_offset
         for row in range(32):
             offset = ((header_y - 16 + row) * images.WIDTH + images.WIDTH // 2 - 88) * 3
             frame[offset:offset + 176 * 3] = self.title[row * 176 * 3:(row + 1) * 176 * 3]
@@ -36,17 +36,14 @@ class ScoreClosureTests(unittest.TestCase):
         frame = self.frame((0, 0, 255))
         if teams:
             left, width, first_row, _ = images.score_geometry(players, teams)
-            colors = ((255, 0, 0), (0, 255, 0), (255, 255, 0), (255, 0, 255))
+            top = first_row - 17
             for team in range(teams):
-                # Two child rows per team, with the required 8px separator band.
-                center = first_row + team * (3 * 32 + 8)
-                for y in range(center - 8, center + 8):
-                    offset = (y * images.WIDTH + left) * 3
-                    frame[offset:offset + width * 3] = bytes(colors[team]) * width
-                if team:
-                    for y in range(center - 13, center - 11):
-                        offset = (y * images.WIDTH + left) * 3
-                        frame[offset:offset + width * 3] = bytes((255, 255, 255)) * width
+                self.paint_header(frame, left, top, width, images.TEAM_NAMES[team])
+                top += 32 * (1 + players // teams + (team < players % teams))
+                # Full-width2px rule centered in the renderer's8px gutter.
+                if team < teams - 1:
+                    self.paint_box(frame, left, top + 3, width, 2, (200, 200, 200))
+                    top += 8
         self.paint_title(frame, players, teams)
         return frame
 
@@ -84,6 +81,24 @@ class ScoreClosureTests(unittest.TestCase):
             offset = (y * images.WIDTH + left) * 3
             frame[offset:offset + width * 3] = bytes(color) * width
 
+    def paint_header(self, frame, left, top, width, name):
+        colors = {"Alpha": (255,0,0), "Bravo": (0,255,0),
+                  "Charlie": (255,255,0), "Delta": (255,0,255)}
+        color = colors[name]
+        self.paint_box(frame, left, top, width, 32, color)
+        # Real shipped-font raster, independently composed as transparent RGBA,
+        # not a detector-generated boolean mask or a colored-rectangle identity.
+        font = Path(__file__).resolve().parents[1] / "resources/data/font.ttf"
+        rgba = subprocess.check_output([
+            "convert", "-background", "none", "-fill", "black", "-font", str(font),
+            "-pointsize", "32", f"label:{name}", "-resize", f"{len(name)*16}x32!",
+            "-depth", "8", "rgba:-"])
+        for y in range(32):
+            for x in range(len(name)*16):
+                alpha = rgba[(y*len(name)*16+x)*4+3]
+                offset = ((top + 1 + y)*images.WIDTH + left + x)*3
+                frame[offset:offset+3] = bytes(round(c*(255-alpha)/255) for c in color)
+
     def uneven_four_team_frame(self):
         frame = self.frame((0, 0, 255))
         left, width, first_row, _ = images.score_geometry(15, 4)
@@ -96,7 +111,7 @@ class ScoreClosureTests(unittest.TestCase):
         rules = []
         for index, team in enumerate(("Bravo", "Alpha", "Delta", "Charlie")):
             headers.append((top, team))
-            self.paint_box(frame, left, top, width, 32, colors[team])
+            self.paint_header(frame, left, top, width, team)
             top += 32 * (1 + (3 if team == "Delta" else 4))
             if index < 3:
                 # Magenta arena/lava visible in both3px sides of the gutter
@@ -113,9 +128,16 @@ class ScoreClosureTests(unittest.TestCase):
         self.assertEqual((376,528,166,728),images.score_geometry(15,4))
 
     def test_magenta_separator_gutters_do_not_create_headers(self):
-        frame, _, _, _, _ = self.uneven_four_team_frame()
-        groups, _, _ = images.assert_score_overlay(frame,"magenta-gutters",15,4)
-        self.assertEqual(["Bravo","Alpha","Delta","Charlie"],groups)
+        for ink_offset in (0, -1, 1):
+            with self.subTest(title_ink_offset=ink_offset):
+                frame, _, _, _, _ = self.uneven_four_team_frame()
+                # Moving title ink does not move renderer rows or separators.
+                # It must not become a new exact row-origin requirement.
+                title_top = images.score_geometry(15,4)[2] - 80
+                self.paint_box(frame,552,title_top-1,176,34,(0,0,255))
+                self.paint_title(frame,15,4,ink_offset)
+                groups, _, _ = images.assert_score_overlay(frame,"magenta-gutters",15,4)
+                self.assertEqual(["Bravo","Alpha","Delta","Charlie"],groups)
 
     def test_missing_duplicate_and_extra_genuine_headers_still_fail(self):
         for kind in ("missing","duplicate","extra"):
@@ -124,11 +146,31 @@ class ScoreClosureTests(unittest.TestCase):
                 if kind=="missing":
                     self.paint_box(frame,left,headers[2][0],width,32,(0,0,255))
                 elif kind=="duplicate":
-                    self.paint_box(frame,left,headers[2][0],width,32,(255,0,0))
+                    self.paint_header(frame,left,headers[2][0],width,"Alpha")
                 else:
-                    self.paint_box(frame,left,headers[0][0]+64,width,32,(255,0,0))
+                    self.paint_header(frame,left,headers[0][0]+64,width,"Alpha")
                 with self.assertRaisesRegex(AssertionError,"expected 4 score group headers"):
                     images.assert_score_overlay(frame,kind,15,4)
+
+    def test_footer_scenery_is_not_identity_but_genuine_appended_header_is_extra(self):
+        frame, left, width, headers, _ = self.uneven_four_team_frame()
+        bottom = headers[0][0] + 19*32 + 3*8
+        self.paint_box(frame, left, bottom, width, 32, (210,40,210))
+        self.assertEqual(4, len(images.assert_score_overlay(frame,"magenta-footer",15,4)[0]))
+        self.paint_header(frame, left, bottom, width, "Delta")
+        with self.assertRaisesRegex(AssertionError,"expected 4 score group headers"):
+            images.assert_score_overlay(frame,"real-extra-footer",15,4)
+
+    def test_color_without_name_and_name_without_full_backing_fail(self):
+        for kind in ("no-glyph", "partial-row"):
+            frame, left, width, headers, _ = self.uneven_four_team_frame()
+            top = headers[1][0]
+            if kind == "no-glyph":
+                self.paint_box(frame,left,top,width,32,(255,0,0))
+            else:
+                self.paint_box(frame,left,top,width,1,(0,0,255))
+            with self.assertRaisesRegex(AssertionError,"expected 4 score group headers"):
+                images.assert_score_overlay(frame,kind,15,4)
 
     def test_missing_short_thick_and_extra_separator_rules_still_fail(self):
         for kind in ("missing","short","thick","extra"):
