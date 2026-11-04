@@ -60,6 +60,20 @@ add_test(NAME menu-transfer-frame-assertions
     COMMAND ${D6R_SHARED_ARENA_python3} ${CMAKE_SOURCE_DIR}/tests/MenuTransferFrameTests.py)
 set_tests_properties(menu-transfer-frame-assertions PROPERTIES
     LABELS "application;regression;menu;sanity-unit" TIMEOUT 10)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME native-visual-tools
+        COMMAND ${D6R_SHARED_ARENA_python3} -B ${CMAKE_SOURCE_DIR}/tests/NativeVisualToolsTests.py)
+    set_tests_properties(native-visual-tools PROPERTIES LABELS "tools;regression;sanity-unit"
+        RUN_SERIAL TRUE TIMEOUT 60)
+    # FFmpeg is a capture-tool prerequisite, not a new application dependency.
+    find_program(D6R_NATIVE_VISUAL_FFMPEG ffmpeg)
+    find_program(D6R_NATIVE_VISUAL_FFPROBE ffprobe)
+    if (D6R_NATIVE_VISUAL_FFMPEG AND D6R_NATIVE_VISUAL_FFPROBE)
+        add_test(NAME native-visual-media
+            COMMAND ${D6R_SHARED_ARENA_python3} -B ${CMAKE_SOURCE_DIR}/tests/NativeVisualMediaTests.py)
+        set_tests_properties(native-visual-media PROPERTIES LABELS "tools;regression;sanity-unit" TIMEOUT 120)
+    endif ()
+endif ()
 set_tests_properties(shared-arena-image-assertions PROPERTIES
     LABELS "application;regression;shared-arena"
     TIMEOUT 30
