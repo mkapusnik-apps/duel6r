@@ -18,7 +18,9 @@ class Recording:
         self.display = client.env["DISPLAY"]
         self.started = time.monotonic()
         self.utc = datetime.now(timezone.utc).isoformat()
-        self.reason = "requested-duration"
+        self.reason = None
+        self.stop_requests = []
+        self.stop_lock = threading.Lock()
         self.ready = threading.Event()
         self.counters = {}
         self.log = path.with_suffix(".encoder.log").open("xb")
@@ -49,25 +51,38 @@ class Recording:
     def watch(self):
         while not self.cancel.wait(.05) and self.process.poll() is None:
             if self.path.exists() and self.path.stat().st_size >= 80000000:
-                self.reason = "byte-threshold"
+                reason = "byte-threshold"
             elif time.monotonic() - self.started >= self.seconds + 10:
-                self.reason = "wall-deadline"
+                reason = "wall-deadline"
             else:
                 continue
-            self.request_stop(self.reason)
+            self.request_stop(reason)
             return
 
     def request_stop(self, reason="recipe-stop"):
-        self.reason = reason
         self.cancel.set()
-        if self.process.poll() is None:
-            self.process.send_signal(signal.SIGINT)
+        with self.stop_lock:
+            code = self.process.poll()
+            observation = {"reason": reason, "requested_monotonic": time.monotonic(),
+                           "requested_utc": datetime.now(timezone.utc).isoformat(),
+                           "process_returncode_at_request": code, "sigint_requested": False}
+            try:
+                if code is None:
+                    observation["sigint_requested"] = True
+                    self.process.send_signal(signal.SIGINT)
+                    if self.reason is None:
+                        self.reason = reason
+            finally:
+                # This is an observed request/state, never proof of signal
+                # delivery or which mechanism actually ended the encoder.
+                self.stop_requests.append(observation)
 
     def stop(self):
         self.cancel.set()
         self.thread.join(timeout=1)
-        if self.process.poll() is None:
-            self.process.send_signal(signal.SIGINT)
+        before_finalize = self.process.poll()
+        if before_finalize is None:
+            self.request_stop("finalization")
         forced = False
         try:
             try:
@@ -86,6 +101,10 @@ class Recording:
             "started_monotonic": self.started, "finalized_monotonic": time.monotonic(),
             "started_utc": self.utc,
             "stop_reason": self.reason, "encoder_exit": code,
+            "stop_reason_semantics": "first SIGINT request reason, or null; not the encoder termination cause",
+            "stop_requests": self.stop_requests, "process_returncode_before_finalization": before_finalize,
+            "requested_contract": {"duration_limit_seconds": self.seconds, "nominal_rate": "15",
+                                   "frame_limit": None, "timestamps": "passthrough"},
             "forced_stop": forced, "geometry": self.geometry, "display": self.display,
             "controller_receipt": "controller.json", "encoder_progress": self.counters,
             "codec": "libx264rgb", "crf": 18, "preset": "veryfast", "nominal_rate": "15",

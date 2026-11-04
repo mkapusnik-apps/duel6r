@@ -116,6 +116,11 @@ or its bounded duration; mux drain and final size must still pass. No crop,
 resize, trimming, composition, re-encoding or silent frame downsampling is used.
 `stop_record` requests a stop without a synchronous ffprobe roundtrip. Encoder
 drain, hashing and offline probes are deferred until outside the input schedule.
+Future recording receipts distinguish requested duration/nominal rate (no frame
+cap) from actual encoder results. Stop observations record the request time,
+polled return code and whether SIGINT was requested. `stop_reason` is the first
+SIGINT request reason, or null; it is not a claim about the actual termination
+cause. A late request after encoder exit does not relabel its completion.
 Capture acquisition and OS scheduling are not exact GPU-present timestamps.
 Normal recipes must end their own applications; forced cleanup is reported as
 failure, not a normal-exit pass. The outer existing process owner reaps all owned
@@ -144,6 +149,13 @@ for a 90s request, but never excuses a missing frame or a missing event chain.
 Container duration alone cannot pass/fail an original. Files at or above 100 MiB
 fail storage eligibility without altering them. A structural pass is **not** a
 motion, effect-age, display-update-sampling or full visual acceptance claim.
+New additive assessments report `decode_valid` separately from strict count,
+cadence and boundary qualification. Full decode preserves the source timebase
+and passthrough timestamps, avoiding default null-muxer output rounding errors.
+Missing actual frame durations mean unsupported/unknown coverage (`boundary.valid`
+is null), not automatic corruption. No nominal-FPS or container-duration-only
+substitute is used. Unknown boundaries still fail the overall `valid` gate;
+successful decode never waives wrong counts, cadence gaps or coverage limits.
 
 Serve the new inspection directory read-only through an approved local HTTP
 runtime and open `viewer.html` (secure context / localhost for SHA-256 checking).
