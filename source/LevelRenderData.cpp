@@ -30,8 +30,8 @@
 #include "LevelRenderData.h"
 
 namespace Duel6 {
-    LevelRenderData::LevelRenderData(const Level &level, Renderer &renderer, Float32 animationSpeed)
-            : level(level), renderer(renderer), animationSpeed(animationSpeed), animWait(0) {}
+    LevelRenderData::LevelRenderData(const Level &level, Renderer &renderer)
+            : level(level), renderer(renderer) {}
 
     void LevelRenderData::generateFaces() {
         addWallFaces();
@@ -41,16 +41,42 @@ namespace Duel6 {
 
     void LevelRenderData::generateWater() {
         addWaterFaces();
+        referenceClock.resetWater();
     }
 
     void LevelRenderData::update(Float32 elapsedTime) {
-        animWait += elapsedTime;
-        if (animWait > animationSpeed) {
-            animWait = 0;
-            walls.nextFrame();
-            sprites.nextFrame();
-            water.nextFrame();
-        }
+        referenceClock.update(elapsedTime);
+        setAnimationState(referenceClock.state());
+    }
+
+    void LevelRenderData::setAnimationTime(Float32 seconds) {
+        ArenaAnimationClock clock;
+        clock.update(seconds);
+        setAnimationState(clock.state());
+    }
+
+    void LevelRenderData::setAnimationState(const ArenaAnimationState &state) {
+        walls.setFrame(ArenaAnimationClock::frame(state));
+        sprites.setFrame(ArenaAnimationClock::frame(state));
+        water.setFrame(ArenaAnimationClock::waterFrame(state));
+    }
+
+    void LevelRenderData::setWaterSurface(const Block &block, Int32 top, bool raising) {
+        if (surfaceBlock == &block && surfaceLevel == top && surfaceRaising == raising) return;
+        surfaceBlock = &block;
+        surfaceLevel = std::clamp(top, -1, level.getHeight() - 1);
+        surfaceRaising = raising;
+        generateWater();
+    }
+
+    const Block &LevelRenderData::waterBlockAt(Int32 x, Int32 y) const {
+        if (surfaceBlock && surfaceRaising && y <= surfaceLevel && !level.isWall(x, y, false))
+            return *surfaceBlock;
+        return level.getBlockMeta(x, y);
+    }
+
+    bool LevelRenderData::waterAt(Int32 x, Int32 y) const {
+        return level.isInside(x, y) && waterBlockAt(x, y).is(Block::Type::Water);
     }
 
     void LevelRenderData::addWallFaces() {
@@ -103,7 +129,7 @@ namespace Duel6 {
 
         for (Int32 y = 0; y < level.getHeight(); y++) {
             for (Int32 x = 0; x < level.getWidth(); x++) {
-                const Block &block = level.getBlockMeta(x, y);
+                const Block &block = waterBlockAt(x, y);
 
                 if (block.is(Block::Type::Waterfall)) {
                     addSprite(water, block, x, y, 0.75);
@@ -170,7 +196,7 @@ namespace Duel6 {
     }
 
     void LevelRenderData::addWater(const Block &block, Int32 x, Int32 y) {
-        bool topWater = !level.isWater(x, y + 1);
+        bool topWater = !waterAt(x, y + 1);
         Vertex::Flag flowFlag = topWater ? Vertex::Flag::Flow : Vertex::Flag::None;
 
         water.addFace(Face(block))
@@ -196,7 +222,7 @@ namespace Duel6 {
 
     void LevelRenderData::addSprite(FaceList &faceList, const Block &block, Int32 x, Int32 y, Float32 z) {
         Float32 fx = Float32(x), fy = Float32(y);
-        bool bottomWaterfall = (block.is(Block::Type::Waterfall) && level.isWater(x, y - 1));
+        bool bottomWaterfall = (block.is(Block::Type::Waterfall) && waterAt(x, y - 1));
         Vertex::Flag flowFlag = bottomWaterfall ? Vertex::Flag::Flow : Vertex::Flag::None;
 
         faceList.addFace(Face(block))

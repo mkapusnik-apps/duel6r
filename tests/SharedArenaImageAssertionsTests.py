@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 import SharedArenaImageAssertions as images
+import RoundSummaryProgressImageAssertions as summaries
 
 STARTED = time.monotonic()
 CHECK_OUTPUT = subprocess.check_output
@@ -137,7 +138,8 @@ class ScoreClosureTests(unittest.TestCase):
             images.assert_score_overlay_closed(
                 self.frame((0, 0, 0)), self.frame((0, 0, 255)), "bad-reference", 2, 0)
 
-    def paint_box(self, frame, left, top, width, height, color):
+    @staticmethod
+    def paint_box(frame, left, top, width, height, color):
         for y in range(top, top + height):
             offset = (y * images.WIDTH + left) * 3
             frame[offset:offset + width * 3] = bytes(color) * width
@@ -301,6 +303,107 @@ class ScoreClosureTests(unittest.TestCase):
         for score in (self.legacy_title_scores, images._score_title_candidates):
             with self.assertRaises(IndexError):
                 score(truncated, range(0, 3))
+
+
+class SharedFinalTests(unittest.TestCase):
+    @staticmethod
+    def paint_text(frame, text, left, top, background):
+        width = len(text) * 16
+        raw = subprocess.check_output([
+            "convert", "-background", background, "-fill", "white", "-font", str(images.FONT),
+            "-pointsize", "32", f"label:{text}", "-resize", f"{width}x32!",
+            "-depth", "8", "rgb:-",
+        ])
+        for row in range(32):
+            offset = ((top + row) * images.WIDTH + left) * 3
+            frame[offset:offset + width * 3] = raw[row * width * 3:(row + 1) * width * 3]
+
+    def completed_frame(self, played=5, total=5):
+        frame = self.frame(3, 0)
+        text = f"Rounds: {played} | {total}"
+        left = 1232 - 24 - len(text) * 16
+        ScoreClosureTests.paint_box(frame, left - 8, 22, len(text) * 16 + 16, 32, (0, 0, 0))
+        self.paint_text(frame, text, left, 22, "black")
+        ScoreClosureTests.paint_box(frame, 536, 836, 208, 48, (0, 0, 255))
+        self.paint_text(frame, "End of Game", 552, 844, "blue")
+        return frame
+
+    def test_completed_summary_requires_final_shell_and_exact_count(self):
+        for played, total, accepted in ((5, 5, True), (4, 5, False), (5, 6, False), (1, 1, False)):
+            with self.subTest(played=played, total=total):
+                frame = self.completed_frame(played, total)
+                matched, diagnostic = summaries.summary_state_evidence(frame, 5, 5, str(images.FONT))
+                self.assertEqual(accepted, matched, diagnostic)
+
+    def test_final_counter_supports_multi_digit_completion(self):
+        images.assert_final_round_counter(self.completed_frame(12, 12), "12/12", str(images.FONT), 12, 12)
+
+    def test_final_classifier_rejects_missing_notice_rows_and_nonfinal_shell(self):
+        for missing, box in (("notice", (536, 836, 208, 48)),
+                             ("row", (80, 210, 320, 16)),
+                             ("title", (50, 18, 1180, 40))):
+            with self.subTest(missing=missing):
+                frame = self.completed_frame()
+                ScoreClosureTests.paint_box(frame, *box, (0, 0, 0))
+                self.assertFalse(summaries.summary_state_evidence(frame, 5, 5, str(images.FONT))[0])
+        self.assertFalse(summaries.summary_state_evidence(
+            self.completed_frame(), 4, 5, str(images.FONT))[0])
+
+    def frame(self, players=15, teams=4):
+        frame = bytearray(images.WIDTH * images.HEIGHT * 3)
+        def fill(x, y, width, height, color):
+            for row in range(y, y + height):
+                offset = (row * images.WIDTH + x) * 3
+                frame[offset:offset + width * 3] = bytes(color) * width
+        fill(50, 18, 1180, 40, (0, 0, 255))
+        y = 210
+        # Uneven groups are deliberately ranked differently from roster order.
+        order = [0, 3, 1, 2] if teams == 4 else list(range(teams or 1))
+        colors = ((255, 0, 0), (0, 255, 0), (255, 255, 0), (255, 0, 255))
+        for index, team in enumerate(order):
+            if index:
+                fill(80, y + 3, 1112, 2, (255, 255, 255))
+                y += 8
+            count = players
+            if teams:
+                fill(88, y + 5, 12, 8, colors[team])
+                count = 1 + sum(player % teams == team for player in range(players))
+            for _ in range(count):
+                fill(104, y + 4, 30, 8, (255, 255, 255))
+                y += 18
+        return frame
+
+    def test_compact_final_and_uneven_ranked_teams(self):
+        for players, teams in ((2, 0), (15, 0), (6, 3), (15, 4)):
+            images.assert_shared_final_body(self.frame(players, teams), "final", players, teams)
+
+    def test_missing_row_is_rejected(self):
+        frame = self.frame(15, 0)
+        for y in range(210, 226):
+            offset = (y * images.WIDTH + 80) * 3
+            frame[offset:offset + 320 * 3] = bytes(320 * 3)
+        with self.assertRaisesRegex(AssertionError, "identity row missing"):
+            images.assert_shared_final_body(frame, "missing", 15, 0)
+
+    def test_missing_separator_is_rejected(self):
+        frame = self.frame()
+        for y in range(303, 305):
+            offset = (y * images.WIDTH + 80) * 3
+            frame[offset:offset + 1112 * 3] = bytes(1112 * 3)
+        with self.assertRaisesRegex(AssertionError, "separator"):
+            images.assert_shared_final_body(frame, "missing", 15, 4)
+
+    def test_missing_or_old_position_swatch_is_rejected(self):
+        for old_position in (False, True):
+            frame = self.frame()
+            for y in range(215, 223):
+                offset = (y * images.WIDTH + 88) * 3
+                frame[offset:offset + 12 * 3] = bytes(12 * 3)
+                if old_position:
+                    offset = (y * images.WIDTH + 72) * 3
+                    frame[offset:offset + 8 * 3] = bytes((255, 0, 0)) * 8
+            with self.assertRaisesRegex(AssertionError, "swatch missing"):
+                images.assert_shared_final_body(frame, "missing", 15, 4)
 
 
 if __name__ == "__main__":

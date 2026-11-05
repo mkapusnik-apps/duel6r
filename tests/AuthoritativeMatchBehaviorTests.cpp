@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -42,6 +43,9 @@
 #include "tests/TestHarness.h"
 #include "tests/CanonicalMotionTrace.h"
 #include "source/Player.h"
+#include "source/Game.h"
+#include "source/Round.h"
+#include "tests/HostDiagnosticFixture.h"
 
 namespace {
 std::atomic<std::int64_t> allocationFailureCountdown{-1};
@@ -93,6 +97,11 @@ struct CanonicalPlayersMember {
 
 template struct CanonicalRuntimeMemberAccess<CanonicalDependenciesMember, &CanonicalMatchRuntime::dependencies>;
 template struct CanonicalRuntimeMemberAccess<CanonicalPlayersMember, &CanonicalMatchRuntime::canonicalPlayersById>;
+struct CanonicalGameMember {
+    using Type = std::unique_ptr<Duel6::Game> CanonicalMatchRuntime::*;
+    friend Type canonicalRuntimeMember(CanonicalGameMember);
+};
+template struct CanonicalRuntimeMemberAccess<CanonicalGameMember, &CanonicalMatchRuntime::game>;
 
 struct MatchOutcomeMember {
     using Type = void (AuthoritativeMatch::*)(std::vector<Identity>, Team, bool);
@@ -286,12 +295,13 @@ struct ProductionCanonicalFixture {
     std::vector<std::uint32_t> previousInputs;
     std::uint8_t observedRound = 0;
 
-    explicit ProductionCanonicalFixture(std::uint8_t rounds, std::size_t playerCount = 2, bool quickLiquid = false)
-            : requested(canonicalConfig(rounds, resources.path(), quickLiquid)),
+    explicit ProductionCanonicalFixture(std::uint8_t rounds, std::size_t playerCount = 2, bool quickLiquid = false,
+            const std::string &resourceRoot = {}, Duel6::RandomSource *random = nullptr)
+            : requested(canonicalConfig(rounds, resourceRoot.empty() ? resources.path() : resourceRoot, quickLiquid)),
               players(roster(playerCount)),
-              content(Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build()),
+               content(Duel6::Network::CompatibilityManifestBuilder(resourceRoot.empty() ? resources.path() : resourceRoot, {}).build()),
                runtime(std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content)),
-               controller(1, (runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))()),
+               controller(1, runtimeDependencies(runtime, random)),
               previousInputs(players.size(), std::numeric_limits<std::uint32_t>::max()) {
         D6R_REQUIRE(content.valid());
         std::vector<R::ParticipantState> participants;
@@ -307,6 +317,26 @@ struct ProductionCanonicalFixture {
         D6R_REQUIRE(controller.setParticipantReady(1, true));
         D6R_REQUIRE(controller.setParticipantReady(2, true));
         D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+    }
+
+    static MatchRuntimeDependencies runtimeDependencies(const std::shared_ptr<CanonicalMatchRuntime> &runtime,
+                                                        Duel6::RandomSource *random) {
+        auto dependencies = (runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))();
+        if (random) {
+            const auto start = dependencies.worldStartWithRandom;
+            const auto tick = dependencies.worldTickWithRandom;
+            const auto end = dependencies.worldEndWithRandom;
+            dependencies.worldStartWithRandom = [start, random](auto &decision, auto &) {
+                Duel6::Math::RandomScope scope(*random);
+                return start(decision, *random);
+            };
+            dependencies.worldTickWithRandom = [tick, random](auto time, auto simulate, auto &) {
+                Duel6::Math::RandomScope scope(*random);
+                return tick(time, simulate, *random);
+            };
+            dependencies.worldEndWithRandom = [end, random](auto &) { end(*random); };
+        }
+        return dependencies;
     }
 
     static MatchConfig canonicalConfig(std::uint8_t rounds, const std::string &resourceRoot, bool quickLiquid = false) {
@@ -1067,6 +1097,95 @@ D6R_TEST_CASE("NET-ADM admission during active and frozen non-final delay stays 
     }
 }
 
+D6R_TEST_CASE("Shared arena headless HUD and reference clock export current age and freeze without events") {
+    ProductionCanonicalResourceRoot resources;
+    auto requested = ProductionCanonicalFixture::canonicalConfig(2, resources.path());
+    const auto players = roster(1);
+    const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
+    D6R_REQUIRE(content.valid());
+    AuthoritativeHostedMatchController controller(1, CanonicalMatchRuntime::createDependencies(requested, players, content));
+    D6R_REQUIRE(controller.initializeReplication({{1, true, R::ConnectionState::Connected, true, {101}}}, players, requested));
+    D6R_REQUIRE(controller.markServiceReady());
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+    const auto initial = controller.currentSnapshot()->state;
+    D6R_REQUIRE_EQ(std::size_t(1), initial.players.size());
+    D6R_REQUIRE(initial.players.front().width > 0 && initial.players.front().height > 0);
+    D6R_REQUIRE_EQ(INT64_C(4) * 65536, initial.players.front().hudIndicators[4].total);
+    D6R_REQUIRE_EQ(INT64_C(4) * 65536, initial.players.front().hudIndicators[5].total);
+    for (unsigned tick = 0; tick < 60; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+    D6R_REQUIRE(controller.captureReplication());
+    const auto advancing = controller.currentSnapshot()->state;
+    D6R_REQUIRE_EQ(UINT64_C(90), advancing.round->animation.ticks);
+    D6R_REQUIRE_NEAR(65536, advancing.players.front().hudIndicators[4].elapsed, 2);
+    D6R_REQUIRE(advancing.players.front().hudIndicators == controller.match()->canonicalWorldSnapshot()->players.front().hudIndicators);
+    establishTestOutcome(*controller.match(), {}, Team::None, true);
+    for (unsigned tick = 0; tick < RoundEndActiveTicks; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+    D6R_REQUIRE(controller.captureReplication());
+    const auto frozen = controller.currentSnapshot()->state;
+    for (unsigned tick = 0; tick < 10; ++tick) D6R_REQUIRE(controller.advanceOneTick());
+    D6R_REQUIRE(controller.captureReplication());
+    const auto retained = controller.currentSnapshot()->state;
+    D6R_REQUIRE(frozen.round->animation == retained.round->animation);
+    D6R_REQUIRE(frozen.players.front().hudIndicators == retained.players.front().hudIndicators);
+    D6R_REQUIRE(frozen.players.front().animation == retained.players.front().animation);
+    R::ReplicatedState fresh;
+    D6R_REQUIRE(fresh.apply(*controller.currentSnapshot()) == R::ApplyResult::Applied);
+    D6R_REQUIRE(fresh.takePresentationEvents().empty());
+    D6R_REQUIRE(fresh.state()->players.front().hudIndicators == retained.players.front().hudIndicators);
+    D6R_REQUIRE(fresh.state()->players.front().animation == retained.players.front().animation);
+}
+
+D6R_TEST_CASE("Shared arena authority restores pick firing hit and death cursors without changing gameplay locks") {
+    ProductionCanonicalFixture fixture(2);
+    auto &controller = fixture.controller;
+    auto *player = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(101);
+    const auto tick = [&] {
+        D6R_REQUIRE(controller.advanceOneTick());
+        D6R_REQUIRE(controller.captureReplication());
+        const auto snapshot = *controller.currentSnapshot();
+        auto decoded = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(snapshot));
+        D6R_REQUIRE(decoded && decoded->snapshot);
+        R::ReplicatedState recovered;
+        D6R_REQUIRE(recovered.apply(*decoded->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE(recovered.takePresentationEvents().empty());
+        const auto actual = player->getAnimationState();
+        D6R_REQUIRE(actual == snapshot.state.players.front().animation);
+        D6R_REQUIRE(actual == recovered.state()->players.front().animation);
+        return actual;
+    };
+    player->pickWeapon(player->getWeapon(), 100, 0);
+    auto state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Pick);
+    D6R_REQUIRE(!state.weaponVisible);
+    for (unsigned i = 1; i < 32; ++i) state = tick();
+    D6R_REQUIRE(!player->isPickingGun()); // Existing 0.5-second authority lock, not cosmetic completion.
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Pick && state.bodyFrame > 0);
+    D6R_REQUIRE(!state.weaponVisible);
+    for (unsigned i = 0; i < 45; ++i) state = tick();
+    D6R_REQUIRE(state.pose != Duel6::PlayerPose::Pick);
+    D6R_REQUIRE(state.weaponVisible);
+    player->setBonus(Duel6::BonusType::NONE, 0);
+    D6R_REQUIRE(!player->hit(1));
+    // Crouch supplies a stable hit pose regardless of the arena's spawn height.
+    D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit({controller.match()->currentTick(),
+            fixture.sequence++, 1, 101, ActionKind::PlayerInput, 0, Crouch, 0}));
+    state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::HitDuck);
+    for (unsigned i = 0; i < 35; ++i) state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Duck);
+    D6R_REQUIRE_EQ(ActionResult::Accepted, controller.match()->submit({controller.match()->currentTick(),
+            fixture.sequence++, 1, 101, ActionKind::PlayerInput, 0, Shoot, 0}));
+    state = tick();
+    D6R_REQUIRE(state.weaponFrame < 12);
+    D6R_REQUIRE(player->hit(1000));
+    D6R_REQUIRE(!player->isAlive() && !player->isDying()); // Cosmetic death never changes headless flags.
+    state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Dying && !state.weaponVisible);
+    const auto firstFrame = state.bodyFrame;
+    for (unsigned i = 0; i < 12; ++i) state = tick();
+    D6R_REQUIRE(state.pose == Duel6::PlayerPose::Dying && state.bodyFrame > firstFrame);
+}
+
 D6R_TEST_CASE("NET-ADM inactive waiting versus cancelled membership changes canonical digest without advancing world") {
     ProductionCanonicalResourceRoot resources;
     auto requested = ProductionCanonicalFixture::canonicalConfig(2, resources.path());
@@ -1084,6 +1203,554 @@ D6R_TEST_CASE("NET-ADM inactive waiting versus cancelled membership changes cano
     D6R_REQUIRE_EQ(before.worldTick, after.worldTick);
     D6R_REQUIRE_EQ(before.waterLevel, after.waterLevel);
     D6R_REQUIRE(before.stateDigest != after.stateDigest);
+}
+
+D6R_TEST_CASE("Shared arena actual splash burn and colored rings preserve current geometry across recovery freeze and expiry") {
+    ProductionCanonicalFixture fixture(2);
+    auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
+    auto &world = game.getRound().getWorld();
+    auto &player = game.getPlayers().front();
+    Duel6::Water::BLUE->onEnter(player, Duel6::Vector(3, 4), world);
+    world.getExplosionList().add(Duel6::Vector(4, 5), 0.2f, 0.5f, Duel6::Color::RED);
+    D6R_REQUIRE(!world.getFireList().values().empty());
+    const auto treePosition = world.getFireList().values().front().getCentre();
+    world.getFireList().check(treePosition, 0.1f);
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    const auto snapshot = [&] {
+        D6R_REQUIRE(fixture.controller.captureReplication());
+        const auto wire = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*fixture.controller.currentSnapshot()));
+        D6R_REQUIRE(wire && wire->snapshot);
+        R::ReplicatedState recovered;
+        D6R_REQUIRE(recovered.apply(*wire->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE(recovered.takePresentationEvents().empty());
+        return *recovered.state();
+    };
+    const auto first = snapshot();
+    for (const auto &type: {"water-splash:blue", "tree-burning", "explosion-ring"})
+        D6R_REQUIRE(std::any_of(first.effects.begin(), first.effects.end(), [&](const auto &e) { return e.type == type; }));
+    for (unsigned tick = 0; tick < 30; ++tick) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    const auto later = snapshot();
+    for (const auto &sprite: world.getSpriteList().values()) if (!sprite.getEffectType().empty()) {
+        const auto effect = std::find_if(later.effects.begin(), later.effects.end(), [&](const auto &e) { return e.type == sprite.getEffectType(); });
+        D6R_REQUIRE(effect != later.effects.end());
+        D6R_REQUIRE(effect->visual == sprite.visualState());
+        D6R_REQUIRE(effect->visual.ageTicks > 0);
+    }
+    D6R_REQUIRE(std::none_of(later.effects.begin(), later.effects.end(), [](const auto &e) { return e.type == "explosion-ring"; }));
+    establishTestOutcome(*fixture.controller.match(), {}, Team::None, true);
+    for (unsigned tick = 0; tick < RoundEndActiveTicks; ++tick) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    const auto frozen = snapshot();
+    D6R_REQUIRE(std::any_of(frozen.effects.begin(), frozen.effects.end(), [](const auto &e) { return e.type == "tree-burning"; }));
+    for (unsigned tick = 0; tick < 30; ++tick) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    const auto held = snapshot();
+    D6R_REQUIRE_EQ(frozen.round->animation.ticks, held.round->animation.ticks);
+    // Arrival indicators use the session timer, not the frozen world's cosmetic
+    // clock. Compare the actual continuing world effects, including removals.
+    const auto worldEffect = [](const auto &effect) { return effect.entityId != 0; };
+    D6R_REQUIRE_EQ(std::count_if(frozen.effects.begin(), frozen.effects.end(), worldEffect),
+                   std::count_if(held.effects.begin(), held.effects.end(), worldEffect));
+    for (const auto &effect: frozen.effects) if (worldEffect(effect)) {
+        const auto current = std::find_if(held.effects.begin(), held.effects.end(), [&](const auto &value) {
+            return value.effectId == effect.effectId;
+        });
+        D6R_REQUIRE(current != held.effects.end());
+        D6R_REQUIRE_EQ(effect.remaining, current->remaining);
+        D6R_REQUIRE(effect.visual == current->visual);
+    }
+    // Exercise the actual final burn callback independently of the frozen match.
+    for (unsigned step = 0; step < 150; ++step) world.getSpriteList().update(1.0f / 90);
+    D6R_REQUIRE_EQ(1, world.getFireList().values().front().getSprite()->visualState().frame);
+    D6R_REQUIRE(std::none_of(world.getSpriteList().values().begin(), world.getSpriteList().values().end(),
+        [](const auto &sprite) { return sprite.getEffectType() == "tree-burning"; }));
+}
+
+D6R_TEST_CASE("Shared arena direct explosive kill removes only the body across full delta and recovery") {
+    ProductionCanonicalFixture fixture(2);
+    auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
+    auto &world = game.getRound().getWorld();
+    auto &attacker = game.getPlayers().front();
+    auto &victim = game.getPlayers().back();
+    const auto before = fixture.controller.currentSnapshot()->state;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(before));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    victim.setBonus(Duel6::BonusType::NONE, 0);
+    const auto &weapons = Duel6::Weapon::values();
+    const auto bazooka = std::find_if(weapons.begin(), weapons.end(), [](const auto &weapon) {
+        return weapon.getName() == "bazooka";
+    });
+    D6R_REQUIRE(bazooka != weapons.end());
+    bazooka->shoot(attacker, Duel6::Orientation::Right, world);
+    bool hit = false;
+    world.getShotList().forEach([&](Duel6::Shot &shot) {
+        hit = victim.hitByShot(1000, shot, true, victim.getCentre(), Duel6::Vector(1, 0));
+        return false;
+    });
+    D6R_REQUIRE(hit && !victim.isAlive() && !victim.isLying());
+    D6R_REQUIRE(!world.getExplosionList().values().empty());
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto after = fixture.controller.currentSnapshot()->state;
+    const auto update = publisher.publish(after);
+    D6R_REQUIRE(update);
+    const auto wire = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+    D6R_REQUIRE(wire && wire->update && observer.apply(*wire->update) == R::ApplyResult::Applied);
+    R::ReplicatedState recovered;
+    const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(full && full->snapshot && recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+    for (const auto *state: {&after, observer.state(), recovered.state()}) {
+        D6R_REQUIRE_EQ(before.players.size(), state->players.size());
+        const auto target = std::find_if(state->players.begin(), state->players.end(),
+            [](const auto &player) { return player.playerId == 102; });
+        D6R_REQUIRE(target != state->players.end() && !target->visible);
+        D6R_REQUIRE(target->lifeState == R::LifeState::Dead);
+        D6R_REQUIRE(std::any_of(state->effects.begin(), state->effects.end(),
+            [](const auto &effect) { return effect.type == "explosion-ring"; }));
+    }
+    D6R_REQUIRE(recovered.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("Shared arena expired HUD projection preserves local clocks opacity and layout at 60 and 90 Hz") {
+    ProductionCanonicalFixture fixture(2);
+    auto *player = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(101);
+    const auto dependencies = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))();
+    const auto opacity = [](const Duel6::Indicator &indicator) {
+        return std::clamp(indicator.getAlpha(), 0.0f, 1.0f);
+    };
+    const auto check = [&](const Duel6::Indicator &local) {
+        player->getIndicators().getHealth() = local;
+        const auto world = dependencies.worldSnapshot();
+        D6R_REQUIRE(world.valid && !world.players.empty());
+        const auto timers = world.players.front().hudIndicators[3];
+        D6R_REQUIRE(timers.elapsed >= 0 && timers.elapsed <= timers.total);
+        Duel6::Indicator projected;
+        projected.restore(float(timers.elapsed) / 65536, float(timers.total) / 65536);
+        // Visibility controls both bar stacking and name/ammo width allocation;
+        // zero opacity must NOT be projected to an inactive (0,0) pair.
+        D6R_REQUIRE_EQ(local.isVisible(), projected.isVisible());
+        if (local.isVisible()) D6R_REQUIRE_NEAR(opacity(local), opacity(projected), 2.0f / 65536);
+        const auto &untouched = player->getIndicators().getHealth();
+        D6R_REQUIRE_EQ(local.getElapsed(), untouched.getElapsed());
+        D6R_REQUIRE_EQ(local.getTotal(), untouched.getTotal());
+        auto state = fixture.controller.currentSnapshot()->state;
+        state.players.front().hudIndicators = world.players.front().hudIndicators;
+        D6R_REQUIRE(R::validateCanonicalState(state));
+    };
+    check(Duel6::Indicator{});
+    for (const float step: {1.0f / 60, 1.0f / 90}) {
+        for (const float requested: {0.0f, 0.03125f, 0.25f, 0.499f, 0.5f, 0.501f, 2.0f, 5.0f}) {
+            Duel6::Indicator local;
+            local.show(2);
+            for (unsigned tick = 0; tick < 200 && local.isVisible(); ++tick) local.update(step);
+            D6R_REQUIRE(!local.isVisible());
+            D6R_REQUIRE(local.getTotal() < 0); // Retain the original overshoot, not hide(false).
+            const float overshoot = -local.getTotal();
+            D6R_REQUIRE(overshoot <= step + 1.0f / 65536);
+            check(local);
+            local.show(requested);
+            if (requested >= Duel6::Indicator::FADE_DURATION) {
+                D6R_REQUIRE_EQ(-overshoot, local.getElapsed());
+                D6R_REQUIRE_EQ(requested - overshoot, local.getTotal());
+                D6R_REQUIRE_EQ(0.0f, opacity(local));
+            }
+            check(local); // Inspect BEFORE any extra update can heal the negative elapsed.
+            for (unsigned tick = 0; tick < 500 && local.isVisible(); ++tick) {
+                local.update(step);
+                check(local);
+            }
+            D6R_REQUIRE(!local.isVisible());
+            check(local);
+        }
+        // Intentional hide still preserves its existing fade, including short
+        // fades, immediate hide and repeated show while fading.
+        for (const float age: {0.0f, 0.125f, 0.5f, 1.75f}) {
+            Duel6::Indicator local;
+            local.show(2).update(age);
+            const float fade = local.getAlpha() * Duel6::Indicator::FADE_DURATION;
+            local.hide();
+            D6R_REQUIRE_EQ(fade, local.getTotal());
+            D6R_REQUIRE_EQ(0.0f, local.getElapsed());
+            check(local);
+            local.update(step);
+            check(local);
+            local.show();
+            check(local);
+            local.hide(false);
+            D6R_REQUIRE_EQ(0.0f, local.getTotal());
+            check(local);
+        }
+    }
+}
+
+D6R_TEST_CASE("Shared arena HUD projection does not repair unrelated malformed producer timers") {
+    ProductionCanonicalFixture fixture(2);
+    auto *player = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(101);
+    const auto dependencies = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))();
+    for (const auto &values: {std::pair<float, float>{-1, 2}, {-0.01f, 0.2f}, {3, 2}, {0, 90000},
+             {std::numeric_limits<float>::quiet_NaN(), 2}, {0, std::numeric_limits<float>::infinity()}}) {
+        player->getIndicators().getHealth().restore(values.first, values.second);
+        const auto world = dependencies.worldSnapshot();
+        if (!world.valid) continue; // Nonfinite scalars fail at the producer boundary.
+        auto state = fixture.controller.currentSnapshot()->state;
+        state.players.front().hudIndicators = world.players.front().hudIndicators;
+        D6R_REQUIRE(!R::validateCanonicalState(state));
+    }
+}
+
+namespace {
+// A small real map with 49 isolated pickup cells and a separate player pocket.
+// Nine opposite-kind pickups leave exactly 40 eligible cells. The next pickup
+// survives (9 < 40/4); its occupancy makes the following spawn evict it.
+struct TransientPickupResources {
+    std::filesystem::path root = std::filesystem::temp_directory_path()
+            / ("duel6r-transient-pickup-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    TransientPickupResources() {
+        std::filesystem::create_directories(root);
+        std::filesystem::copy("data", root / "data", std::filesystem::copy_options::recursive);
+        std::filesystem::copy("levels", root / "levels", std::filesystem::copy_options::recursive);
+        std::ofstream level(root / "levels/duel_01.json", std::ios::trunc);
+        level << "{\"width\":112,\"height\":10,\"blocks\":[";
+        for (int y = 9; y >= 0; --y) for (int x = 0; x < 112; ++x) {
+            if (y != 9 || x != 0) level << ',';
+            const bool pocket = y >= 1 && y <= 2 && x >= 1 && x <= 6;
+            const bool pickup = y == 6 && x >= 10 && x <= 106 && x % 2 == 0;
+            level << (pocket || pickup ? 0 : 1);
+        }
+        level << "],\"elevators\":[]}";
+        D6R_REQUIRE(level.good());
+    }
+    ~TransientPickupResources() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+};
+
+struct PickupRandom final : Duel6::RandomSource {
+    DeterministicRandom fallback{424242};
+    bool weapon = true;
+    bool spawn = false;
+    std::vector<std::uint64_t> positionBounds;
+    std::uint64_t next(std::string_view purpose) override { return fallback.next(purpose); }
+    std::uint64_t bounded(std::uint64_t bound, std::string_view purpose) override {
+        if (purpose == "bonus-spawn-timing") return spawn ? 0 : bound - 1;
+        if (purpose == "pickup-kind") return weapon ? 1 : 0;
+        if (purpose == "pickup-position") { positionBounds.push_back(bound); return 0; }
+        if (purpose == "bonus-type") return 3; // Fast reload: applicable at full health.
+        if (purpose == "bonus-reroll") return 1;
+        return fallback.bounded(bound, purpose);
+    }
+};
+
+void transientPickupRegression(bool weapon, bool consume) {
+    TransientPickupResources resources;
+    PickupRandom random;
+    ProductionCanonicalFixture fixture(1, 2, false, resources.root.string(), &random);
+    auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
+    auto &world = game.getRound().getWorld();
+    auto &pickups = world.getBonusList();
+    game.getPlayers()[0].setHeadlessPosition(1, 1);
+    game.getPlayers()[1].setHeadlessPosition(4, 1);
+    random.weapon = !weapon;
+    for (int i = 0; i < 9; ++i) pickups.addRandomBonus();
+    D6R_REQUIRE_EQ(9u, pickups.getWeapons().size() + pickups.getBonuses().size());
+    // Synchronize and publish the setup at a real pacing boundary.
+    for (int i = 0; i < 3; ++i) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    const auto baseline = *fixture.controller.currentSnapshot();
+    const auto baselineBytes = R::serializeReplicationSnapshot(baseline);
+    const auto baselineTick = fixture.controller.match()->currentTick();
+    const auto payloadCount = fixture.payloads.size();
+    random.weapon = weapon;
+    random.spawn = true;
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE_EQ(40u, random.positionBounds.back());
+    D6R_REQUIRE_EQ(10u, pickups.getWeapons().size() + pickups.getBonuses().size());
+    const auto first = weapon ? pickups.getWeapons().front().getStableId() : pickups.getBonuses().front().getStableId();
+    const auto stable = (UINT64_C(1) << 48) | ((weapon ? UINT64_C(3) : UINT64_C(2)) << 40) | first;
+    const auto *born = fixture.controller.match()->canonicalWorldSnapshot();
+    D6R_REQUIRE(std::any_of(born->pickups.begin(), born->pickups.end(), [stable](const auto &e) { return e.stableId == stable; }));
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    D6R_REQUIRE_EQ(payloadCount, fixture.payloads.size());
+    if (consume) {
+        D6R_REQUIRE(!weapon); // Random weapons have a real 0.5s pickup lock: not consumable within three ticks.
+        random.spawn = false;
+        const auto position = pickups.getBonuses().front().getPosition();
+        auto &player = game.getPlayers().front();
+        player.setBonus(Duel6::BonusType::NONE, 0);
+        player.setHeadlessPosition(static_cast<int>(position.x), static_cast<int>(position.y));
+    }
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    if (!consume) D6R_REQUIRE_EQ(39u, random.positionBounds.back());
+    const auto *gone = fixture.controller.match()->canonicalWorldSnapshot();
+    D6R_REQUIRE(std::none_of(gone->pickups.begin(), gone->pickups.end(), [stable](const auto &e) { return e.stableId == stable; }));
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    D6R_REQUIRE_EQ(payloadCount, fixture.payloads.size());
+    random.spawn = false;
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE_EQ(baselineTick + Duel6::Network::Responsiveness::TicksPerCanonicalUpdate, fixture.controller.match()->currentTick());
+    const auto &events = fixture.controller.match()->canonicalWorldSnapshot()->events;
+    std::vector<std::string> occurrences;
+    for (const auto &event: events) if (event.entityId == stable) occurrences.push_back(event.kind);
+    D6R_REQUIRE_EQ(consume ? 4u : 3u, occurrences.size());
+    D6R_REQUIRE_EQ(std::string(weapon ? "weapon-spawned" : "bonus-spawned"), occurrences.front());
+    D6R_REQUIRE_EQ(std::string("entity-spawned"), occurrences[1]);
+    D6R_REQUIRE_EQ(std::string("entity-removed"), occurrences.back());
+    if (consume) D6R_REQUIRE_EQ(std::string("bonus-picked"), occurrences[2]);
+    // Inspect the actual mapping without committing it. No event list is fabricated.
+    auto mapping = fixture.controller.replication;
+    std::vector<R::PresentationEvent> mapped;
+    D6R_REQUIRE(mapping.updateFromMatch(*fixture.controller.match(), mapped, nullptr));
+    D6R_REQUIRE(R::validateCanonicalState(mapping.state));
+    const bool published = fixture.controller.observeMatchOutcome();
+    if (!published) {
+        D6R_REQUIRE_EQ(baselineBytes, R::serializeReplicationSnapshot(*fixture.controller.currentSnapshot()));
+        D6R_REQUIRE_EQ(payloadCount, fixture.payloads.size());
+    }
+    D6R_REQUIRE(published);
+    D6R_REQUIRE_EQ(payloadCount + 1, fixture.payloads.size());
+    const auto delta = R::deserializeReplicationFrame(fixture.payloads.back());
+    D6R_REQUIRE(delta && delta->update);
+    const auto creation = std::find_if(delta->update->events.begin(), delta->update->events.end(),
+            [weapon](const auto &event) { return event.type == (weapon ? "weapon-spawned" : "bonus-spawned"); });
+    D6R_REQUIRE(creation != delta->update->events.end());
+    const auto absent = [id = creation->entityId](const auto &state) {
+        return std::none_of(state.entities.begin(), state.entities.end(),
+                [id](const auto &entity) { return entity.entityId == id; });
+    };
+    D6R_REQUIRE(absent(baseline.state));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(baseline) == R::ApplyResult::Applied);
+    D6R_REQUIRE(observer.apply(*delta->update) == R::ApplyResult::Applied);
+    D6R_REQUIRE(absent(*observer.state()));
+    D6R_REQUIRE_EQ(delta->update->events.size(), observer.takePresentationEvents().size());
+    D6R_REQUIRE(observer.takePresentationEvents().empty());
+    const auto full = *fixture.controller.currentSnapshot();
+    const auto wire = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(full));
+    R::ReplicatedState recovered;
+    D6R_REQUIRE(wire && wire->snapshot && recovered.apply(*wire->snapshot) == R::ApplyResult::Applied);
+    // Entity/effect collections are identity-keyed; delta application emits them
+    // in identity order, whereas the producer groups entities by kind. Preserve
+    // all ordered roster/ranking/event fields while comparing complete values.
+    const auto normalized = [](R::FullSnapshot snapshot) {
+        std::sort(snapshot.state.entities.begin(), snapshot.state.entities.end(),
+                [](const auto &a, const auto &b) { return a.entityId < b.entityId; });
+        std::sort(snapshot.state.effects.begin(), snapshot.state.effects.end(),
+                [](const auto &a, const auto &b) { return a.effectId < b.effectId; });
+        return R::serializeReplicationSnapshot(snapshot);
+    };
+    D6R_REQUIRE_EQ(normalized(full), normalized({observer.version(), *observer.state(), full.authoritativeProducedAt}));
+    D6R_REQUIRE_EQ(normalized(full), normalized({recovered.version(), *recovered.state(), full.authoritativeProducedAt}));
+    D6R_REQUIRE(recovered.takePresentationEvents().empty());
+    D6R_REQUIRE(fixture.controller.observeMatchOutcome());
+    D6R_REQUIRE_EQ(payloadCount + 1, fixture.payloads.size());
+}
+}
+
+D6R_TEST_CASE("Transient pickup real bonus cap eviction between paced publications") { transientPickupRegression(false, false); }
+D6R_TEST_CASE("Transient pickup real weapon cap eviction between paced publications") { transientPickupRegression(true, false); }
+D6R_TEST_CASE("Transient pickup real bonus consumption between paced publications") { transientPickupRegression(false, true); }
+
+D6R_TEST_CASE("Shared arena world projectile damage publishes expired health HUD in the same tick") {
+    ProductionCanonicalFixture fixture(2);
+    auto &game = *(fixture.runtime.get()->*canonicalRuntimeMember(CanonicalGameMember{}));
+    auto &attacker = game.getPlayers().front();
+    auto &victim = game.getPlayers().back();
+    victim.setBonus(Duel6::BonusType::NONE, 0);
+    // Adjacent players on the fixture's compact spawn row: the real pistol
+    // projectile reaches the victim on its first World::update.
+    const auto origin = attacker.getPosition();
+    victim.setHeadlessPosition(static_cast<int>(origin.x) + 1, static_cast<int>(origin.y));
+    auto &health = victim.getIndicators().getHealth();
+    health.hide(false).show(2);
+    while (health.isVisible()) health.update(1.0f / 60);
+    D6R_REQUIRE(health.getTotal() < 0);
+    const float overshoot = -health.getTotal();
+    // Explicit captures bracket tick 2 here, independently of normal 20 Hz
+    // publication over 60 Hz simulation. No tick occurs between hit and inspection.
+    auto *match = fixture.controller.match();
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match->submit({match->currentTick(), 1, 1, 101,
+            ActionKind::PlayerInput, 0, MoveRight, 0}));
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto before = fixture.controller.currentSnapshot()->state;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(before));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    const float life = victim.getLife();
+    const auto damage = attacker.getPerson().getTotalDamage();
+    const auto hits = attacker.getPerson().getHits();
+    const auto shots = attacker.getPerson().getShots();
+    const auto ammo = attacker.getAmmo();
+    D6R_REQUIRE_EQ(ActionResult::Accepted, match->submit({match->currentTick(), 2, 1, 101,
+            ActionKind::PlayerInput, 0, Shoot, 0}));
+    D6R_REQUIRE_EQ(life, victim.getLife()); // No direct shot creation or hitByShot injection.
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(victim.isAlive() && victim.getLife() < life);
+    D6R_REQUIRE_EQ(30.0f, life - victim.getLife());
+    D6R_REQUIRE_EQ(damage + 30, attacker.getPerson().getTotalDamage());
+    D6R_REQUIRE_EQ(hits + 1, attacker.getPerson().getHits());
+    D6R_REQUIRE_EQ(shots + 1, attacker.getPerson().getShots());
+    D6R_REQUIRE_EQ(ammo - 1, attacker.getAmmo());
+    D6R_REQUIRE_EQ(-overshoot, health.getElapsed()); // Proves damage followed indicator update.
+    D6R_REQUIRE_EQ(2.0f - overshoot, health.getTotal());
+    D6R_REQUIRE_EQ(0, match->canonicalWorldSnapshot()->players.back().hudIndicators[3].elapsed);
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto after = fixture.controller.currentSnapshot()->state;
+    const auto update = publisher.publish(after);
+    D6R_REQUIRE(update);
+    const auto wire = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+    D6R_REQUIRE(wire && wire->update && observer.apply(*wire->update) == R::ApplyResult::Applied);
+    R::ReplicatedState recovered;
+    const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(full && full->snapshot && recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+    for (const auto *state: {&after, observer.state(), recovered.state()}) {
+        D6R_REQUIRE(R::validateCanonicalState(*state));
+        const auto &target = state->players.back();
+        D6R_REQUIRE_EQ(102u, target.playerId);
+        D6R_REQUIRE_EQ(static_cast<std::int64_t>(victim.getLife()), target.life);
+        D6R_REQUIRE_EQ(0, target.hudIndicators[3].elapsed);
+        D6R_REQUIRE(target.hudIndicators[3].total > 0);
+        Duel6::PlayerIndicators restored;
+        restored.restore(target.hudIndicators);
+        D6R_REQUIRE_EQ(health.isVisible(), restored.getHealth().isVisible());
+        D6R_REQUIRE_EQ(0.0f, restored.getHealth().getAlpha());
+    }
+    D6R_REQUIRE(recovered.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("Shared arena canonical validation distinguishes caught allocation failure") {
+    ProductionCanonicalFixture fixture(2);
+    const auto state = fixture.controller.currentSnapshot()->state;
+    R::CanonicalValidationDetail detail{3, -1, 2};
+    R::CanonicalValidationOutcome outcome;
+    {
+        ScopedAllocationFailure failure(0);
+        outcome = R::validateCanonicalStateDetailed(state, &detail);
+    }
+    D6R_REQUIRE(outcome == R::CanonicalValidationOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(-1, detail.indicatorIndex);
+}
+
+D6R_TEST_CASE("Publisher failure detail retains canonical internal failure and clears on success") {
+    ProductionCanonicalFixture fixture(2);
+    const auto initial = fixture.controller.currentSnapshot()->state;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(initial));
+    auto attempted = initial;
+    R::PublishRejectionDetail detail;
+    {
+        ScopedAllocationFailure failure(0);
+        D6R_REQUIRE(!publisher.publish(std::move(attempted), {}, &detail));
+    }
+    D6R_REQUIRE(publisher.lastPublishFailedInternally());
+    D6R_REQUIRE(detail.reason == R::PublishRejection::CanonicalInternalFailure);
+    D6R_REQUIRE(detail.canonicalOutcome == R::CanonicalValidationOutcome::InternalFailure);
+    D6R_REQUIRE_EQ(1u, publisher.version());
+    attempted = initial; attempted.players.front().hudIndicators[3] = {-1, 1};
+    D6R_REQUIRE(!publisher.publish(attempted, {}, &detail));
+    D6R_REQUIRE(!publisher.lastPublishFailedInternally());
+    D6R_REQUIRE(detail.reason == R::PublishRejection::CanonicalInvalid);
+    D6R_REQUIRE_EQ(3, detail.canonical.indicatorIndex);
+    D6R_REQUIRE(publisher.publish(initial, {}, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::None);
+    D6R_REQUIRE_EQ(-1, detail.canonical.indicatorIndex);
+}
+
+#ifdef __linux__
+D6R_TEST_CASE("Publisher failure FIFO records first event predicate and context before rollback only") {
+    ProductionCanonicalFixture fixture(2);
+    Duel6::Test::HostDiagnosticFixture fifo;
+    const auto diagnostics = Duel6::Network::HostServiceDiagnostics::open(fifo.fifo.string());
+    D6R_REQUIRE(diagnostics);
+    auto replication = fixture.controller.replication;
+    const auto before = R::serializeReplicationSnapshot(*replication.publisher.fullSnapshot());
+    auto *world = const_cast<CanonicalWorldSnapshot *>(fixture.controller.match()->canonicalWorldSnapshot());
+    // Diagnostic contract fixture only, not the real-operation pickup regression.
+    CanonicalEvent invalid;
+    invalid.sequence = world->events.empty() ? 1 : world->events.back().sequence + 1;
+    invalid.kind = "entity-spawned"; invalid.entityId = UINT64_C(0xffffffffffff);
+    world->events.push_back(invalid);
+    D6R_REQUIRE(!replication.capture(*fixture.controller.match(), diagnostics.get()));
+    D6R_REQUIRE_EQ(before, R::serializeReplicationSnapshot(*replication.publisher.fullSnapshot()));
+    const auto records = fifo.drain();
+    D6R_REQUIRE_EQ(3u, records.size());
+    using E = Duel6::Network::HostDiagnosticEvent;
+    D6R_REQUIRE_EQ(static_cast<int>(E::BackendFailure), records[0].event);
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticFailure::PublicationRejected), records[0].a);
+    D6R_REQUIRE_EQ(static_cast<int>(R::PublishRejection::EventReference), records[0].b);
+    D6R_REQUIRE_EQ(static_cast<int>(R::CanonicalValidationOutcome::Valid) + 1, records[0].c);
+    D6R_REQUIRE_EQ(static_cast<int>(E::PublicationContext), records[1].event);
+    D6R_REQUIRE_EQ(fixture.controller.match()->currentTick(), static_cast<std::uint64_t>(records[1].a));
+    D6R_REQUIRE_EQ(static_cast<int>(R::Phase::ActiveRound) * 9, records[1].b);
+    D6R_REQUIRE_EQ(0, records[1].c);
+    D6R_REQUIRE_EQ(static_cast<int>(E::PublicationEventRejected), records[2].event);
+    D6R_REQUIRE_EQ(0, records[2].a);
+    D6R_REQUIRE_EQ(6, records[2].b);
+    D6R_REQUIRE_EQ(static_cast<int>(R::EventReferenceRejection::UntypedUnknownEntity), records[2].c);
+    for (const auto &record: records) D6R_REQUIRE_EQ(0u, record.dropped);
+    D6R_REQUIRE(!replication.capture(*fixture.controller.match()));
+    D6R_REQUIRE(fifo.drain().empty());
+    world->events.pop_back();
+    D6R_REQUIRE(replication.capture(*fixture.controller.match(), diagnostics.get()));
+    D6R_REQUIRE(fifo.drain().empty());
+}
+
+D6R_TEST_CASE("Shared arena canonical rejection FIFO reports only bounded HUD detail") {
+    ProductionCanonicalFixture fixture(2);
+    Duel6::Test::HostDiagnosticFixture fifo;
+    const auto diagnostics = Duel6::Network::HostServiceDiagnostics::open(fifo.fifo.string());
+    D6R_REQUIRE(diagnostics);
+    // Inject malformed canonical data at the already-synchronized boundary.
+    auto *world = const_cast<CanonicalWorldSnapshot *>(fixture.controller.match()->canonicalWorldSnapshot());
+    D6R_REQUIRE(world && !world->players.empty());
+    world->players.front().hudIndicators[3] = {INT64_MIN, INT64_MAX};
+    auto replication = fixture.controller.replication;
+    D6R_REQUIRE(!replication.capture(*fixture.controller.match(), diagnostics.get()));
+    const auto records = fifo.drain();
+    D6R_REQUIRE_EQ(3u, records.size());
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticEvent::BackendFailure), records[0].event);
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticFailure::CanonicalValidationRejected), records[0].a);
+    D6R_REQUIRE_EQ(2, records[0].b); // Invalid, not InternalFailure.
+    D6R_REQUIRE_EQ(4, records[0].c); // Health index + 1, not a player identity.
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticEvent::CanonicalIndicatorRejected), records[1].event);
+    D6R_REQUIRE_EQ(3, records[1].a);
+    D6R_REQUIRE_EQ(-INT64_C(86400) * 65536, records[1].b);
+    D6R_REQUIRE_EQ(INT64_C(86400) * 65536, records[1].c);
+    D6R_REQUIRE_EQ(static_cast<int>(Duel6::Network::HostDiagnosticFailure::CaptureMappingRejected), records[2].a);
+    for (const auto &record: records) D6R_REQUIRE_EQ(0u, record.dropped);
+    // Default/no-sink path does not produce diagnostic records.
+    D6R_REQUIRE(!replication.capture(*fixture.controller.match()));
+    D6R_REQUIRE(fifo.drain().empty());
+}
+#endif
+
+D6R_TEST_CASE("Shared arena post fade ammo pickup restores authoritative HUD in full delta and recovery") {
+    ProductionCanonicalFixture fixture(1);
+    auto *player = (fixture.runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{})).at(101);
+    for (unsigned tick = 0; tick < 300; ++tick) D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto before = fixture.controller.currentSnapshot()->state;
+    D6R_REQUIRE(before.players.front().hudIndicators[5].elapsed >= before.players.front().hudIndicators[5].total);
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(before));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    player->pickAmmo(17);
+    D6R_REQUIRE(fixture.controller.advanceOneTick());
+    D6R_REQUIRE(fixture.controller.captureReplication());
+    const auto after = fixture.controller.currentSnapshot()->state;
+    const auto update = publisher.publish(after);
+    D6R_REQUIRE(update);
+    const auto wire = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+    D6R_REQUIRE(wire && wire->update && observer.apply(*wire->update) == R::ApplyResult::Applied);
+    R::ReplicatedState recovered;
+    const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(full && full->snapshot && recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+    for (const auto *state: {&after, observer.state(), recovered.state()}) {
+        const auto &value = state->players.front();
+        D6R_REQUIRE_EQ(before.players.front().ammunition + 17, value.ammunition);
+        D6R_REQUIRE(value.hudIndicators[5].elapsed < value.hudIndicators[5].total);
+        D6R_REQUIRE(value.hudIndicators == after.players.front().hudIndicators);
+    }
 }
 
 D6R_TEST_CASE("NET-ADM real first-round arrival preserves existing world and mode state") {
@@ -2987,6 +3654,246 @@ D6R_TEST_CASE("NET-AC-014 NET-AC-018 shutdown and runtime failure discard all re
 
     verifyDiscard(false);
     verifyDiscard(true);
+}
+
+namespace {
+struct PredatorLiquidCompletionResources {
+    std::filesystem::path root = std::filesystem::temp_directory_path()
+            / ("duel6r-predator-completion-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    PredatorLiquidCompletionResources(const std::string &source) {
+        std::filesystem::create_directories(root / "levels");
+        std::filesystem::copy(std::filesystem::path(source) / "data", root / "data",
+                std::filesystem::copy_options::recursive);
+        std::ofstream level(root / "levels/controlled_predator_liquid.json");
+        // Fifteen isolated pockets, each with exactly one dry starting ledge and
+        // deep water immediately to its right. Normal shuffled spawning chooses
+        // the pockets; the test neither selects the Predator nor places players.
+        // Pickups cannot spawn in water or within two cells of a player. The
+        // Predator leaves its ledge immediately and never returns to dry cells.
+        level << "{\"width\":60,\"height\":8,\"blocks\":[";
+        for (int y = 7; y >= 0; --y) for (int x = 0; x < 60; ++x) {
+            if (y != 7 || x != 0) level << ',';
+            const bool dry = (x % 4 == 1 && y >= 5 && y <= 6) || (x % 4 == 2 && y == 6);
+            const bool water = x % 4 == 2 && y >= 1 && y <= 5;
+            level << (dry ? 0 : water ? 4 : 1);
+        }
+        level << "],\"elevators\":[]}";
+        D6R_REQUIRE(level.good());
+    }
+    ~PredatorLiquidCompletionResources() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+};
+
+void verifyCapturedPredatorConfiguration(bool controlledCompletion) {
+    // These are separate configuration-class checks, not a replay of the lost
+    // FS-G world. Duel16 covers sustained publication; the labeled controlled
+    // map covers natural completion using only ordinary movement and liquid.
+    ProductionCanonicalResourceRoot resources;
+    const auto controlled = controlledCompletion
+            ? std::make_unique<PredatorLiquidCompletionResources>(resources.path()) : nullptr;
+    const auto content = Duel6::Network::CompatibilityManifestBuilder(
+            controlled ? controlled->root.string() : resources.path(), {}).build();
+    D6R_REQUIRE(content.valid() && content.content);
+    const auto &script = content.content->at("data/config.script");
+    FrozenGameplayConfig gameplay;
+    D6R_REQUIRE(parseFrozenGameplayConfig(std::string_view(
+            reinterpret_cast<const char *>(script.data()), script.size()), gameplay));
+    MatchConfig requested;
+    requested.seed = 424242;
+    requested.hostParticipantId = 1;
+    requested.mode = Mode::Predator;
+    requested.levelPlan = LevelPlan::Fixed;
+    requested.fixedLevel = controlledCompletion ? "levels/controlled_predator_liquid.json" : "levels/duel_16.json";
+    requested.roundLimit = 1;
+    requested.quickLiquid = false;
+    requested.assistance = true;
+    requested.burnableTrees = true;
+    requested.enabledWeapons = gameplay.enabledWeapons;
+    requested.startingAmmoMinimum = gameplay.startingAmmoMinimum;
+    requested.startingAmmoMaximum = gameplay.startingAmmoMaximum;
+    for (const auto &entry: content.manifest)
+        if (entry.logicalPath.compare(0, 7, "levels/") == 0
+            && entry.logicalPath.size() > 5
+            && entry.logicalPath.compare(entry.logicalPath.size() - 5, 5, ".json") == 0)
+            requested.playableLevels.push_back(entry.logicalPath);
+    auto players = roster(15);
+    std::vector<R::ParticipantState> participants{
+        {1, true, R::ConnectionState::Connected, true, {}},
+        {2, false, R::ConnectionState::Connected, true, {}},
+        {3, false, R::ConnectionState::Connected, true, {}}};
+    for (std::size_t index = 0; index < players.size(); ++index) {
+        auto &player = players[index];
+        player.participantId = index == 0 ? 1 : index == 14 ? 3 : 2;
+        if (player.participantId == 2) {
+            player.displayName = "Guest " + std::to_string(index) + " ";
+            player.displayName.append(MaxDisplayNameBytes - player.displayName.size(), 'x');
+            D6R_REQUIRE_EQ(64u, player.displayName.size());
+        }
+        participants[player.participantId - 1].ownedPlayerIds.push_back(player.playerId);
+    }
+    D6R_REQUIRE_EQ(1u, participants[0].ownedPlayerIds.size());
+    D6R_REQUIRE_EQ(13u, participants[1].ownedPlayerIds.size());
+    D6R_REQUIRE_EQ(1u, participants[2].ownedPlayerIds.size());
+    const auto runtime = std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content);
+    AuthoritativeHostedMatchController controller(1,
+            (runtime.get()->*canonicalRuntimeMember(CanonicalDependenciesMember{}))());
+    D6R_REQUIRE(controller.initializeReplication(participants, players, requested));
+    R::ReplicatedState client;
+    bool deliveryValid = true;
+    std::size_t frames = 0, events = 0, pickupCreations = 0, maxPayload = 0;
+    // Apply and drain each frame immediately: never retain the entire long match.
+    D6R_REQUIRE(controller.restoreReplication(2, [&](auto payload) {
+        ++frames;
+        maxPayload = std::max(maxPayload, payload.size());
+        const auto frame = R::deserializeReplicationFrame(payload);
+        if (!frame || (!frame->snapshot && !frame->update)) deliveryValid = false;
+        else {
+            const auto applied = frame->snapshot ? client.apply(*frame->snapshot) : client.apply(*frame->update);
+            deliveryValid &= applied == R::ApplyResult::Applied;
+            const auto occurrences = client.takePresentationEvents();
+            events += occurrences.size();
+            for (const auto &event: occurrences)
+                if (event.type == "bonus-spawned" || event.type == "weapon-spawned") ++pickupCreations;
+        }
+        return Duel6::Network::SendResult::Accepted;
+    }));
+    D6R_REQUIRE(controller.markServiceReady());
+    for (const auto &participant: participants)
+        D6R_REQUIRE(controller.setParticipantReady(participant.participantId, true));
+    D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
+    D6R_REQUIRE(deliveryValid);
+    D6R_REQUIRE_EQ(60u, FixedTickRate);
+    D6R_REQUIRE_EQ(20u, Duel6::Network::Responsiveness::CanonicalUpdatesPerSecond);
+    D6R_REQUIRE_EQ(3u, Duel6::Network::Responsiveness::TicksPerCanonicalUpdate);
+    std::shared_ptr<Duel6::Network::HostServiceDiagnostics> diagnostics;
+#ifdef __linux__
+    Duel6::Test::HostDiagnosticFixture fifo;
+    diagnostics = Duel6::Network::HostServiceDiagnostics::open(fifo.fifo.string());
+    D6R_REQUIRE(diagnostics);
+#endif
+    constexpr Tick ObservationTicks = FixedTickRate * 181u; // Beyond the captured ~180.319s boundary.
+    const Tick maximumTicks = controlledCompletion ? FixedTickRate * 60u : ObservationTicks;
+    Tick ticks = 0, lastPublicationTick = 0, activeTicks = 0;
+    std::size_t pacedPublications = 0;
+    const Identity predator = controller.match()->roundDecision().predatorPlayerId;
+    const auto selected = std::find_if(players.begin(), players.end(), [&](const auto &player) {
+        return player.playerId == predator;
+    });
+    D6R_REQUIRE(selected != players.end());
+    bool movementSubmitted = false, observedSubmerged = false, observedPredatorDeath = false;
+    while (controller.match() && ticks < maximumTicks) {
+        auto &match = *controller.match();
+        const auto beforePhase = match.phase();
+        const auto beforeVersion = client.version();
+        if (controlledCompletion) {
+            if (beforePhase == MatchPhase::ActiveRound && !movementSubmitted) {
+                D6R_REQUIRE_EQ(ActionResult::Accepted, match.submit({match.currentTick(), 1,
+                        selected->participantId, predator, ActionKind::PlayerInput, 0, MoveRight, 0}));
+                movementSubmitted = true;
+            }
+            // Read-only observations: no health, role, timer, score or outcome assignments.
+            const auto &live = runtime.get()->*canonicalRuntimeMember(CanonicalPlayersMember{});
+            for (const auto &[id, player]: live) {
+                if (id == predator) {
+                    D6R_REQUIRE(!player->hasSnorkel());
+                    observedSubmerged |= player->isUnderWater();
+                    observedPredatorDeath |= !player->isAlive();
+                } else {
+                    D6R_REQUIRE(player->isAlive());
+                    D6R_REQUIRE(!player->isUnderWater());
+                }
+            }
+        }
+        D6R_REQUIRE(controller.advanceOneTick());
+        ticks = match.currentTick();
+        if (beforePhase == MatchPhase::ActiveRound) ++activeTicks;
+        if (!controller.observeMatchOutcome(diagnostics.get())) {
+            std::string detail = "tick=" + std::to_string(ticks)
+                    + ";before-phase=" + std::to_string(static_cast<int>(beforePhase));
+#ifdef __linux__
+            for (const auto &record: fifo.drain())
+                detail += ";event=" + std::to_string(record.event) + ",a=" + std::to_string(record.a)
+                        + ",b=" + std::to_string(record.b) + ",c=" + std::to_string(record.c)
+                        + ",dropped=" + std::to_string(record.dropped);
+#endif
+            Duel6::Test::fail("captured configuration publication", __FILE__, __LINE__,
+                    "level=" + requested.fixedLevel + ";" + detail);
+        }
+        D6R_REQUIRE(deliveryValid);
+        if (ticks % (60u * FixedTickRate) == 0)
+            std::cout << "Captured configuration progress: tick=" << ticks << ";frames=" << frames
+                      << ";events=" << events << ";pickup-creations=" << pickupCreations << '\n';
+        if (client.version() != beforeVersion) {
+            if (controller.match() && beforePhase == MatchPhase::ActiveRound
+                && controller.match()->phase() == beforePhase) {
+                D6R_REQUIRE_EQ(Tick(3), ticks - lastPublicationTick);
+                ++pacedPublications;
+            }
+            lastPublicationTick = ticks;
+        }
+    }
+    std::cout << "Captured configuration: level=" << requested.fixedLevel << ";ticks=" << ticks
+              << ";active-ticks=" << activeTicks << ";paced-publications=" << pacedPublications
+              << ";frames=" << frames << ";events=" << events << ";pickup-creations=" << pickupCreations
+              << ";max-payload-bytes=" << maxPayload << '\n';
+    if (!controlledCompletion) {
+        D6R_REQUIRE(activeTicks >= ObservationTicks);
+        D6R_REQUIRE(pacedPublications >= ObservationTicks / 3);
+        D6R_REQUIRE(pickupCreations > 0);
+        D6R_REQUIRE(controller.stage() == HostedMatchStage::MatchActive);
+        return;
+    }
+    if (controller.stage() != HostedMatchStage::FinalSummary) {
+        std::string detail = "tick=" + std::to_string(ticks) + ";predator=" + std::to_string(predator)
+                + ";submerged=" + std::to_string(observedSubmerged)
+                + ";death=" + std::to_string(observedPredatorDeath);
+        if (controller.match()) {
+            detail += ";phase=" + std::to_string(static_cast<int>(controller.match()->phase()));
+            for (const auto &player: controller.match()->canonicalWorldSnapshot()->players)
+                detail += ";player=" + std::to_string(player.playerId) + ",alive=" + std::to_string(player.alive)
+                        + ",x=" + std::to_string(player.positionX) + ",y=" + std::to_string(player.positionY);
+        }
+        Duel6::Test::fail("controlled liquid natural FinalSummary", __FILE__, __LINE__, detail);
+    }
+    D6R_REQUIRE(movementSubmitted && observedSubmerged && observedPredatorDeath);
+    D6R_REQUIRE(controller.currentSessionResult());
+    const auto &result = *controller.currentSessionResult();
+    D6R_REQUIRE(result.state == ResultState::Completed);
+    D6R_REQUIRE_EQ(1u, result.completedRounds);
+    D6R_REQUIRE_EQ(15u, result.players.size());
+    D6R_REQUIRE_EQ(14u, result.finalWinnerPlayerIds.size());
+    D6R_REQUIRE(!result.finalNoWinner);
+    D6R_REQUIRE(client.state() && client.state()->phase == R::Phase::FinalSummary);
+    requireCumulativeScoreMatchesResult(*client.state(), result);
+    for (const auto &player: players) {
+        D6R_REQUIRE_EQ(player.displayName, resultPlayer(result, player.playerId).displayName);
+        const bool winner = std::find(result.finalWinnerPlayerIds.begin(), result.finalWinnerPlayerIds.end(),
+                player.playerId) != result.finalWinnerPlayerIds.end();
+        D6R_REQUIRE_EQ(player.playerId != predator, winner);
+        D6R_REQUIRE_EQ(player.playerId == predator ? 1 : 0, resultPlayer(result, player.playerId).statistics.deaths);
+    }
+    R::ReplicatedState recovered;
+    const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*controller.currentSnapshot()));
+    D6R_REQUIRE(full && full->snapshot && recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+    D6R_REQUIRE(recovered.takePresentationEvents().empty());
+    D6R_REQUIRE(recovered.state()->phase == R::Phase::FinalSummary);
+    requireCumulativeScoreMatchesResult(*recovered.state(), result);
+    const auto retained = *serializeSessionResult(result);
+    D6R_REQUIRE(controller.returnToLobby(1));
+    D6R_REQUIRE(deliveryValid && client.state()->phase == R::Phase::Lobby && client.state()->result.available);
+    D6R_REQUIRE(controller.currentSessionResult() && controller.retainsCompletedResult());
+    D6R_REQUIRE_EQ(retained, *serializeSessionResult(*controller.currentSessionResult()));
+    requireCumulativeScoreMatchesResult(*client.state(), result);
+    std::cout << "Controlled liquid completion: predator=" << predator
+              << ";completed-rounds=1;winners=14;rows=15;fresh-recovery-events=0;following-lobby-retained=true\n";
+}
+}
+
+D6R_TEST_CASE("Captured configuration Duel16 publishes fifteen-player maximum-name Predator for 181 seconds") {
+    verifyCapturedPredatorConfiguration(false);
+}
+
+D6R_TEST_CASE("Captured configuration controlled liquid completes fifteen-player maximum-name Predator naturally") {
+    verifyCapturedPredatorConfiguration(true);
 }
 
 D6R_TEST_CASE("REP-017 REP-025 production canonical one-round survival publishes FinalSummary and retained FollowingMatch result") {

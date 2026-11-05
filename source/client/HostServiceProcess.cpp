@@ -139,6 +139,10 @@ namespace Duel6::Client {
             for (const auto &script: config.enabledGameplayScripts)
                 arguments.push_back("--gameplay-script=" + script);
             if (config.graphicalComposition) arguments.push_back("--graphical-host-composition");
+#ifdef __linux__
+            if (config.diagnostics)
+                arguments.push_back("--host-service-diagnostics=" + config.diagnostics->destination());
+#endif
             if (arguments.size() > MaximumProcessArguments)
                 throw std::invalid_argument("Hosted service has too many process arguments");
             return arguments;
@@ -522,8 +526,12 @@ namespace Duel6::Client {
 
         class PosixHostServiceChild final : public HostServiceChild {
         public:
-            PosixHostServiceChild(pid_t process, int statusRead, int controlWrite)
-                    : process(process), statusRead(statusRead), controlWrite(controlWrite) {}
+            PosixHostServiceChild(pid_t process, int statusRead, int controlWrite,
+                                  std::shared_ptr<Network::HostServiceDiagnostics> diagnostics)
+                    : process(process), diagnostics(std::move(diagnostics)),
+                      statusRead(statusRead), controlWrite(controlWrite) {
+                trace(Network::HostDiagnosticEvent::ChildStarted);
+            }
 
             ~PosixHostServiceChild() override {
                 if (!cleanupWasConfirmed) forceTerminate();
@@ -582,10 +590,12 @@ namespace Duel6::Client {
             }
 
             void requestStop() override {
+                trace(Network::HostDiagnosticEvent::StopRequested);
                 (void) requestCommand(Network::HostServiceCommandCode::Stop, true);
             }
 
             void requestEndSession() override {
+                trace(Network::HostDiagnosticEvent::EndRequested);
                 (void) requestCommand(Network::HostServiceCommandCode::EndSession, true);
             }
 
@@ -641,6 +651,7 @@ namespace Duel6::Client {
                 std::lock_guard<std::mutex> lock(processMutex);
                 if (treeComplete || leaderReaped || ownershipAnchorLost || process <= 0) return;
                 ++forceSignalAttempts;
+                if (forceSignalAttempts == 1) trace(Network::HostDiagnosticEvent::ForceRequested, SIGKILL);
                 kill(-process, SIGKILL);
             }
 
@@ -702,14 +713,21 @@ namespace Duel6::Client {
                                     WEXITED | WNOHANG | WNOWAIT);
                 } while (result < 0 && errno == EINTR);
                 if (result == 0 && information.si_pid == process) {
+                    // Capture WNOWAIT's actual cause before booleans/reset/reap discard it.
+                    trace(Network::HostDiagnosticEvent::NativeExit, information.si_code, information.si_status);
                     leaderExitObserved = true;
                     return true;
                 }
                 if (result < 0 && errno == ECHILD) {
+                    trace(Network::HostDiagnosticEvent::OwnershipLost, ECHILD);
                     // Another reaper violated the ownership contract. Fail closed without signalling a numeric PGID.
                     leaderExitObserved = true;
                     ownershipAnchorLost = true;
                     return true;
+                }
+                if (result < 0 && !observationErrorRecorded) {
+                    observationErrorRecorded = true;
+                    trace(Network::HostDiagnosticEvent::ObservationError, errno);
                 }
                 return false;
             }
@@ -753,6 +771,11 @@ namespace Duel6::Client {
             }
 
             pid_t process = 0;
+            std::shared_ptr<Network::HostServiceDiagnostics> diagnostics;
+            bool observationErrorRecorded = false;
+            void trace(Network::HostDiagnosticEvent event, std::int64_t b = 0, std::int64_t c = 0) noexcept {
+                if (diagnostics) diagnostics->record(event, process, b, c);
+            }
             int statusRead = -1;
             int controlWrite = -1;
             std::mutex controlMutex;
@@ -941,7 +964,7 @@ namespace Duel6::Client {
         }
         reservation.released = true;
         return std::make_unique<ExclusiveHostServiceChild>(
-                std::make_unique<PosixHostServiceChild>(process, statusPipe[0], controlPipe[1]));
+                std::make_unique<PosixHostServiceChild>(process, statusPipe[0], controlPipe[1], config.diagnostics));
 #endif
     }
 }

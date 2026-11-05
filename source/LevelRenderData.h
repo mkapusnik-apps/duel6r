@@ -31,6 +31,7 @@
 #include "Type.h"
 #include "FaceList.h"
 #include "Level.h"
+#include "ArenaAnimationClock.h"
 
 namespace Duel6 {
     class LevelRenderData {
@@ -40,17 +41,24 @@ namespace Duel6 {
         FaceList walls;
         FaceList sprites;
         FaceList water;
-        Float32 animationSpeed;
-        Float32 animWait;
+        ArenaAnimationClock referenceClock;
+        const Block *surfaceBlock = nullptr;
+        Int32 surfaceLevel = -1;
+        bool surfaceRaising = false;
 
     public:
-        LevelRenderData(const Level &level, Renderer &renderer, Float32 animationSpeed);
+        LevelRenderData(const Level &level, Renderer &renderer);
 
         void generateFaces();
 
         void generateWater();
 
         void update(Float32 elapsedTime);
+
+        // Geometry-only network adapter. Never mutates or simulates the level.
+        void setWaterSurface(const Block &block, Int32 top, bool raising);
+        void setAnimationTime(Float32 seconds);
+        void setAnimationState(const ArenaAnimationState &state);
 
         FaceList &getWalls() {
             return walls;
@@ -77,6 +85,8 @@ namespace Duel6 {
         }
 
     private:
+        const Block &waterBlockAt(Int32 x, Int32 y) const;
+        bool waterAt(Int32 x, Int32 y) const;
         void addWallFaces();
 
         void addSpriteFaces();

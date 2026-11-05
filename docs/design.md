@@ -7,7 +7,7 @@ Screen-specific requirements are in [`docs/screens`](screens/README.md).
 Screenshot evidence is in [`docs/screenshots`](screenshots/README.md).
 The root [`DESIGN.md`](../DESIGN.md) is a pointer to this file and is not a second source of truth.
 
-The current NET-01 through NET-10 visual requirements are in [Unified network presentation](#unified-network-presentation). The [network capture matrix and assessment](design/screenshots/README.md#network-presentation-current-capture-matrix) accept all 16 representatives for their supplied states at reviewed source `a740254ee6ceaf5b55914abdf695e76f4766c1fd`: five new captures and eleven unchanged captures retaining original `e5f5517a56c426104f4cfb73c19058844db0d874` provenance. V-01 through V-05 are closed; V-02 used the product-approved localized counter correction. The manifest owns exact hashes and acceptance limits. Earlier network acceptance below and in historical packets applies only to the earlier presentation.
+The current NET-01 through NET-10 visual requirements are in [Unified network presentation](#unified-network-presentation). The approved [shared final presentation](#shared-final-presentation) replaces the separate OVER-03 and NET-06 shells. [Arena parity](#local-and-network-arena-parity) uses Local Play as the reference, not the defective network presentation. The [current coordinated matrix](design/screenshots/README.md#arena-parity-and-shared-final-presentation) owns new evidence coverage. Earlier assessments retain their original source and scope; they do not accept these changed surfaces.
 
 The approved product requirements are the source of truth for visual-impact changes.
 The current native implementation remains the source for unchanged visual details.
@@ -67,7 +67,8 @@ Issue #38 owns the graphical consumption, presentation, accessibility, and visua
 - Standard menu, console, message, ranking, counter, and version text must use the same loaded typeface.
 - Standard UI text must render at a 16 px character height unless the source specifies another size.
 - Standard text measurement must use an effective character width of one half of the text height.
-- Round and game score summaries must use a 32 px character height.
+- Non-final round score summaries must use a 32 px character height.
+- Final summaries must use the type sizes in [Shared final presentation](#shared-final-presentation).
 - In-world player labels and ammunition values must use the world-space 0.3 unit text height.
 - Text must keep the exact capitalization and abbreviations that the implementation supplies.
 - A missing font is a fatal resource error in the current implementation.
@@ -145,29 +146,12 @@ The following values come from renderer and GUI source.
 - The separator rule must span the score-table width.
 - The separator band must use 3 px of clear inner-panel space above and below the rule.
 - A Team score overview must not add a separator band after the last team group.
-- The separator treatment must apply to the active-round Tab scoreboard, the non-final post-round Team summary, and the final limited Team summary.
+- This separator treatment must apply to the active-round Tab scoreboard and the non-final post-round Team summary.
+- Final Team grouping must follow UX-FINAL-019 independently of the non-final table layout.
 - The separator treatment must support two through four teams.
 - The separator treatment must not change team colors, team names, row colors, score columns, ranking order, row alignment, controls, or round-progress behavior.
 - A non-Team score overview must remain unchanged.
-- A final limited Deathmatch or Team summary must show `End of Game` in a dedicated notice region at the bottom of the client.
-- The final-state notice must use white 32 px score-summary text on a solid `summary-header` surface.
-- The final-state notice must use at least 16 px of horizontal text padding and 8 px of vertical text padding.
-- The final-state notice must align to the horizontal center of the client.
-- The bottom edge of the final-state notice must be 16 px from the bottom client edge.
-- The final-state notice must keep at least 16 px of clear space from the final score panel.
-- The final-state notice must not overlap, clip, cover, replace, or reduce the final score content.
-- A final limited Deathmatch or Team summary must keep the final round counter in the top-center counter region.
-- The final round counter must use the same 32 px character height as the score heading.
-- The final round counter must use white text on its existing opaque black backing.
-- The final round counter backing must grow from the measured counter width and must keep visible inner space on each side of the text.
-- The final round counter backing must contain every counter character inside its visible bounds.
-- The layout must first use the available middle height to keep at least 16 px of clear space between the final round counter backing and the final score panel.
-- A score panel that fits in the available middle height must not overlap the final round counter backing.
-- A score panel that is taller than the available middle height may overlap only the final round counter backing.
-- An oversized score panel must use the minimum backing overlap needed after the layout uses the complete available middle height.
-- An oversized score panel must not obscure, clip, or reduce the contrast of the final round counter text or final score content.
-- The final round counter text and every score heading, row, value, and separator must remain readable when backing surfaces overlap.
-- The final round counter text, score content, and bottom notice must remain inside the client area.
+- Final summary allocation, counter, completion notice, containment, and overflow must follow [Shared final presentation](#shared-final-presentation).
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
 ## Imagery and assets
@@ -204,6 +188,41 @@ The following values come from renderer and GUI source.
 - The full-screen round end must fade in a dark red curtain.
 - The console cursor must blink between visible and hidden states.
 - Documentation must not add transition durations that source constants do not expose in the reviewed files.
+
+### Local and network arena parity
+
+This section owns the visual parity delta for PLAY-01 and NET-05. Functional authority is [PRES-ARENA-001–012 and PRES-ARENA-AC-001–005](screens/play-fullscreen.md#common-arena-presentation-contract), [NET-05](screens/network-match.md), ENV, BON, NET-VIS and REP-PRES-010 / REP-PRES-AC-005. Structural sources are [PLAY-01](design/wireframes/PLAY-01/PLAY-01.svg) and [NET-05](design/wireframes/NET-05/NET-05.svg). These SVGs clarify existing relationships; they do not redesign the local arena. Local renderer behavior at analytical source `ea95f306061e77725263d3f0eb35b4b29fe3778e` is the appearance reference for unchanged world properties. Earlier network-only orientation fixes do not freeze a defective projection, flat water, missing face, displaced anchor, or incorrect layer as approved intent.
+
+- **UX-ARENA-001** The network arena must match the local arena's whole-level framing, projection, scale, visible faces, depth relationships, and clipping for equal level, mirror state, and viewport.
+- **UX-ARENA-002** Both arenas must retain one undivided view without letterboxing, camera partitions, or a gameplay-area reduction for network status.
+- **UX-ARENA-003** Horizontal mirroring must preserve upright players, text, trees, and the vertical world axis.
+- **UX-ARENA-004** Terrain, decorative anchors and chains, tree roots, elevator supports, and moving platforms must use the local world-space attachment relationships.
+- **UX-ARENA-005** Moving platforms and carried players must retain their supporting contact without a second offset or detached visual platform.
+- **UX-ARENA-006** Network water must match local water coverage, surface and side faces, texture scale, translucency, tint, and occlusion for equivalent water state.
+- **UX-ARENA-007** Water texture motion must remain continuous during ordinary active play rather than freeze between snapshots or restart on each update.
+- **UX-ARENA-008** A water-level change must follow the accepted gameplay state and the local visible rise treatment without speculative extra water or a delayed static plane.
+- **UX-ARENA-009** Quick Liquid and ordinary liquid must retain their distinct local temporal presentation when their functional states differ.
+- **UX-ARENA-010** World overlap must preserve the local relationships among geometry, decorations, elevators, pickups, players, weapons, water, indicators, shots, and explosions.
+- **UX-ARENA-011** Player and entity animations must match the local default visual mapping for equivalent pose, facing, movement, action, and elapsed presentation phase.
+- **UX-ARENA-012** A held weapon must keep its local visible footprint and attachment through stand, movement, crouch, firing, jump, and landing.
+- **UX-ARENA-013** Firing, hit, death, pickup, bonus, explosion, start-fade, and location effects must retain the local visual cue and event timing relationship.
+- **UX-ARENA-014** An idle player without an authoritative firing action must not display a continuous firing animation.
+- **UX-ARENA-015** Team color, Predator body opacity, Invisibility on body and held weapon, and invulnerability indicators must retain their distinct approved meanings.
+- **UX-ARENA-016** Events must keep the local upper-left anchor, finite-round progress the top-center anchor, and live ranking the upper-right anchor.
+- **UX-ARENA-017** Player names, ammunition, and status bars must remain upright, readable, and attached to the same local-relative world positions and scale.
+- **UX-ARENA-018** Network-specific role, connection, waiting, degraded, and session-action regions must retain their current compact allocation without displacing the local HUD.
+- **UX-ARENA-019** A retained network arena must preserve the last accepted world's appearance without reconstructing a different level, background, mirror state, or local profile.
+- **UX-ARENA-020** Network presentation must not create gameplay state, simulate a second world, or replay an already presented event to obtain parity.
+- **UX-ARENA-021** Blue, red, and green water must retain the matching local material and animation speed for the authoritative type.
+- **UX-ARENA-022** Status text and bar proportions must show the same user-facing quantities as Local Play rather than encoded transport magnitudes.
+- **UX-ARENA-023** A water-entry splash and an intact, burning, or fully burned tree must retain their local visible state and age relationship.
+- **UX-ARENA-024** Water, player, and other world animations must stop in the frozen round-end phase while the countdown and curtain remain responsive.
+- **UX-ARENA-025** Restored current context must show the current effect age without restarting an old burn or splash.
+- **UX-ARENA-026** Next-round presentation must clear prior transient effects without carrying burned or animated state into a fresh round incorrectly.
+
+Compare equivalent visual states, not unrelated screenshots or random decoration choices. Match level, mirror, viewport, default-compatible assets, water level, facing and pose; disclose remaining differences. Local profile customization remains local. Existing default network visuals and deterministic background fallback remain binding, so equal local and network random backgrounds or profile skins are not acceptance criteria. Random cosmetic choices need equivalent resource/attachment behavior, not a newly shared gameplay seed. Network Host and Guest must agree for the same complete state; cosmetic phase differences must not conceal stalled water or a wrong action animation.
+
+The local rendering order remains the reference, including translucent water over world content and readable indicators above it. A low-fidelity SVG cannot establish concrete water color, material blending, animation speed, or exact projection. Use actual local originals and source-tied temporal comparison from the [matrix](design/screenshots/README.md#arena-parity-and-shared-final-presentation). Apply the same world rules beneath unchanged score, waiting, confirmation, reconnect, and intentional-end overlays. Their existing controls and state transitions remain unchanged. Do not expand this restoration into new lighting, assets, camera behavior, or a HUD redesign.
 
 ## Components and interaction states
 
@@ -291,7 +310,7 @@ These numbered requirements take precedence over conflicting older appearance ex
 - **UX-NET-020** A constrained body must reduce its visible row count before it reduces text size or moves fixed status and actions off screen.
 - **UX-NET-021** Each list or result viewport must contain long values without splitting UTF-8 characters and expose only the scrolling and position feedback supported in its current interaction context.
 - **UX-NET-022** Contextual panels must use the same grey surface, blue heading strip, and framed actions while retaining their existing client-relative placement and underlying context.
-- **UX-NET-023** Live network status, world rendering, ranking, player indicators, and arena camera must retain their existing gameplay presentation.
+- **UX-NET-023** Live network status must retain its existing gameplay presentation; world rendering and gameplay HUD must meet [Local and network arena parity](#local-and-network-arena-parity).
 - **UX-NET-024** Keyboard, controller, pointer, baseline focus traversal and retention, modal focus, and confirmation-arming semantics must remain unchanged.
 
 Focus and availability are separate states. A disabled control that has baseline focus must retain the focus keyline, flat frame, readable label, and existing reason without accepting activation. This rule does not add disabled controls to traversal where the baseline skips them. NET-04-R must explain its existing host reorder access path without making its focus-dependent action permanently clickable. NET-05-S has no supported scroll handlers; its retained position information must remain non-actionable under UX-NET-05-008. Working navigation in NET-04-R, NET-06, and NET-05-R remains unchanged.
@@ -311,19 +330,68 @@ NET-04 and NET-04-R use the bounded [host game-settings mapping](design/screens/
 - **UX-NET-AC-07** Styling must not expose unavailable actions or change activation, focus order, role permissions, admission, readiness, result semantics, or recovery destinations.
 - **UX-NET-AC-08** All 16 wireframes in the current matrix must have one reviewed native implementation representative before visual acceptance.
 
+##### Shared final presentation
+
+This section is the single appearance owner for completed finite matches in OVER-03 and NET-06, including Predator. This is an approved whole-screen UX change, not an arena redesign or a shared table inside the old shells. Functional authority is [SUMMARY-VIEW-001–007 and SUMMARY-VIEW-AC-001–005](screens/overlay-game-over.md#common-final-screen-contract), [NET-06](screens/network-summary.md), UI-GAME, SCO-022–023 and the network result contracts. The owning bindings are [OVER-03](design/screens/OVER-03.md) and [NET-06](design/screens/NET-06.md). Their SVGs show one desktop layout with mode-specific content and role-specific footers. Active Tab and non-final round summaries are outside this layout change.
+
+The shared shell uses the existing local arena, dark-red curtain and translucent score vocabulary. It removes the network menu canvas, banner, photographic menu background and white result card. Compact standard text keeps large rosters usable; 32 px SCORE, round counter and End of Game retain the local hierarchy. The updated SUMMARY-VIEW and UI-GAME contracts remove the older top-counter/oversized-overlap/Predator exclusions. Approved [SUMMARY-LOCAL-NAV-001–005](screens/overlay-game-over.md#local-completed-result-navigation) resolve local overflow input; SUMMARY-VIEW-AC-006–007 own its acceptance. No functional integration question remains.
+
+- **UX-FINAL-001** Both final screens must use the complete final arena as their full-client background.
+- **UX-FINAL-002** Both final screens must use the same dark-red winner curtain behind all final-result content.
+- **UX-FINAL-003** The shell must not replay round-entry effects or replace the retained arena with a menu background.
+- **UX-FINAL-004** The shell must present, in order, the SCORE heading and final round counter, result scope, match outcome, last completed-round outcome, result body, role-specific footer, and End of Game notice.
+- **UX-FINAL-005** The shell must use one centered score panel with 16 px minimum client-edge clearance and a maximum width of 1184 client px.
+- **UX-FINAL-006** The panel must start 16 px below the top client edge and end 136 px above the bottom client edge.
+- **UX-FINAL-007** The SCORE heading must occupy the left part of a 40 px title strip and the final round counter must align to its right part.
+- **UX-FINAL-008** The heading and counter must use 32 px text with separate bounds and at least 16 px between them.
+- **UX-FINAL-009** The counter must use measured opaque black backing with at least 8 px of horizontal inner space around its complete text.
+- **UX-FINAL-010** The panel must use `summary-outer`, `summary-inner`, and `summary-header` rather than a menu canvas or white list card.
+- **UX-FINAL-011** Fixed scope and outcome rows must use standard 16 px white text above the result body.
+- **UX-FINAL-012** Network scope must show `Completed`, `Session only`, and `Not saved to local statistics or Elo` without scrolling.
+- **UX-FINAL-013** Local scope must identify `Local Play` without a session-only disclaimer or an unverified saved-results claim.
+- **UX-FINAL-014** Match outcome and last completed-round outcome must use separate explicit labels even when their values are equal.
+- **UX-FINAL-015** An outcome that does not fit one fixed row must use a bounded winner count and `See outcome rows` with complete identities in the result body.
+- **UX-FINAL-016** The result body must keep outcome identities separate from the section labeled `Cumulative ranking`.
+- **UX-FINAL-017** A cumulative leader must not receive champion, trophy, winner emphasis, or another cue that substitutes for the outcome.
+- **UX-FINAL-018** Result rows must use standard 16 px text and an 18 px row pitch in both local and network finals.
+- **UX-FINAL-019** A final Team table must keep each team row adjacent to its nested player rows with an 8 px separator band containing a centered 2 px `team-group-separator` rule between teams only.
+- **UX-FINAL-020** Table headings must remain visible while their table rows scroll.
+- **UX-FINAL-021** Overflow must remain inside the result body without reducing text size or moving fixed outcomes, footer, or completion notice.
+- **UX-FINAL-022** Every required identity and value must remain accessible without splitting UTF-8 characters or substituting an ellipsis for the only complete value.
+- **UX-FINAL-023** The result body must show row and horizontal-position feedback when content extends beyond its bounds.
+- **UX-FINAL-024** The footer must reserve a 40 px action row from 120 to 80 px above the bottom client edge.
+- **UX-FINAL-025** Network actions must use the existing grey raised buttons and non-color focus keyline in this shared footer.
+- **UX-FINAL-026** Local footer content must remain noninteractive except for product-approved result navigation.
+- **UX-FINAL-027** The exact notice `End of Game` must use centered white 32 px text on `summary-header`, with 16 px horizontal and 8 px vertical padding, and a bottom inset of 16 px.
+- **UX-FINAL-028** The final panel, action row, and completion notice must keep separate bounds with at least 16 px vertical gaps.
+- **UX-FINAL-029** The same shell must contain two through 15 local players, permitted network solo results, departed result identities, and two through four Team groups.
+- **UX-FINAL-030** A completed no-winner result must show `No winner` without promoting a surviving, departed, or highest-ranked player.
+- **UX-FINAL-031** Final results must stay above background HUD and events so that no live ranking or event text crosses a fixed result row, body, footer, or notice.
+- **UX-FINAL-032** Underlying gameplay indicators must not add duplicate final outcomes or another final counter.
+- **UX-FINAL-033** Network confirmations and reconnect or terminal panels must retain the actual common summary beneath them rather than restore the retired menu shell.
+- **UX-FINAL-034** Final table labels and values must use white text on the shared score surfaces, with named Team groups and optional existing team-color swatches rather than winner-like emphasis on ranked players.
+
+Allocation uses client pixels, not the 850 × 700 menu transform. Inside the panel, keep 16 px side padding. The title strip starts 2 px inside the panel. Scope has two reserved 16 px lines starting at client y=66. Match outcome and last-round outcome occupy 18 px lines at y=102 and y=120. The body starts at y=146 and ends 16 px above the panel bottom. Its heading, rows, and navigation all stay inside these bounds. At 850 × 700 this leaves 402 px for the result body; at 1280 × 720 it leaves 422 px. More height increases the visible body, not type size. The width remains centered and bounded at 1920 × 1080. There is no mobile reflow or side-by-side result layout.
+
+Outcome rows precede separately labeled cumulative ranking, settings and per-round detail sections where those data exist in the functional contract. Outcome rows may be omitted only when the complete outcome is already visible above. Local K, A, D, K/D and PTS remain present; network retains every required statistic and metadata field. Different data availability must not create an alternate shell or fabricate missing local per-round history. Numeric columns align right. Identity columns align left and receive remaining width after fixed numeric columns. Network identity, owner and Departed remain explicit; frozen left identity columns are not a new requirement. Complete long values remain accessible through the existing network horizontal navigation and the product-approved local overflow rule.
+
+Read-only status does not receive focus or look like a button. Network initial action focus and Return to lobby → End session / Leave ordering remain unchanged. Place host actions left to right in that order; keep Guest waiting copy after Completed and Session only in the first scope line and Leave in the first action position. The exact waiting phrase plus these short scope labels fits the 850 px floor at standard 16 px text; the persistence disclaimer stays on the second scope line. Local exit timing, Escape and Shift+Escape remain product-owned; do not add a clickable Exit or import network confirmation semantics. Keep the local action allocation blank, without new exit-key copy. A blank role-specific action allocation does not collapse or move the shared panel or notice. Network table navigation keeps its current supported inputs; local navigation follows SUMMARY-LOCAL-NAV-001–005 through its screen binding, without a new controller binding. Focus and pointer regions must coincide with displayed controls at every supported client size.
+
+Acceptance: compare local and network finals at equal viewport. Background treatment, panel allocation, heading/counter relationship, fixed identity hierarchy, typography, body bounds and completion notice must match. Only actual outcomes, available result fields, persistence copy and role-permitted controls differ. Test final winner different from cumulative leader, no winner, 15 players/four teams, 14 Predator winners, long names, departed identities, both scroll extremes and a permitted solo completion. No old menu banner or oversized overlapping local score shell may remain.
+
 ##### NET-06 — Completed summary presentation
 
-Functional authority: [NET-06](screens/network-summary.md), including NET-AC-010, NET-AC-011, and NET-AC-014–018. Structural authority: existing [NET-06 diagram](screens/wireframes/network-summary.md). This owning section specifies the changed styling and allocation without moving the legacy document. The current implementation uses a menu summary context; the diagram's older arena-background example does not require a context change.
+Functional authority: [NET-06](screens/network-summary.md), including NET-AC-010, NET-AC-011, and NET-AC-014–018. Structural authority: [NET-06 SVG](design/wireframes/NET-06/NET-06.svg). [Shared final presentation](#shared-final-presentation) owns the common shell; the older legacy diagram is historical for its superseded shell allocation.
 
-- **UX-NET-06-001** The summary must retain its menu canvas and banner rather than introduce an arena-background transition.
-- **UX-NET-06-002** The summary must present its title strip above fixed result-state, persistence, match-outcome, and last-round-outcome rows.
-- **UX-NET-06-003** The fixed identity rows must remain above a white inset result viewport with separately labeled outcome, settings, round, and cumulative sections.
-- **UX-NET-06-004** The result viewport must retain its sticky heading, horizontal scroll control, vertical navigation, and row/column position feedback.
-- **UX-NET-06-005** The result viewport must end at least 8 logical px above the host action column or guest waiting-status region.
-- **UX-NET-06-006** The host action column must retain Return to lobby before End session, while the guest footer retains waiting status and Leave.
-- **UX-NET-06-007** Outcome overflow must use the existing bounded winner-count heading and complete scrollable identity rows rather than a smaller font or winner emphasis on ranking rows.
+- **UX-NET-06-001** NET-06 must use the shared final arena shell without its old menu canvas or banner.
+- **UX-NET-06-002** NET-06 must keep the shared fixed result-state, persistence, match-outcome, and last-round-outcome rows.
+- **UX-NET-06-003** NET-06 must place complete outcome identities and all required result sections in the shared translucent result body.
+- **UX-NET-06-004** NET-06 must retain supported horizontal and vertical navigation, sticky table headings, and row/column position feedback.
+- **UX-NET-06-005** NET-06 must keep its result body above the fixed shared footer.
+- **UX-NET-06-006** The host footer must retain Return to lobby before End session, while the guest presentation retains waiting status and Leave.
+- **UX-NET-06-007** Outcome overflow must use the bounded winner-count heading and complete scrollable identity rows rather than a smaller font or winner emphasis on ranking rows.
 
-Acceptance: the Completed representative must expose outcome rows and persistent identity above the result body, with scrolling feedback and both host actions unobscured. Focused QA must check the guest footer, 14 Predator winners, departed identities, 64 UTF-8-byte names, and both scroll extremes. Confirmation uses NET-05-C's shared panel treatment without changing this screen's consequence copy or focus order.
+Confirmation uses NET-05-C's shared panel treatment without changing consequence copy, focus order, arming, permissions, or destinations. Dedicated context does not add endpoint or service-type result columns.
 
 ##### NET-07 — Reconnect presentation
 
@@ -463,7 +531,7 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - Trees must appear rooted below their crowns.
 - Visible player names and ammunition text must remain upright and readable near their player.
 - Terrain, water, entities, held weapons, effects, and player status must use consistent world placement.
-- An orientation correction must preserve the complete centered arena, existing scale, clipping bounds, render order, and visible faces.
+- Arena projection, scale, clipping bounds, render order, and visible faces must follow UX-ARENA-001–020; an earlier network defect is not a preservation requirement.
 - An orientation correction must preserve background selection and background orientation.
 - An orientation correction must preserve HUD placement, text wrapping, modal containment, focus order, and pointer regions.
 - An orientation correction must preserve Invisibility presentation under `BON-013` and the existing Predator presentation.
@@ -528,7 +596,7 @@ Acceptance: an accepted intentional host End notice must produce the representat
 
 - The arena must keep terrain, water, sprites, elevators, pickups, players, shots, and explosions in the implemented render order.
 - A live full-screen ranking must sit at the upper-right area in wireframe coordinates.
-- A round counter must sit at the top center in wireframe coordinates when a round limit exists.
+- A live round counter must sit at the top center in wireframe coordinates when a round limit exists; final progress must follow UX-FINAL-007–009.
 - An optional FPS counter must sit at the top right in wireframe coordinates.
 - Event messages must stack from the upper-left area in wireframe coordinates.
 - Player status must stay near the applicable player.
@@ -538,12 +606,7 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - Round kills must use blue point marks.
 - Team ranking must group named team rows and nested player rows.
 - Team score-overview groups must use the defined separator treatment in `OVER-01` and non-final `OVER-02`.
-- A final limited Team score overview must use the same separator treatment in `OVER-03`.
-- A final limited Deathmatch or Team score overview must show the literal `End of Game` in the defined bottom notice region.
-- A final limited Deathmatch or Team score overview must show its final round counter at the same character height as `---SCORE---`.
-- The final round counter backing must contain the complete counter.
-- The layout must separate the counter backing and score panel when the score panel fits in the available middle height.
-- An oversized score panel may overlap the counter backing without obscuring counter text or score content.
+- Final score overviews must follow UX-FINAL-001–034, including their independent Team grouping, bounded body, header counter and completion notice; non-final sizing and overlap rules must not govern the final shell.
 - Team identity must also change headband, trousers, and hair-top colors.
 - Predator identity must use a body alpha of 0.1 while the weapon remains visible.
 - Live ranking must remain available for every supported player count.

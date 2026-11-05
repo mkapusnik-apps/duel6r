@@ -575,14 +575,29 @@ assert len({event["entity"] for event in events if event["kind"] == "entity-spaw
 event_kinds = {}
 for event in events:
     event_kinds[event["kind"]] = event_kinds.get(event["kind"], 0) + 1
-assert event_kinds == GOLDEN["eventKinds"]
+assert event_kinds == GOLDEN["eventKinds"], {
+    "actual": event_kinds, "expected": GOLDEN["eventKinds"],
+    "events": events,
+}
 assert len(events) == GOLDEN["eventCount"]
+# Typed pickup creation precedes the generic spawn of the same identity.
+# These two additive presentation events do not change combat/RNG/state hashes.
+assert [event for event in events if event["kind"] in ("bonus-spawned", "weapon-spawned")] == [
+    {"sequence": 21, "tick": 182, "kind": "bonus-spawned", "entity": 283673999966209,
+     "player": 0, "target": 0, "category": "", "value": 0},
+    {"sequence": 41, "tick": 336, "kind": "weapon-spawned", "entity": 284773511593986,
+     "player": 0, "target": 0, "category": "", "value": 0},
+]
+for event in events:
+    if event["kind"] in ("bonus-spawned", "weapon-spawned"):
+        following = events[event["sequence"]]
+        assert following == dict(event, sequence=event["sequence"] + 1, kind="entity-spawned")
 assert next(event for event in events if event["kind"] == "player-died") == {
-    "sequence": 36, "tick": 335, "kind": "player-died", "entity": 282574488338438,
+    "sequence": 37, "tick": 335, "kind": "player-died", "entity": 282574488338438,
     "player": 101, "target": 201, "category": "life-delta", "value": -10,
 }
 assert next(event for event in events if event["kind"] == "player-killed") == {
-    "sequence": 37, "tick": 335, "kind": "player-killed", "entity": 282574488338438,
+    "sequence": 38, "tick": 335, "kind": "player-killed", "entity": 282574488338438,
     "player": 201, "target": 101, "category": "kill-count", "value": 1,
 }
 

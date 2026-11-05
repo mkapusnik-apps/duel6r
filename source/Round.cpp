@@ -31,6 +31,8 @@
 #include "Game.h"
 #include "GameException.h"
 #include "GameMode.h"
+#include "gamemodes/Predator.h"
+#include "gamemodes/TeamDeathMatch.h"
 #include "Weapon.h"
 #ifndef D6R_HEADLESS_CORE
 #include "PersonProfile.h"
@@ -175,6 +177,18 @@ namespace Duel6 {
         // still completes normally with no winner.
         if (game.isHeadless() && !headlessOpposition && !alivePlayers.empty()) return;
         if (game.getMode().checkRoundOver(world, alivePlayers)) {
+            // Freeze the actual outcome now: the active end-delay can still kill
+            // a survivor. Ranking and later living membership cannot replace it.
+            const auto *team = dynamic_cast<const TeamDeathMatch *>(&game.getMode());
+            const auto *predator = dynamic_cast<const Predator *>(&game.getMode());
+            std::vector<MatchResultRules::Survivor> survivors;
+            for (const auto *player: alivePlayers)
+                survivors.push_back({player->getRosterSlot() + 1,
+                        team ? team->teamNumber(*player) : std::uint8_t(0),
+                        predator && predator->getPredator() == player});
+            establishedOutcome = MatchResultRules::evaluateSurvivors(team ? MatchResultRules::Mode::TeamDeathmatch
+                    : predator ? MatchResultRules::Mode::Predator : MatchResultRules::Mode::Deathmatch,
+                    survivors, !game.isHeadless() || headlessOpposition);
             winner = true;
             world.emitGameplayEvent({"round-ended"});
             gameOverWait = D6_GAME_OVER_WAIT;

@@ -189,8 +189,6 @@ namespace Duel6::Server::Authoritative {
             previousWaterLevel = 0;
             previousSuddenDeath = false;
             previousRoundOver = false;
-            activeEffects.clear();
-            effectsOverflowed = false;
             sourceEventsEnabled = false;
             if (!initialized) {
                 resources = std::make_unique<GameResources>();
@@ -264,28 +262,11 @@ namespace Duel6::Server::Authoritative {
                           | (category << 40u) | event.localEntityId;
                 const Identity player = playerId(event.playerRosterSlot);
                 const Identity target = playerId(event.targetRosterSlot);
-                const std::uint64_t sequence = nextEventSequence;
                 if (event.kind == "reload-completed" || event.kind == "weapon-charge-ready"
                     || event.kind == "weapon-charge-released" || event.kind == "bonus-expired"
                     || event.kind == "temporary-slowdown-expired" || event.kind == "air-level-changed")
                     appendTransition(event.kind, entity, player, target, event.valueCategory, event.value);
                 else appendEvent(event.kind, entity, player, target, event.valueCategory, event.value);
-                if (nextEventSequence != sequence + 1u) return;
-                if (event.kind == "explosion") {
-                    const auto location = canonicalPlayersById.find(target ? target : player);
-                    std::int64_t x = 0, y = 0;
-                    if (location != canonicalPlayersById.end()
-                        && fixedValue(location->second->getCentre().x, x)
-                        && fixedValue(location->second->getCentre().y, y))
-                        appendContinuingEffect("explosion", sequence, player, x, y, 69);
-                } else if (event.kind == "tree-burned" && event.localEntityId != 0) {
-                    const auto &fires = game->getRound().getWorld().getFireList().values();
-                    const std::size_t index = static_cast<std::size_t>(event.localEntityId - 1u);
-                    std::int64_t x = 0, y = 0;
-                    if (index < fires.size() && fixedValue(fires[index].getCentre().x, x)
-                        && fixedValue(fires[index].getCentre().y, y))
-                        appendContinuingEffect("fire", sequence, player, x, y, 147);
-                }
             });
             sourceEventsEnabled = true;
 
@@ -485,25 +466,9 @@ namespace Duel6::Server::Authoritative {
                                    playerId, targetPlayerId, std::move(valueCategory), value});
     }
 
-    void CanonicalMatchRuntime::appendContinuingEffect(std::string type, std::uint64_t sequence,
-            Identity ownerPlayerId, std::int64_t positionX, std::int64_t positionY, Tick duration) {
-        if (type.empty() || sequence == 0 || duration == 0 || worldTick > MaxMatchTicks
-            || duration > MaxMatchTicks - worldTick) return;
-        if (activeEffects.size() >= MaxCanonicalEvents) {
-            effectsOverflowed = true;
-            return;
-        }
-        CanonicalContinuingEffectSnapshot effect;
-        effect.stableId = (static_cast<std::uint64_t>(authoritativeRound) << 48u)
-                          | (UINT64_C(7) << 40u) | sequence;
-        effect.type = std::move(type); effect.ownerPlayerId = ownerPlayerId;
-        effect.positionX = positionX; effect.positionY = positionY; effect.remainingTicks = duration;
-        activeEffects.push_back({std::move(effect), worldTick + duration});
-    }
-
     CanonicalWorldSnapshot CanonicalMatchRuntime::snapshot() {
         CanonicalWorldSnapshot result;
-        if (!game || effectsOverflowed) return result;
+        if (!game) return result;
         const auto &players = game->getPlayers();
         const World &world = game->getRound().getWorld();
         const std::uint64_t roundIdentity = static_cast<std::uint64_t>(authoritativeRound) << 48u;
@@ -517,14 +482,34 @@ namespace Duel6::Server::Authoritative {
         result.worldTick = worldTick;
         result.waterLevel = world.getLevel().getWaterLevel();
         result.waterRaising = world.getLevel().isRaisingWater();
+        result.animation = world.getArenaAnimationState();
+        if (!fixedValue(world.getTime(), result.worldTime)) return {};
+        const Water *liquid = world.getLevel().getRisingWaterType();
+        result.waterType = liquid == Water::BLUE ? LiquidKind::Blue
+                         : liquid == Water::RED ? LiquidKind::Red
+                         : liquid == Water::GREEN ? LiquidKind::Green : LiquidKind::None;
         result.suddenDeath = game->getRound().isSuddenDeath();
-        activeEffects.erase(std::remove_if(activeEffects.begin(), activeEffects.end(), [&](const auto &effect) {
-            return effect.expiresAt <= worldTick;
-        }), activeEffects.end());
-        result.effects.reserve(activeEffects.size());
-        for (const auto &active: activeEffects) {
-            auto effect = active.snapshot;
-            effect.remainingTicks = active.expiresAt - worldTick;
+        for (const auto &sprite: world.getSpriteList().values()) {
+            if (sprite.getEffectType().empty() || sprite.isFinished()) continue;
+            CanonicalContinuingEffectSnapshot effect;
+            effect.stableId = entityIdentity(7, sprite.getStableId());
+            effect.type = sprite.getEffectType();
+            effect.visual = sprite.visualState();
+            effect.positionX = effect.visual.geometry[0]; effect.positionY = effect.visual.geometry[1];
+            effect.remainingTicks = (sprite.remainingReferenceTicks() * 2 + 2) / 3;
+            result.effects.push_back(std::move(effect));
+        }
+        for (const auto &ring: world.getExplosionList().values()) {
+            CanonicalContinuingEffectSnapshot effect;
+            effect.stableId = entityIdentity(8, ring.stableId);
+            effect.type = "explosion-ring";
+            if (!fixedValue(ring.centre.x, effect.positionX) || !fixedValue(ring.centre.y, effect.positionY)
+                || !fixedValue(ring.now, effect.visual.geometry[3])
+                || !fixedValue(ring.max, effect.visual.geometry[4])) return {};
+            effect.visual.geometry[0] = effect.positionX; effect.visual.geometry[1] = effect.positionY;
+            effect.visual.ageTicks = ring.ageTicks;
+            effect.visual.color = {ring.color.getRed(), ring.color.getGreen(), ring.color.getBlue(), ring.color.getAlpha()};
+            effect.remainingTicks = static_cast<Tick>(std::max(1.0f, std::ceil((ring.max - ring.now) * 60 / D6_EXPL_SPEED)));
             result.effects.push_back(std::move(effect));
         }
         result.players.reserve(roster.size());
@@ -566,7 +551,7 @@ namespace Duel6::Server::Authoritative {
             player.invulnerable = players[index].isInvulnerable();
             // Invisibility is translucent presentation, not entity omission. It
             // applies to body and weapon; Predator alone keeps its body-only alpha.
-            player.visible = true;
+            player.visible = players[index].isBodyVisible();
             const Float32 bodyAlpha = players[index].getBonus() == BonusType::INVISIBILITY
                                       ? 0.2f : players[index].getBodyAlpha();
             player.presentationAlpha = static_cast<std::uint8_t>(
@@ -596,6 +581,35 @@ namespace Duel6::Server::Authoritative {
             result.players.back().air = air;
             result.players.back().bonusRemaining = bonusRemaining;
             result.players.back().temporarySlowdownRemaining = slowdownRemaining;
+            if (!fixedValue(players[index].getBonusDuration(), result.players.back().bonusDuration)
+                || !fixedValue(players[index].getReloadInterval(), result.players.back().reloadDuration)) return {};
+            auto &exported = result.players.back();
+            const auto indicators = players[index].getIndicators().values();
+            for (std::size_t indicator = 0; indicator < indicators.size(); ++indicator) {
+                if (!indicators[indicator]->isVisible()) continue;
+                Float32 elapsed = indicators[indicator]->getElapsed();
+                Float32 total = indicators[indicator]->getTotal();
+                if (!std::isfinite(elapsed) || !std::isfinite(total)) return {};
+                // Natural expiry retains a negative fade overshoot. A later show
+                // can reactivate it after Player::update (e.g. world shot damage).
+                // Preserve the live/local clock, including its delayed fade-in;
+                // project only this one-authority-tick transient to zero opacity.
+                // One Q16 unit allows float subtraction at the expiry boundary.
+                constexpr Float32 maximumOvershoot = 1.0f / FixedTickRate + 1.0f / 65536;
+                if (elapsed < 0 && elapsed >= -maximumOvershoot
+                    && total - elapsed >= Indicator::FADE_DURATION) {
+                    elapsed = 0;
+                    // At show(FADE_DURATION), total can be just below the fade
+                    // interval. Keeping that total would select fade-out instead.
+                    total = std::max(total, Indicator::FADE_DURATION);
+                }
+                if (!fixedValue(elapsed, exported.hudIndicators[indicator].elapsed)
+                    || !fixedValue(total, exported.hudIndicators[indicator].total)) return {};
+            }
+            if (!fixedValue(players[index].getDimensions().x, exported.width)
+                || !fixedValue(players[index].getDimensions().y, exported.height)) return {};
+            exported.roundKills = players[index].getRoundKills();
+            exported.animation = players[index].getAnimationState();
             digestValue(digest, definition.playerId);
             digestValue(digest, definition.rosterOrder);
             digestValue(digest, result.players.back().spawnIdentity);
@@ -691,6 +705,9 @@ namespace Duel6::Server::Authoritative {
             if (!fixedValue(bonus.getPosition().x, entity.positionX)
                 || !fixedValue(bonus.getPosition().y, entity.positionY)) return {};
             result.pickups.push_back(entity); currentEntities.insert(entity.stableId);
+            // Preserve authoritative kind across paced captures, including cap
+            // eviction without consumption. This precedes the generic lifecycle.
+            if (!previousEntities.count(entity.stableId)) appendEvent("bonus-spawned", entity.stableId);
         }
         for (const LyingWeapon &weapon: world.getBonusList().getWeapons()) {
             CanonicalEntitySnapshot entity;
@@ -700,6 +717,7 @@ namespace Duel6::Server::Authoritative {
                 || !fixedValue(weapon.getPosition().y, entity.positionY)
                 || !fixedValue(weapon.remainingReloadTime, entity.secondaryValue)) return {};
             result.pickups.push_back(entity); currentEntities.insert(entity.stableId);
+            if (!previousEntities.count(entity.stableId)) appendEvent("weapon-spawned", entity.stableId);
         }
         std::uint64_t localId = 1;
         for (const Elevator &elevator: world.getElevatorList().values()) {
@@ -722,6 +740,7 @@ namespace Duel6::Server::Authoritative {
             CanonicalEntitySnapshot entity;
             entity.stableId = entityIdentity(5, localId++); entity.kind = "tree";
             entity.type = std::to_string(fire.getType().getId()); entity.active = !fire.isBurned();
+            entity.primaryValue = fire.getSprite()->getAnimation()[fire.getSprite()->getFrame()];
             if (!fixedValue(fire.getPosition().x, entity.positionX)
                 || !fixedValue(fire.getPosition().y, entity.positionY)) return {};
             result.trees.push_back(entity); currentEntities.insert(entity.stableId);
@@ -776,8 +795,6 @@ namespace Duel6::Server::Authoritative {
         canonicalPlayersById.clear();
         heldInputsByPlayerId.clear();
         departedPlayerIds.clear();
-        activeEffects.clear();
-        effectsOverflowed = false;
         mode.reset();
         settings.reset();
     }

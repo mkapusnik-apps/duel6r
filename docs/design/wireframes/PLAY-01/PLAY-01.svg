@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1040" viewBox="0 0 1280 1040">
+  <title>PLAY-01 — Existing local shared arena structure</title>
+  <desc>Top-left wireframe coordinates. One full-client arena with fixed screen-space events, progress and ranking. World-space attachments and translucent-water relationships are schematic, not a new level or concrete visual styling.</desc>
+  <rect width="1280" height="1040" fill="white"/>
+  <g fill="none" stroke="black" stroke-width="2">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <rect x="8" y="8" width="280" height="64"/>
+    <rect x="510" y="8" width="260" height="36"/>
+    <rect x="1020" y="8" width="252" height="142"/>
+    <path d="M40 170 H1240 V850 H40 Z M40 170 V210 H1240 M40 810 H1240"/>
+    <path d="M100 210 V330 M112 210 V330 M100 240 H112 M100 275 H112 M100 310 H112"/>
+    <path d="M65 330 H360 V360 H65 Z M65 330 L80 318 H375 L360 330 M360 330 L375 318 V348 L360 360"/>
+    <path d="M230 330 V280 M206 280 L230 240 L254 280 Z"/>
+    <path d="M450 550 H840 V580 H450 Z M450 550 L465 538 H855 L840 550 M840 550 L855 538 V568 L840 580"/>
+    <path d="M1040 400 V790 M1060 400 V790" stroke-dasharray="6 5"/>
+    <rect x="990" y="635" width="120" height="18"/>
+    <rect x="550" y="500" width="26" height="50"/>
+    <rect x="576" y="515" width="34" height="8"/>
+    <circle cx="563" cy="491" r="9"/>
+    <rect x="540" y="444" width="180" height="24"/>
+    <rect x="540" y="474" width="110" height="8"/>
+    <rect x="730" y="511" width="22" height="22"/>
+    <path d="M650 519 H666 M900 580 L915 594 L934 578 L927 602 L950 611 L926 618 L932 640 L914 626 L895 640 L901 616 L880 610 L904 601 Z"/>
+    <path d="M40 748 Q120 733 200 748 T360 748 T520 748 T680 748 T840 748 T1000 748 T1160 748 H1240 V810 H40 Z" stroke-dasharray="8 4"/>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="18">
+    <text x="20" y="32">Events: player / event</text><text x="20" y="58">Existing message stack</text>
+    <text x="530" y="33">Rounds: current | limit</text>
+    <text x="1032" y="32">Live ranking: name | points</text>
+    <text x="1032" y="58">Player 1 | value</text><text x="1032" y="84">Player 2 | value</text><text x="1032" y="110">… all current entries</text>
+    <text x="400" y="123">Whole level and every player — one undivided view</text>
+    <text x="140" y="238">Anchor / chain</text><text x="264" y="280">Tree: root on support</text>
+    <text x="82" y="392">Terrain faces and attachment depth</text>
+    <text x="542" y="461">Name / ammunition</text><text x="620" y="504">Status bars</text>
+    <text x="520" y="603">Player feet on supporting face</text>
+    <text x="720" y="495">Pickup</text><text x="650" y="551">Shot</text>
+    <text x="985" y="682">Elevator</text><text x="875" y="668">Effect</text>
+    <text x="80" y="785">Water: local surface, side faces, motion and translucency over world content</text>
+    <text x="70" y="866">Named or existing local background behind the complete level</text>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="17">
+    <text x="20" y="932">ANNOTATIONS — not UI. PLAY-01 / active play. Local appearance and behavior remain unchanged.</text>
+    <text x="20" y="960">HUD anchors are client-relative; player status and all object attachments are world-relative. No page scrolling.</text>
+    <text x="20" y="988">The diagram shows relationships, not a replacement map, projection, sprite size, material, animation or production font.</text>
+    <text x="20" y="1016">UX-ARENA-001–026. Supports existing desktop sizes and 2–15 local players; no mobile or split-screen variant.</text>
+  </g>
+</svg>

@@ -29,12 +29,21 @@
 #define DUEL6_PLAYERANIMATIONS_H
 
 #include <string>
+#include "ArenaState.h"
+#include "Type.h"
+#ifndef D6R_HEADLESS_CORE
 #include "PlayerSkinColors.h"
 #include "TextureManager.h"
 #include "aseprite/animation.h"
+#endif
 
 namespace Duel6 {
+    // Texture-free default clip timing for authoritative cosmetic cursors. The
+    // entries use ordinal frames, not artwork indices. Regression tests compare
+    // every duration with the shipped default artwork consumed by the client.
+    Animation defaultPlayerAnimation(PlayerPose pose);
 
+#ifndef D6R_HEADLESS_CORE
     class PlayerAnimation {
     private:
         const std::vector<AnimationEntry> animation;
@@ -89,7 +98,10 @@ namespace Duel6 {
         const PlayerAnimation &getDying() const;
 
         const PlayerAnimation &getPick() const;
+
+        Animation forPose(PlayerPose pose) const;
     };
+#endif
 
 }
 

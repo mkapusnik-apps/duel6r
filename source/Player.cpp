@@ -34,6 +34,7 @@
 #include "InfoMessageQueue.h"
 #include "World.h"
 #include "Player.h"
+#include "PlayerAnimations.h"
 #include "BonusList.h"
 #include "Weapon.h"
 #include "ElevatorList.h"
@@ -43,6 +44,7 @@
 #include "math/Math.h"
 #ifndef D6R_HEADLESS_CORE
 #include "Video.h"
+#include "ArenaPresentation.h"
 #endif
 #include "PlayerEventListener.h"
 
@@ -101,6 +103,14 @@ namespace Duel6 {
 #endif
 
         this->weapon = weapon;
+        if (headless) {
+            canonicalBody.emplace(defaultPlayerAnimation(PlayerPose::Stand), Texture());
+            SpriteList temporary;
+            canonicalGun = *weapon.makeSprite(temporary);
+            presentationPose = PlayerPose::Stand;
+            canonicalDying = canonicalPicking = false;
+            presentationRemainder = 0;
+        }
 #ifndef D6R_HEADLESS_CORE
         if (!headless) gunSprite = weapon.makeSprite(world.getSpriteList());
 #endif
@@ -125,12 +135,10 @@ namespace Duel6 {
         water.headUnderWater = Water::NONE;
         water.feetInWater = Water::NONE;
 
-#ifndef D6R_HEADLESS_CORE
         indicators.hideAll(false);
         indicators.getName().show(4.0f);
         indicators.getBonus().show(bonusDuration);
         indicators.getBullets().show(4.0f);
-#endif
 
 #ifdef D6R_HEADLESS_CORE
         roundStartTime = 0;
@@ -237,9 +245,7 @@ namespace Duel6 {
             return;
 
 
-#ifndef D6R_HEADLESS_CORE
         indicators.getReload().show(timeToReload + Indicator::FADE_DURATION);
-#endif
 
         if (isReloading())
             return;
@@ -251,14 +257,13 @@ namespace Duel6 {
         }
 
         if (getBonus() != BonusType::INFINITE_AMMO) {
-#ifndef D6R_HEADLESS_CORE
             indicators.getBullets().show();
-#endif
             ammo--;
         }
 #ifndef D6R_HEADLESS_CORE
         if (!headless) gunSprite->setFrame(0);
 #endif
+        if (headless) canonicalGun->setFrame(0);
         getPerson().addShots(1);
         Orientation originalOrientation = getOrientation();
 
@@ -300,16 +305,23 @@ namespace Duel6 {
         unsetFlag(FlagMoveLeft | FlagMoveRight);
 
         this->weapon = weapon;
+        if (headless) {
+            SpriteList temporary;
+            canonicalGun = *weapon.makeSprite(temporary);
+            canonicalPicking = true;
+            canonicalBody->setLooping(AnimationLooping::OnceAndStop);
+            canonicalBody->setAnimation(defaultPlayerAnimation(PlayerPose::Pick)).setFrame(0);
+        }
         ammo = bullets;
         if (weapon.isChargeable()) {
             timeToReload = getReloadInterval();
         } else {
             timeToReload = remainingReloadTime;
         }
-#ifndef D6R_HEADLESS_CORE
         indicators.getReload().show(timeToReload + Indicator::FADE_DURATION);
         indicators.getBullets().show();
 
+#ifndef D6R_HEADLESS_CORE
         if (!headless) {
             world->getSpriteList().remove(gunSprite);
             gunSprite = weapon.makeSprite(world->getSpriteList());
@@ -400,9 +412,7 @@ namespace Duel6 {
         }
 
         if (controllerState & ButtonStatus) {
-#ifndef D6R_HEADLESS_CORE
             indicators.showAll(5.0f);
-#endif
         }
 
         if (isPickingGun()) {
@@ -524,9 +534,7 @@ namespace Duel6 {
         }
 
         // Move intervals
-#ifndef D6R_HEADLESS_CORE
         indicators.updateAll(elapsedTime);
-#endif
         if (isReloading()) {
             if (!weapon.isChargeable() || hasFlag(FlagShoot) || getChargeLevel() < 0.5) {
                 timeToReload = std::max(0.0f, getReloadTime() - elapsedTime);
@@ -581,111 +589,120 @@ namespace Duel6 {
         }
         if (static_cast<Int32>(std::ceil(airBefore)) != static_cast<Int32>(std::ceil(air)))
             world.emitGameplayEvent({"air-level-changed", {}, 0, rosterSlot, rosterSlot,
-                                     "air", static_cast<std::int64_t>(air * 65536.0f)});
+                                      "air", static_cast<std::int64_t>(air * 65536.0f)});
+        if (headless) {
+            // Cosmetic only: preserve Sprite's single-step/discarded-remainder
+            // semantics at the local 90 Hz cadence, not the host's 60 Hz cadence.
+            presentationRemainder += static_cast<double>(elapsedTime) * D6_UPDATE_FREQUENCY;
+            while (presentationRemainder + 1e-6 >= 1.0) {
+                canonicalBody->update(1.0f / D6_UPDATE_FREQUENCY);
+                canonicalGun->update(1.0f / D6_UPDATE_FREQUENCY);
+                presentationRemainder -= 1.0;
+            }
+        }
     }
 
     void Player::setAnm() {
 #ifdef D6R_HEADLESS_CORE
-        return;
+        Sprite &body = *canonicalBody, &gun = *canonicalGun;
 #else
-        if (headless) return;
-        Animation animation;
-        sprite->setSpeed(1.0f);
+        Sprite &body = headless ? *canonicalBody : *sprite;
+        Sprite &gun = headless ? *canonicalGun : *gunSprite;
+#endif
+        PlayerPose pose = presentationPose;
+        body.setSpeed(1.0f);
+        if (headless && canonicalPicking && body.isFinished()) canonicalPicking = false;
+        const bool picking = headless ? canonicalPicking : isPickingGun();
         if (!isAlive() && !isGhost()) {
             if (isLying()) {
-                if (isDying()) {
-                    if (sprite->getAnimation() == animations->getDying().get() && sprite->isFinished()) {
-                        unsetFlag(FlagDying);
-                        setFlag(FlagDead);
+                if (headless ? canonicalDying : isDying()) {
+                    if (presentationPose == PlayerPose::Dying && body.isFinished()) {
+                        if (headless) canonicalDying = false;
+                        else {
+                            unsetFlag(FlagDying);
+                            setFlag(FlagDead);
+                        }
                     }
-                    animation = animations->getDying().get();
+                    pose = PlayerPose::Dying;
                 } else { //dead
                     if (!collider.isOnHardSurface()) {
-                        animation = animations->getDeadFall().get();
+                        pose = PlayerPose::DeadFall;
                     } else {
-                        if (sprite->getAnimation() == animations->getDeadFall().get()) {
-                            animation = animations->getDeadHit().get();
-                            sprite->setLooping(AnimationLooping::OnceAndStop);
+                        if (presentationPose == PlayerPose::DeadFall) {
+                            pose = PlayerPose::DeadHit;
+                            body.setLooping(AnimationLooping::OnceAndStop);
                         } else {
-                            if (sprite->isFinished()) {
-                                animation = animations->getDeadLying().get();
-                            } else {
-                                animation = sprite->getAnimation();
-                            }
+                            if (body.isFinished()) pose = PlayerPose::DeadLying;
                         }
                     }
                 }
             } else {
-                sprite->setDraw(false);
-                animation = animations->getStand().get();
+                body.setDraw(false);
+                pose = PlayerPose::Stand;
             }
-        } else if (isPickingGun()) {
-            animation = animations->getPick().get();
+        } else if (picking) {
+            pose = PlayerPose::Pick;
         } else if (isKneeling()) {
-            animation = timeSinceHit < 0.5f ? animations->getHitDuck().get() : animations->getDuck().get();
-            sprite->setLooping(AnimationLooping::RepeatForever);
+            pose = timeSinceHit < 0.5f ? PlayerPose::HitDuck : PlayerPose::Duck;
+            body.setLooping(AnimationLooping::RepeatForever);
         } else if (isOnElevator()) {
             if (!isMoving()) {
-                animation = animations->getStand().get();
+                pose = PlayerPose::Stand;
             } else {
-                sprite->setSpeed(getVelocity().length());
-                animation = animations->getWalk().get();
-                sprite->setLooping(AnimationLooping::RepeatForever);
+                body.setSpeed(getVelocity().length());
+                pose = PlayerPose::Walk;
+                body.setLooping(AnimationLooping::RepeatForever);
             }
         } else if (!isOnGround()) {
             if (isRising()) {
-                animation = animations->getJump().get();
-                sprite->setLooping(AnimationLooping::RepeatForever);
+                pose = PlayerPose::Jump;
+                body.setLooping(AnimationLooping::RepeatForever);
             } else {
-                animation = animations->getFall().get();
-                sprite->setLooping(AnimationLooping::RepeatForever);
+                pose = PlayerPose::Fall;
+                body.setLooping(AnimationLooping::RepeatForever);
             }
-            sprite->setSpeed(getVelocity().length());
+            body.setSpeed(getVelocity().length());
         } else if (!isMoving()) {
-            animation = timeSinceHit < 0.5f ? animations->getHitStand().get() : animations->getStand().get();
+            pose = timeSinceHit < 0.5f ? PlayerPose::HitStand : PlayerPose::Stand;
         } else {
-            sprite->setSpeed(getVelocity().length());
-            animation = animations->getWalk().get();
-            sprite->setLooping(AnimationLooping::RepeatForever);
+            body.setSpeed(getVelocity().length());
+            pose = PlayerPose::Walk;
+            body.setLooping(AnimationLooping::RepeatForever);
         }
 
-        sprite->setPosition(getSpritePosition())
+        Animation animation = defaultPlayerAnimation(pose);
+#ifndef D6R_HEADLESS_CORE
+        if (!headless) animation = animations->forPose(pose);
+#endif
+        if (headless && pose != presentationPose) body.setFrame(0);
+        presentationPose = pose;
+        body.setPosition(getSpritePosition())
                 .setOrientation(getOrientation())
                 .setAnimation(animation)
                 .setAlpha(bodyAlpha * alpha);
 
-        gunSprite->setPosition(getGunSpritePosition(), 0.5f)
+        gun.setPosition(getGunSpritePosition(), 0.5f)
                 .setOrientation(getOrientation())
-                .setDraw(hasGun() && isAlive() && !isPickingGun())
+                .setDraw(hasGun() && isAlive() && !picking)
                 .setAlpha(alpha);
+    }
+
+    PlayerAnimationState Player::getAnimationState() const {
+#ifdef D6R_HEADLESS_CORE
+        const Sprite &body = *canonicalBody, &gun = *canonicalGun;
+#else
+        const Sprite &body = headless ? *canonicalBody : *sprite;
+        const Sprite &gun = headless ? *canonicalGun : *gunSprite;
 #endif
+        return {presentationPose, static_cast<std::uint16_t>(body.getFrame()),
+                static_cast<std::uint16_t>(gun.getFrame()),
+                hasGun() && isAlive() && !(headless ? canonicalPicking : isPickingGun())};
     }
 
 #ifndef D6R_HEADLESS_CORE
     void Player::prepareCam(const Video &video, Int32 levelSizeX, Int32 levelSizeY) {
-        Float32 fovX, fovY, mZ, dX = 0.0, dY = 0.0;
-        fovY = Math::degTan(video.getView().getFieldOfView() / 2.0f);
-        fovX = video.getScreen().getAspect() * fovY;
-
-        if (levelSizeX > video.getScreen().getAspect() * levelSizeY)
-            dX = (Float32) levelSizeX;
-        else
-            dY = (Float32) levelSizeY;
-
-        if (dX == 0.0) {
-            mZ = dY / (2.0f * fovY);
-            dX = 2.0f * fovX * mZ;
-        } else {
-            mZ = dX / (2.0f * fovX);
-            dY = 2.0f * fovY * mZ;
-        }
-
-        Vector position;
-        position.x = levelSizeX / 2.0f;
-        position.y = levelSizeY / 2.0f;
-        position.z = mZ + 1.0f;
-
-        camera.setPosition(position);
+        camera.setPosition(ArenaPresentation::cameraPosition(levelSizeX, levelSizeY,
+                video.getScreen().getAspect(), video.getView().getFieldOfView()));
     }
 #endif
 
@@ -790,13 +807,11 @@ namespace Duel6 {
         }
 
         if (air != oldAir) {
-#ifndef D6R_HEADLESS_CORE
             if (air == D6_MAX_AIR) {
                 indicators.getAir().hide();
             } else {
                 indicators.getAir().show();
             }
-#endif
         }
 
         if (outOfAir && hit(amount)) {
@@ -815,23 +830,16 @@ namespace Duel6 {
         }
         world->getBonusList().addPlayerGun(*this, collider);
         unsetFlag(FlagHasGun);
-#ifndef D6R_HEADLESS_CORE
         indicators.getReload().hide();
         indicators.getBullets().hide();
-#endif
     }
 
     Player &Player::addLife(Float32 change, bool showHpBar) {
         Float32 oldLife = life;
         life = std::max(0.0f, std::min(Float32(D6_MAX_LIFE), life + change));
-#ifndef D6R_HEADLESS_CORE
         if (showHpBar && oldLife != life) {
             indicators.getHealth().show();
         }
-#else
-        (void) oldLife;
-        (void) showHpBar;
-#endif
         return *this;
     }
 
@@ -938,13 +946,16 @@ namespace Duel6 {
         if (bonus != BonusType::NONE) {
             bonus->onApply(*this, *world, Int32(bonusDuration));
         }
-#ifndef D6R_HEADLESS_CORE
         indicators.getBonus().show(bonusDuration);
-#endif
         return *this;
     }
 
     void Player::die() {
+        if (headless) {
+            canonicalDying = true;
+            canonicalPicking = false;
+            canonicalBody->setLooping(AnimationLooping::OnceAndStop);
+        }
         setFlag((headless ? FlagDead : FlagDying) | FlagLying);
         unsetFlag(FlagMoveUp | FlagMoveDown | FlagMoveLeft | FlagMoveRight | FlagKnee | FlagPick);
 #ifndef D6R_HEADLESS_CORE
@@ -981,6 +992,8 @@ namespace Duel6 {
         this->weapon = weapon;
         this->ammo = ammo;
         timeToReload = weapon.isChargeable() ? getReloadInterval() : 0;
+        SpriteList temporary;
+        canonicalGun = *weapon.makeSprite(temporary);
         setFlag(FlagHasGun);
     }
 

@@ -29,6 +29,7 @@
 #define DUEL6_PLAYERINDICATORS_H
 
 #include "Type.h"
+#include "ArenaState.h"
 
 namespace Duel6 {
     class Indicator {
@@ -63,6 +64,10 @@ namespace Duel6 {
             return totalDuration > 0.0f;
         }
 
+        Float32 getElapsed() const { return duration; }
+        Float32 getTotal() const { return totalDuration; }
+        void restore(Float32 elapsed, Float32 total) { duration = elapsed; totalDuration = total; }
+
         Float32 getAlpha() const {
             if (duration > totalDuration - FADE_DURATION) {
                 return (totalDuration - duration) / FADE_DURATION;
@@ -93,6 +98,14 @@ namespace Duel6 {
         Indicator bonus;
 
     public:
+        std::array<const Indicator *, 6> values() const {
+            return {{&reload, &air, &bonus, &health, &name, &bullets}};
+        }
+        void restore(const HudIndicators &states) {
+            const std::array<Indicator *, 6> indicators{{&reload, &air, &bonus, &health, &name, &bullets}};
+            for (std::size_t index = 0; index < states.size(); ++index)
+                indicators[index]->restore(Float32(states[index].elapsed) / 65536, Float32(states[index].total) / 65536);
+        }
         PlayerIndicators &showAll(Float32 duration) {
             health.show(duration);
             air.show(duration);

@@ -33,11 +33,12 @@
 
 #include "Format.h"
 #include "Level.h"
+#include "ArenaAnimationClock.h"
 #include "InfoMessageQueue.h"
 #ifndef D6R_HEADLESS_CORE
 #include "LevelRenderData.h"
-#include "Explosion.h"
 #endif
+#include "Explosion.h"
 #include "Fire.h"
 #include "ShotList.h"
 #include "BonusList.h"
@@ -58,6 +59,8 @@ namespace Duel6 {
 
     class World {
     private:
+        ArenaAnimationClock arenaAnimationClock;
+        bool headlessPresentation = false;
         const GameSettings &gameSettings;
         std::vector<Player> &players;
         RandomSource &randomSource;
@@ -69,9 +72,7 @@ namespace Duel6 {
         InfoMessageQueue messageQueue;
         SpriteList spriteList;
         ShotList shotList;
-#ifndef D6R_HEADLESS_CORE
         ExplosionList explosionList;
-#endif
         FireList fireList;
         BonusList bonusList;
         ElevatorList elevatorList;
@@ -79,6 +80,7 @@ namespace Duel6 {
         std::function<void(const GameplayEvent &)> gameplayEventSink;
 
     public:
+        ArenaAnimationState getArenaAnimationState() const { return arenaAnimationClock.state(); }
         World(Game &game, const std::string &levelPath, bool mirror, RandomSource &randomSource);
 
         void update(Float32 elapsedTime);
@@ -151,7 +153,6 @@ namespace Duel6 {
             return shotList;
         }
 
-#ifndef D6R_HEADLESS_CORE
         ExplosionList &getExplosionList() {
             return explosionList;
         }
@@ -159,7 +160,6 @@ namespace Duel6 {
         const ExplosionList &getExplosionList() const {
             return explosionList;
         }
-#endif
 
         FireList &getFireList() {
             return fireList;

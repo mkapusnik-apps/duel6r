@@ -39,6 +39,7 @@
 #include "../network/PlayerInputProtocol.h"
 #include "../network/SessionLifecycle.h"
 #include "../network/HostCompositionProtocol.h"
+#include "../network/HostServiceDiagnostics.h"
 #ifdef D6R_DIRECTORY_PUBLISHER
 #include "../client/HostDirectory.h"
 #include "../client/DirectoryOrigin.h"
@@ -1506,7 +1507,11 @@ namespace Duel6::Server {
             try { return runtimeDependencies.outboundWriter(connection, std::move(payload)); }
             catch (...) { return Network::SendResult::NotConnected; }
         };
-        const auto reportHostedStatus = [this](Network::HostServiceStatusCode status) {
+        const auto diagnostics = config.hostedServiceIpc && !config.dedicated && !config.admissionClient
+                ? Network::HostServiceDiagnostics::open(config.hostServiceDiagnostics) : nullptr;
+        if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendBegin);
+        const auto reportHostedStatus = [this, &diagnostics](Network::HostServiceStatusCode status) {
+            if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::Status, static_cast<int>(status));
             if (!runtimeDependencies.hostedServiceStatus) return true;
             try { return runtimeDependencies.hostedServiceStatus(status); }
             catch (...) { return false; }
@@ -1994,6 +1999,13 @@ namespace Duel6::Server {
         if (!config.dedicated && !initializeLifecycle((std::numeric_limits<Network::Lifecycle::ConnectionId>::max)()))
             return cleanupListener() ? 2 : 4;
         bool runtimeFailed = false;
+        bool diagnosticFailureRecorded = false;
+        const auto recordFailure = [&](Network::HostDiagnosticFailure reason) {
+            if (diagnosticFailureRecorded) return;
+            diagnosticFailureRecorded = true;
+            if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                                                 static_cast<int>(reason));
+        };
         Network::TransportTimePoint nextMatchTick{};
         TickPacing tickPacing;
         bool hostStartRequested = false;
@@ -3026,9 +3038,15 @@ namespace Duel6::Server {
                         const auto message = Network::HostComposition::serializePayload(
                                 Network::HostComposition::Kind::CanonicalSnapshot,
                                 Network::Replication::serializeReplicationSnapshot(*snapshot));
-                        if (!runtimeDependencies.hostSessionPresentation(message)) runtimeFailed = true;
+                        if (!runtimeDependencies.hostSessionPresentation(message)) {
+                            recordFailure(Network::HostDiagnosticFailure::PresentationRejected);
+                            runtimeFailed = true;
+                        }
                         else lastHostPresentationVersion = snapshot->version;
-                    } catch (...) { runtimeFailed = true; }
+                    } catch (...) {
+                        recordFailure(Network::HostDiagnosticFailure::PresentationException);
+                        runtimeFailed = true;
+                    }
                 }
             }
             if (runtimeFailed) break;
@@ -3052,13 +3070,27 @@ namespace Duel6::Server {
                             try { actions = runtimeDependencies.localPlayerActions(playerId); }
                             catch (...) { actions = Network::Input::AllActions + 1u; }
                             if (!hostPlayerInput->submit(playerId, match->currentTick(), actions)) {
+                                recordFailure(Network::HostDiagnosticFailure::InputRejected);
                                 runtimeFailed = true;
                                 break;
                             }
                         }
                         if (runtimeFailed) break;
                     }
-                    if (!match || !hostedMatch->advanceOneTick() || !hostedMatch->observeMatchOutcome()) {
+                    // Preserve the existing short-circuit order and calls. These
+                    // categories locate rejection, not a claim about its root cause.
+                    if (!match) {
+                        recordFailure(Network::HostDiagnosticFailure::MissingMatch);
+                        runtimeFailed = true;
+                        break;
+                    }
+                    if (!hostedMatch->advanceOneTick()) {
+                        recordFailure(Network::HostDiagnosticFailure::AdvanceRejected);
+                        runtimeFailed = true;
+                        break;
+                    }
+                    if (!hostedMatch->observeMatchOutcome(diagnostics.get())) {
+                        recordFailure(Network::HostDiagnosticFailure::OutcomeObservationRejected);
                         runtimeFailed = true;
                         break;
                     }
@@ -3083,7 +3115,10 @@ namespace Duel6::Server {
                         }
                     }
                 }
-            } catch (...) { runtimeFailed = true; break; }
+            } catch (...) {
+                recordFailure(Network::HostDiagnosticFailure::TickException);
+                runtimeFailed = true; break;
+            }
             const bool matchActive = hostedMatch && hostedMatch->stage() == Authoritative::HostedMatchStage::MatchActive;
             // A due outcome wins over a new admission. When pacing cannot
             // advance yet, defer only the commit, not request/timeout/cleanup
@@ -3099,7 +3134,10 @@ namespace Duel6::Server {
             const auto observedWaitStart = runtimeDependencies.observations
                 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
             try { runtimeDependencies.wait(wait); }
-            catch (...) { runtimeFailed = true; break; }
+            catch (...) {
+                recordFailure(Network::HostDiagnosticFailure::WaitException);
+                runtimeFailed = true; break;
+            }
             if (runtimeDependencies.observations) {
                 auto &observed = *runtimeDependencies.observations;
                 const auto waited = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -3112,6 +3150,7 @@ namespace Duel6::Server {
             }
         }
 
+        if (runtimeFailed) recordFailure(Network::HostDiagnosticFailure::UnclassifiedRuntime);
         if (runtimeDependencies.observations) {
             runtimeDependencies.observations->hostStopUs = RuntimeObservations::micros(std::chrono::steady_clock::now());
             runtimeDependencies.observations->firstTerminal(runtimeFailed ? ObservedTerminal::HostFailed : ObservedTerminal::HostCancelled);
@@ -3162,11 +3201,15 @@ namespace Duel6::Server {
         const bool listenerCleaned = cleanupListener(false);
         if (!listenerCleaned) {
             const auto failure = Authoritative::terminalOutcome(Authoritative::OutcomeCode::ShutdownFailed);
+            if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendOutcome,
+                                                 static_cast<int>(failure.code), 4);
             output << failure.identifier << '\n' << failure.copy << '\n';
             return 4;
         }
         if (runtimeFailure)
             output << runtimeFailure->identifier << '\n' << runtimeFailure->copy << '\n';
+        if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendOutcome,
+                static_cast<int>(runtimeFailure ? runtimeFailure->code : Authoritative::OutcomeCode::None), exitStatus);
         output << "duel6r-server transport stopped.\n";
         return exitStatus;
     }

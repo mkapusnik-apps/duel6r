@@ -1,6 +1,7 @@
 #ifndef DUEL6_NETWORK_STATEREPLICATION_H
 #define DUEL6_NETWORK_STATEREPLICATION_H
 #include "../Defines.h"
+#include "../ArenaState.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -76,6 +77,11 @@ namespace Duel6::Network::Replication {
         bool mirrored = false;
         std::vector<Identity> rosterOrder;
         RoundOutcomeState outcome;
+        std::int64_t worldTime = 0; // Q16 seconds; stops when the world stops.
+        LiquidKind waterType = LiquidKind::None;
+        std::int32_t waterLevel = -1; // Highest completely flooded tile row.
+        bool waterRaising = false;
+        ArenaAnimationState animation;
     };
 
     struct PlayerState {
@@ -104,6 +110,12 @@ namespace Duel6::Network::Replication {
         std::int64_t reloadRemaining = 0;
         std::int64_t charge = 0;
         std::int64_t temporaryMovementRemaining = 0;
+        std::int64_t bonusDuration = 0; // Q16 seconds, same unit as remaining.
+        std::int64_t reloadDuration = 0; // Q16 seconds, includes current modifiers.
+        HudIndicators hudIndicators{};
+        PlayerAnimationState animation;
+        std::int64_t width = 0, height = 0; // Authoritative collision dimensions, Q16 world units.
+        std::int32_t roundKills = 0;
     };
 
     struct WorldEntityState {
@@ -159,6 +171,7 @@ namespace Duel6::Network::Replication {
         Identity playerId = 0;
         Identity entityId = 0;
         std::int64_t remaining = 0;
+        EffectVisualState visual;
     };
 
     struct PresentationEvent {
@@ -216,6 +229,45 @@ namespace Duel6::Network::Replication {
     // exact 64-bit identities (the general UI JSON reader uses floating point).
     std::optional<std::vector<RetainedOutcomeRow>> retainedOutcomeRows(const ResultState &result);
 
+    struct RetainedResultStatistics {
+        std::uint64_t roundsPlayed = 0, shots = 0, hits = 0, kills = 0, deaths = 0, assists = 0;
+        std::uint64_t wins = 0, penalties = 0, survivalTicks = 0, damage = 0, assistedDamage = 0;
+        std::int64_t totalPoints = 0;
+    };
+    struct RetainedResultPlayer {
+        Identity playerId = 0, participantId = 0;
+        std::size_t rank = 0;
+        std::string displayName;
+        std::uint8_t team = 0;
+        bool departed = false;
+        RetainedResultStatistics cumulative;
+        std::vector<RetainedResultStatistics> rounds;
+    };
+    struct RetainedResultRound {
+        std::uint8_t number = 0;
+        std::string level;
+        bool mirrored = false;
+        RoundOutcomeState outcome;
+        std::vector<Identity> rosterOrder;
+    };
+    struct RetainedResultTeam {
+        std::size_t rank = 0;
+        std::uint8_t team = 0;
+        std::int64_t totalPoints = 0;
+        std::vector<Identity> rankedPlayerIds;
+    };
+    struct RetainedResultView {
+        std::string state, mode, levelPlan;
+        std::uint8_t teamCount = 0, roundLimit = 0, completedRounds = 0;
+        bool friendlyFire = false, assistance = false, quickLiquid = false, burnableTrees = true;
+        std::uint64_t seed = 0;
+        RoundOutcomeState outcome;
+        std::vector<RetainedResultPlayer> players;
+        std::vector<RetainedResultRound> rounds;
+        std::vector<RetainedResultTeam> teams;
+    };
+    std::optional<RetainedResultView> retainedResultView(const ResultState &result);
+
     struct FullSnapshot {
         StateVersion version = 0;
         CanonicalState state;
@@ -255,14 +307,47 @@ namespace Duel6::Network::Replication {
     enum class ApplyResult { Applied, Invalid, ResynchronizationRequired, WaitingForSnapshot };
 
     enum class CanonicalValidationOutcome { Valid, Invalid, InternalFailure };
-    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state) noexcept;
+    struct CanonicalValidationDetail {
+        // First rejected HUD predicate only; no player identity or payload data.
+        int indicatorIndex = -1;
+        std::int64_t elapsed = 0, total = 0;
+    };
+    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state,
+            CanonicalValidationDetail *detail = nullptr) noexcept;
     bool validateCanonicalState(const CanonicalState &state) noexcept;
+
+    // Failure-only, numeric diagnostics; not part of the wire protocol. No identities
+    // or payload text. The optional output is reset on every publication attempt.
+    enum class PublishRejection {
+        None, RoundEntityReuse, CanonicalInternalFailure, Uninitialized, VersionExhausted,
+        CanonicalInvalid, TerminalResult, SessionChanged, ClockRegression,
+        ParticipantReuse, PlayerReuse, UnseenResultIdentity, SettingsChanged, ResultChanged,
+        RoundTransition, LobbyTransition, EntityCreationOrder, EventLimit,
+        ParticipantHistoryLimit, PlayerHistoryLimit, MatchHistoryLimit, RoundHistoryLimit,
+        InvalidEvent, DuplicateEvent, EventReplay, EventReference, TransientResurrection, PayloadLimit
+    };
+    enum class EventReferenceRejection {
+        None, UnknownPlayer, InvalidPickupCreation, PickupKindMismatch, TransientKindMismatch,
+        UntypedUnknownEntity, StaleEntity, TransientHistoryLimit
+    };
+    struct PublishRejectionDetail {
+        PublishRejection reason = PublishRejection::None;
+        bool canonicalChecked = false;
+        CanonicalValidationOutcome canonicalOutcome = CanonicalValidationOutcome::Valid;
+        CanonicalValidationDetail canonical;
+        int eventIndex = -1;
+        int eventType = 0; // 0 other, 1 shot, 2/3 picked bonus/weapon, 4/5 spawned bonus/weapon, 6/7 generic spawn/remove.
+        EventReferenceRejection reference = EventReferenceRejection::None;
+        int resultReason = 0;
+        std::size_t eventCount = 0, payloadEstimate = 0; // Estimate saturates at cap + 1.
+    };
 
     class AuthoritativeStateReplicator final {
     public:
         bool initialize(CanonicalState state);
         std::optional<IncrementalUpdate> publish(CanonicalState state,
-                                                 std::vector<PresentationEvent> events = {});
+                                                  std::vector<PresentationEvent> events = {},
+                                                  PublishRejectionDetail *detail = nullptr);
         std::optional<FullSnapshot> fullSnapshot() const;
         void discard() noexcept;
         StateVersion version() const noexcept;

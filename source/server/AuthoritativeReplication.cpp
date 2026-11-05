@@ -1,4 +1,5 @@
 #include "AuthoritativeReplication.h"
+#include "../MatchResultRules.h"
 
 #include <algorithm>
 #include <limits>
@@ -60,10 +61,9 @@ namespace Duel6::Server::Authoritative {
 
         bool rankedAhead(const R::ScoreRowState &left, const R::ScoreRowState &right,
                          const std::vector<PlayerDefinition> &roster) {
-            if (left.cumulativePoints != right.cumulativePoints)
-                return left.cumulativePoints > right.cumulativePoints;
-            if (left.wins != right.wins) return left.wins > right.wins;
-            if (left.damage != right.damage) return left.damage > right.damage;
+            const int order = MatchResultRules::compareRanking({left.cumulativePoints, left.wins, left.damage},
+                                                               {right.cumulativePoints, right.wins, right.damage});
+            if (order != 0) return order < 0;
             const auto *leftDefinition = definition(roster, left.playerId);
             const auto *rightDefinition = definition(roster, right.playerId);
             return leftDefinition && rightDefinition
@@ -282,7 +282,8 @@ namespace Duel6::Server::Authoritative {
     }
 
     bool AuthoritativeReplication::updateFromMatch(const AuthoritativeMatch &match,
-                                                    std::vector<R::PresentationEvent> &events) {
+                                                    std::vector<R::PresentationEvent> &events,
+                                                    Network::HostServiceDiagnostics *diagnostics) {
         if (state.matchId == 0) return false;
         const R::Phase priorPhase = state.phase;
         const bool resultWasAvailable = state.result.available;
@@ -334,6 +335,11 @@ namespace Duel6::Server::Authoritative {
         }
         const CanonicalWorldSnapshot *world = match.canonicalWorldSnapshot();
         if (world && state.round) {
+            state.round->worldTime = world->worldTime;
+            state.round->waterType = world->waterType;
+            state.round->waterLevel = world->waterLevel;
+            state.round->waterRaising = world->waterRaising;
+            state.round->animation = world->animation;
             state.players.clear(); state.score.players.clear(); state.score.ranking.clear();
             for (const auto &source: world->players) {
                 const PlayerDefinition *owner = definition(roster, source.playerId);
@@ -352,6 +358,10 @@ namespace Duel6::Server::Authoritative {
                 player.actionMask = source.actionMask;
                 player.activeBonus = source.timedBonus; player.bonusRemaining = source.bonusRemaining;
                 player.reloadRemaining = source.reload; player.charge = source.charge;
+                player.bonusDuration = source.bonusDuration; player.reloadDuration = source.reloadDuration;
+                player.hudIndicators = source.hudIndicators;
+                player.animation = source.animation;
+                player.width = source.width; player.height = source.height; player.roundKills = source.roundKills;
                 player.temporaryMovementRemaining = source.temporarySlowdownRemaining;
                 player.visible = source.visible; player.invulnerable = source.invulnerable;
                 player.presentationAlpha = source.presentationAlpha;
@@ -446,6 +456,7 @@ namespace Duel6::Server::Authoritative {
                 effect.type = source.type; effect.playerId = source.ownerPlayerId;
                 effect.entityId = worldIdentity(state.round->roundId, source.stableId);
                 effect.remaining = static_cast<std::int64_t>(source.remainingTicks);
+                effect.visual = source.visual;
                 state.effects.push_back(std::move(effect));
             }
             const auto appendEvents = [&](const std::vector<CanonicalEvent> &sources, bool transition) {
@@ -587,16 +598,57 @@ namespace Duel6::Server::Authoritative {
             if (event.eventId == 0) return false;
             events.push_back(std::move(event));
         }
-        return R::validateCanonicalState(state);
+        R::CanonicalValidationDetail detail;
+        const auto validation = R::validateCanonicalStateDetailed(state, diagnostics ? &detail : nullptr);
+        const bool valid = validation == R::CanonicalValidationOutcome::Valid;
+        if (!valid && diagnostics) {
+            // b: 2=Invalid, 3=InternalFailure; c: 0=no HUD detail, 1..6=HUD index+1.
+            diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                    static_cast<int>(Network::HostDiagnosticFailure::CanonicalValidationRejected),
+                    static_cast<int>(validation) + 1, detail.indicatorIndex + 1);
+            if (detail.indicatorIndex >= 0)
+                diagnostics->record(Network::HostDiagnosticEvent::CanonicalIndicatorRejected,
+                        detail.indicatorIndex, detail.elapsed, detail.total);
+        }
+        return valid;
     }
 
-    std::optional<R::IncrementalUpdate> AuthoritativeReplication::capture(const AuthoritativeMatch &match) {
+    std::optional<R::IncrementalUpdate> AuthoritativeReplication::capture(const AuthoritativeMatch &match,
+            Network::HostServiceDiagnostics *diagnostics) {
         if (publisher.version() == 0 || state.matchId == 0) return std::nullopt;
         const AuthoritativeReplication before = *this;
         std::vector<R::PresentationEvent> events;
-        if (!updateFromMatch(match, events)) { *this = before; return std::nullopt; }
-        auto update = publisher.publish(state, std::move(events));
-        if (!update) *this = before;
+        if (!updateFromMatch(match, events, diagnostics)) {
+            if (diagnostics) diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                    static_cast<int>(Network::HostDiagnosticFailure::CaptureMappingRejected));
+            *this = before; return std::nullopt;
+        }
+        R::PublishRejectionDetail detail;
+        auto update = publisher.publish(state, std::move(events), diagnostics ? &detail : nullptr);
+        if (!update) {
+            if (diagnostics) {
+                // Record before rollback. Only bounded numeric classification; no
+                // session/player/entity identities, event text or result payload.
+                diagnostics->record(Network::HostDiagnosticEvent::BackendFailure,
+                        static_cast<int>(Network::HostDiagnosticFailure::PublicationRejected),
+                        static_cast<int>(detail.reason), (detail.canonicalChecked ? static_cast<int>(detail.canonicalOutcome) + 1 : 0)
+                            + (publisher.lastPublishFailedInternally() ? 4 : 0));
+                diagnostics->record(Network::HostDiagnosticEvent::PublicationContext, match.currentTick(),
+                        static_cast<int>(before.state.phase) * 8 + static_cast<int>(state.phase), state.result.available);
+                if (detail.eventIndex >= 0)
+                    diagnostics->record(Network::HostDiagnosticEvent::PublicationEventRejected,
+                            detail.eventIndex, detail.eventType, static_cast<int>(detail.reference));
+                if (detail.reason == R::PublishRejection::PayloadLimit || detail.reason == R::PublishRejection::EventLimit)
+                    diagnostics->record(Network::HostDiagnosticEvent::PublicationBudgetRejected,
+                            std::min(detail.eventCount, R::MaxReplicatedEvents + 1), detail.payloadEstimate);
+                if (detail.reason == R::PublishRejection::TerminalResult)
+                    diagnostics->record(Network::HostDiagnosticEvent::PublicationResultRejected, detail.resultReason);
+                if (detail.canonical.indicatorIndex >= 0)
+                    diagnostics->record(Network::HostDiagnosticEvent::CanonicalIndicatorRejected,
+                            detail.canonical.indicatorIndex, detail.canonical.elapsed, detail.canonical.total);
+            }
+            *this = before;
+        }
         return update;
     }
 

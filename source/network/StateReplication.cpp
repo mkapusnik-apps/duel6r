@@ -1,4 +1,5 @@
 #include "StateReplication.h"
+#include "../MatchResultRules.h"
 
 #include <algorithm>
 #include <limits>
@@ -52,7 +53,11 @@ namespace Duel6::Network::Replication {
                    && left.invulnerable == right.invulnerable && left.visible == right.visible
                    && left.presentationAlpha == right.presentationAlpha
                    && left.reloadRemaining == right.reloadRemaining && left.charge == right.charge
-                   && left.temporaryMovementRemaining == right.temporaryMovementRemaining;
+                   && left.temporaryMovementRemaining == right.temporaryMovementRemaining
+                   && left.bonusDuration == right.bonusDuration && left.reloadDuration == right.reloadDuration
+                   && left.hudIndicators == right.hudIndicators && left.width == right.width
+                   && left.height == right.height && left.roundKills == right.roundKills
+                   && left.animation == right.animation;
         }
 
         bool entityEqual(const WorldEntityState &left, const WorldEntityState &right) {
@@ -313,13 +318,13 @@ namespace Duel6::Network::Replication {
 
         std::optional<EntityKind> transientKind(const std::string &eventType) {
             if (eventType == "shot-fired") return EntityKind::Projectile;
-            if (eventType == "bonus-picked") return EntityKind::BonusPickup;
-            if (eventType == "weapon-picked") return EntityKind::WeaponPickup;
+            if (eventType == "bonus-picked" || eventType == "bonus-spawned") return EntityKind::BonusPickup;
+            if (eventType == "weapon-picked" || eventType == "weapon-spawned") return EntityKind::WeaponPickup;
             return std::nullopt;
         }
 
         bool validEventForTransient(EntityKind kind, const std::string &eventType) {
-            // A typed gameplay event establishes a short-lived entity's kind
+            // A typed creation or gameplay event establishes a short-lived entity's kind
             // before its lifecycle transitions arrive. It may be born and removed
             // entirely between snapshots. Generic transitions alone must not
             // establish a transient identity (see transientKind).
@@ -335,23 +340,45 @@ namespace Duel6::Network::Replication {
         }
 
         bool validEventReferences(const CanonicalState &before, const CanonicalState &after,
-                                   const PresentationEvent &event,
-                                   std::map<Identity, EntityKind> &transientIdentities,
-                                   Identity highestLiveIdentity) {
+                                    const PresentationEvent &event,
+                                    std::map<Identity, EntityKind> &transientIdentities,
+                                    Identity highestLiveIdentity, std::set<Identity> &pickupCreations,
+                                    EventReferenceRejection *detail = nullptr) {
+            const auto reject = [detail](EventReferenceRejection reason) {
+                if (detail) *detail = reason;
+                return false;
+            };
             const auto hasPlayer = [&](Identity identity) {
                 if (identity == 0) return true;
                 const auto present = [identity](const auto &player) { return player.playerId == identity; };
                 return std::any_of(before.players.begin(), before.players.end(), present)
                        || std::any_of(after.players.begin(), after.players.end(), present);
             };
-            if (!hasPlayer(event.playerId) || !hasPlayer(event.targetPlayerId)) return false;
+            if (!hasPlayer(event.playerId) || !hasPlayer(event.targetPlayerId))
+                return reject(EventReferenceRejection::UnknownPlayer);
+            const bool pickupCreation = event.type == "bonus-spawned" || event.type == "weapon-spawned";
+            const auto kind = transientKind(event.type);
+            if (pickupCreation && (event.entityId == 0 || event.entityId <= highestLiveIdentity
+                || event.playerId || event.targetPlayerId || event.value
+                || transientIdentities.count(event.entityId)
+                || !pickupCreations.insert(event.entityId).second))
+                return reject(EventReferenceRejection::InvalidPickupCreation);
+            // Typed pickup occurrences must agree with endpoint entities too;
+            // endpoint presence must not bypass kind validation.
+            if (kind && (*kind == EntityKind::BonusPickup || *kind == EntityKind::WeaponPickup)) {
+                for (const auto *state: {&before, &after})
+                    for (const auto &entity: state->entities)
+                        if (entity.entityId == event.entityId && entity.kind != *kind)
+                            return reject(EventReferenceRejection::PickupKindMismatch);
+            }
             if (hasEntity(before, event.entityId) || hasEntity(after, event.entityId)) return true;
             const auto known = transientIdentities.find(event.entityId);
-            if (known != transientIdentities.end()) return validEventForTransient(known->second, event.type);
-            const auto kind = transientKind(event.type);
-            if (!kind || event.entityId == 0 || event.entityId <= highestLiveIdentity
-                || transientIdentities.size() >= MaxReplicatedIdentityHistory)
-                return false;
+            if (known != transientIdentities.end()) return validEventForTransient(known->second, event.type)
+                    || reject(EventReferenceRejection::TransientKindMismatch);
+            if (!kind || event.entityId == 0) return reject(EventReferenceRejection::UntypedUnknownEntity);
+            if (event.entityId <= highestLiveIdentity) return reject(EventReferenceRejection::StaleEntity);
+            if (transientIdentities.size() >= MaxReplicatedIdentityHistory)
+                return reject(EventReferenceRejection::TransientHistoryLimit);
             transientIdentities.emplace(event.entityId, *kind);
             return true;
         }
@@ -380,6 +407,9 @@ namespace Duel6::Network::Replication {
                                  && left->level == right->level
                                  && left->mirrored == right->mirrored
                                  && left->rosterOrder == right->rosterOrder
+                                 && left->worldTime == right->worldTime && left->waterType == right->waterType
+                                 && left->waterLevel == right->waterLevel && left->waterRaising == right->waterRaising
+                                 && left->animation == right->animation
                                  && sameOutcome(left->outcome, right->outcome)));
         }
 
@@ -689,11 +719,7 @@ namespace Duel6::Network::Replication {
             return std::nullopt;
         }
 
-        struct CanonicalResultStatistics {
-            std::uint64_t roundsPlayed = 0, shots = 0, hits = 0, kills = 0, deaths = 0, assists = 0;
-            std::uint64_t wins = 0, penalties = 0, survivalTicks = 0, damage = 0, assistedDamage = 0;
-            std::int64_t totalPoints = 0;
-        };
+        using CanonicalResultStatistics = RetainedResultStatistics;
 
         std::optional<CanonicalResultStatistics> resultStatistics(const ParsedJsonValue &value) {
             if (!exactMembers(value, {"\"roundsPlayed\"", "\"shots\"", "\"hits\"", "\"kills\"",
@@ -1050,16 +1076,17 @@ namespace Duel6::Network::Replication {
         }
 
         bool resultRanksAhead(const CanonicalResultRowLabel &left, const CanonicalResultRowLabel &right) {
-            if (left.cumulative.totalPoints != right.cumulative.totalPoints)
-                return left.cumulative.totalPoints > right.cumulative.totalPoints;
-            if (left.cumulative.wins != right.cumulative.wins)
-                return left.cumulative.wins > right.cumulative.wins;
-            if (left.cumulative.damage != right.cumulative.damage)
-                return left.cumulative.damage > right.cumulative.damage;
+            const int order = MatchResultRules::compareRanking(
+                {left.cumulative.totalPoints, left.cumulative.wins, left.cumulative.damage},
+                {right.cumulative.totalPoints, right.cumulative.wins, right.cumulative.damage});
+            if (order != 0) return order < 0;
             return left.rosterOrder < right.rosterOrder;
         }
 
-        bool validAvailableTerminalResult(const CanonicalState &state) noexcept {
+        bool validAvailableTerminalResult(const CanonicalState &state, int *detail = nullptr) noexcept {
+            // Numeric groups identify the first failed result invariant without
+            // exposing serialized data or altering the existing acceptance order.
+            const auto reject = [detail](int reason) { if (detail) *detail = reason; return false; };
             try {
                 if (!state.result.available) return true;
                 const auto result = canonicalResultLabels(state.result.serialized);
@@ -1067,7 +1094,7 @@ namespace Duel6::Network::Replication {
                     || result->completedRounds != state.completedRounds
                     || result->rounds.size() != state.completedRounds
                     || result->rows.size() != state.score.players.size()
-                    || result->rows.size() != state.score.ranking.size()) return false;
+                    || result->rows.size() != state.score.ranking.size()) return reject(1); // Parse/envelope/counts.
                 if (state.phase == Phase::FinalSummary
                     && (result->mode != state.settings.mode || result->teamCount != state.settings.teamCount
                         || result->friendlyFire != state.settings.friendlyFire
@@ -1075,7 +1102,7 @@ namespace Duel6::Network::Replication {
                         || result->quickLiquid != state.settings.quickLiquid
                         || result->burnableTrees != state.settings.burnableTrees
                         || result->levelPlan != state.settings.levelPlan
-                        || result->roundLimit != state.settings.roundLimit)) return false;
+                         || result->roundLimit != state.settings.roundLimit)) return reject(2); // Frozen settings.
                 const bool teamMode = result->mode == "Team deathmatch";
                 const auto activeResultPlayers = static_cast<std::size_t>(std::count_if(
                         result->rows.begin(), result->rows.end(),
@@ -1087,21 +1114,21 @@ namespace Duel6::Network::Replication {
                     || (result->state == "Interrupted" && activeResultPlayers >= 2)
                     || (result->state == "Completed"
                         && (result->completedRounds != result->roundLimit || result->rounds.empty()
-                            || !sameResultOutcome(result->finalOutcome, result->rounds.back().outcome)))) return false;
+                             || !sameResultOutcome(result->finalOutcome, result->rounds.back().outcome)))) return reject(3); // Result semantics.
                 for (const auto &round: result->rounds) {
-                    if (!validResultOutcomeForMode(round.outcome, result->mode, result->rows)) return false;
+                    if (!validResultOutcomeForMode(round.outcome, result->mode, result->rows)) return reject(4);
                     const std::set<Identity> roster(round.rosterOrder.begin(), round.rosterOrder.end());
                     for (Identity winner: round.outcome.winnerPlayerIds)
-                        if (!roster.count(winner)) return false;
+                        if (!roster.count(winner)) return reject(4); // Round outcome membership.
                 }
                 for (std::size_t index = 1; index < result->rows.size(); ++index)
-                    if (resultRanksAhead(result->rows[index], result->rows[index - 1])) return false;
+                    if (resultRanksAhead(result->rows[index], result->rows[index - 1])) return reject(5);
                 std::set<Identity> resultPlayerIds;
                 for (std::size_t index = 0; index < result->rows.size(); ++index) {
                     const auto &row = result->rows[index];
                     resultPlayerIds.insert(row.playerId);
                     if (state.score.ranking[index] != row.playerId
-                        || state.score.players[index].playerId != row.playerId) return false;
+                        || state.score.players[index].playerId != row.playerId) return reject(5); // Ranking.
                     const auto &score = state.score.players[index];
                     const std::int64_t expectedRoundPoints = row.rounds.empty()
                                                              ? 0 : row.rounds.back().totalPoints;
@@ -1113,54 +1140,54 @@ namespace Duel6::Network::Replication {
                         || score.penalties != row.cumulative.penalties
                         || score.survivalTicks != row.cumulative.survivalTicks
                         || score.damage != row.cumulative.damage
-                        || score.assistedDamage != row.cumulative.assistedDamage) return false;
+                        || score.assistedDamage != row.cumulative.assistedDamage) return reject(6); // Score projection.
                     const auto player = std::find_if(state.players.begin(), state.players.end(),
                             [&](const auto &value) { return value.playerId == row.playerId; });
-                    if (player == state.players.end() && !row.departed) return false;
+                    if (player == state.players.end() && !row.departed) return reject(7);
                     if (player != state.players.end()
                         && (row.participantId != player->ownerParticipantId
                             || row.departed != (player->lifeState == LifeState::Departed)
                             || (state.phase == Phase::FinalSummary
                                 && (row.displayName != player->displayName || row.team != player->team
-                                    || row.rosterOrder != player->rosterPosition)))) return false;
+                                     || row.rosterOrder != player->rosterPosition)))) return reject(7); // Player projection.
                     for (std::size_t roundIndex = 0; roundIndex < result->rounds.size(); ++roundIndex) {
                         const auto &roundRoster = result->rounds[roundIndex].rosterOrder;
                         const std::uint64_t expected = std::find(roundRoster.begin(), roundRoster.end(), row.playerId)
                                 == roundRoster.end() ? 0u : 1u;
-                        if (row.rounds[roundIndex].roundsPlayed != expected) return false;
+                        if (row.rounds[roundIndex].roundsPlayed != expected) return reject(8); // Participation.
                     }
                 }
                 std::set<Identity> scorePlayerIds;
                 for (const auto &row: state.score.players) scorePlayerIds.insert(row.playerId);
-                if (resultPlayerIds != scorePlayerIds) return false;
+                if (resultPlayerIds != scorePlayerIds) return reject(7);
 
                 const CanonicalResultOutcome scoreOutcome{state.score.winner.winnerPlayerIds,
                         state.score.winner.winningTeam, state.score.winner.noWinner};
-                if (!sameResultOutcome(result->finalOutcome, scoreOutcome)) return false;
+                if (!sameResultOutcome(result->finalOutcome, scoreOutcome)) return reject(9); // Final outcome.
                 if (result->completedRounds == 0) {
-                    if (state.round) return false;
+                    if (state.round) return reject(10);
                 } else {
-                    if (!state.round) return false;
+                    if (!state.round) return reject(10);
                     const auto &last = result->rounds.back();
                     const CanonicalResultOutcome roundOutcome{state.round->outcome.winnerPlayerIds,
                             state.round->outcome.winningTeam, state.round->outcome.noWinner};
                     if (last.number != state.round->roundNumber || last.level != state.round->level
                         || last.mirrored != state.round->mirrored
                         || last.rosterOrder != state.round->rosterOrder
-                        || !sameResultOutcome(last.outcome, roundOutcome)) return false;
+                         || !sameResultOutcome(last.outcome, roundOutcome)) return reject(10); // Retained round.
                 }
 
-                if (!teamMode) return result->teams.empty() && state.score.teamTotals.empty()
-                                      && state.score.teamRanking.empty();
+                if (!teamMode) return (result->teams.empty() && state.score.teamTotals.empty()
+                                      && state.score.teamRanking.empty()) || reject(11);
                 if (result->teams.size() != state.score.teamRanking.size()
-                    || state.score.teamTotals.size() != result->teamCount) return false;
+                    || state.score.teamTotals.size() != result->teamCount) return reject(11);
                 for (std::size_t index = 0; index < result->teams.size(); ++index) {
                     const auto &team = result->teams[index];
                     if (state.score.teamRanking[index] != team.team
                         || state.score.teamTotals[team.team - 1] != team.totalPoints
                         || (index && (result->teams[index - 1].totalPoints < team.totalPoints
                                      || (result->teams[index - 1].totalPoints == team.totalPoints
-                                         && result->teams[index - 1].team > team.team)))) return false;
+                                          && result->teams[index - 1].team > team.team)))) return reject(11);
                     std::vector<Identity> expectedPlayers;
                     std::int64_t total = 0;
                     for (const auto &player: result->rows) if (player.team == team.team) {
@@ -1168,14 +1195,14 @@ namespace Duel6::Network::Replication {
                              && total > std::numeric_limits<std::int64_t>::max() - player.cumulative.totalPoints)
                             || (player.cumulative.totalPoints < 0
                                 && total < std::numeric_limits<std::int64_t>::min() - player.cumulative.totalPoints))
-                            return false;
+                             return reject(11);
                         total += player.cumulative.totalPoints;
                         expectedPlayers.push_back(player.playerId);
                     }
-                    if (total != team.totalPoints || expectedPlayers != team.rankedPlayerIds) return false;
+                    if (total != team.totalPoints || expectedPlayers != team.rankedPlayerIds) return reject(11); // Team projection.
                 }
                 return true;
-            } catch (...) { return false; }
+            } catch (...) { return reject(12); }
         }
 
         std::optional<std::set<Identity>> departedPlayerTransitions(
@@ -1270,11 +1297,14 @@ namespace Duel6::Network::Replication {
                        && (!a || (a->roundId == b->roundId && a->roundNumber == b->roundNumber
                                   && a->level == b->level && a->mirrored == b->mirrored
                                   && a->rosterOrder == b->rosterOrder
+                                  && a->worldTime == b->worldTime && a->waterType == b->waterType
+                                  && a->waterLevel == b->waterLevel && a->waterRaising == b->waterRaising
+                                  && a->animation == b->animation
                                   && sameOutcome(a->outcome, b->outcome)));
             };
             const auto sameEffect = [](const ContinuingEffectState &a, const ContinuingEffectState &b) {
                 return a.effectId == b.effectId && a.type == b.type && a.playerId == b.playerId
-                       && a.entityId == b.entityId && a.remaining == b.remaining;
+                       && a.entityId == b.entityId && a.remaining == b.remaining && a.visual == b.visual;
             };
             return left.sessionId == right.sessionId && left.matchId == right.matchId
                    && left.hostParticipantId == right.hostParticipantId && left.phase == right.phase
@@ -1346,16 +1376,21 @@ namespace Duel6::Network::Replication {
         }
 
         bool withinPayloadLimit(const CanonicalState &state, std::size_t eventCount = 0,
-                                std::size_t eventTextBytes = 0) {
-            std::size_t bytes = 512;
-            const auto add = [&bytes](std::size_t value) {
-                if (value > MaxReplicatedResultBytes || bytes > MaxReplicatedResultBytes - value) return false;
+                                std::size_t eventTextBytes = 0, std::size_t *estimate = nullptr) {
+            std::size_t bytes = 542; // Includes explicit round presentation state.
+            if (estimate) *estimate = bytes;
+            const auto add = [&bytes, estimate](std::size_t value) {
+                if (value > MaxReplicatedResultBytes || bytes > MaxReplicatedResultBytes - value) {
+                    if (estimate) *estimate = MaxReplicatedResultBytes + 1;
+                    return false;
+                }
                 bytes += value;
+                if (estimate) *estimate = bytes;
                 return true;
             };
-            if (!add(state.participants.size() * 192) || !add(state.players.size() * 512)
+            if (!add(state.participants.size() * 192) || !add(state.players.size() * 650)
                 || !add(state.entities.size() * 256) || !add(state.score.players.size() * 192)
-                || !add(state.effects.size() * 160) || !add(eventCount * 160)
+                || !add(state.effects.size() * 256) || !add(eventCount * 160)
                 || !add(eventTextBytes) || !add(state.result.serialized.size())) return false;
             for (const auto &participant: state.participants) if (!add(participant.ownedPlayerIds.size() * 8)) return false;
             for (const auto &player: state.players)
@@ -1389,6 +1424,30 @@ namespace Duel6::Network::Replication {
         return rows;
     }
 
+    std::optional<RetainedResultView> retainedResultView(const ResultState &result) {
+        if (!result.available || result.serialized.size() > MaxReplicatedResultBytes) return std::nullopt;
+        const auto parsed = canonicalResultLabels(result.serialized);
+        if (!parsed || !validResultRosterSemantics(*parsed)) return std::nullopt;
+        RetainedResultView view;
+        view.state = parsed->state; view.mode = parsed->mode; view.levelPlan = parsed->levelPlan;
+        view.teamCount = parsed->teamCount; view.roundLimit = parsed->roundLimit;
+        view.completedRounds = parsed->completedRounds; view.friendlyFire = parsed->friendlyFire;
+        view.assistance = parsed->assistance; view.quickLiquid = parsed->quickLiquid;
+        view.burnableTrees = parsed->burnableTrees; view.seed = parsed->seed;
+        const auto outcome = [](const auto &value) {
+            return RoundOutcomeState{value.winnerPlayerIds, value.winningTeam, value.noWinner};
+        };
+        view.outcome = outcome(parsed->finalOutcome);
+        for (const auto &player: parsed->rows)
+            view.players.push_back({player.playerId, player.participantId, player.rank, player.displayName,
+                    player.team, player.departed, player.cumulative, player.rounds});
+        for (const auto &round: parsed->rounds)
+            view.rounds.push_back({round.number, round.level, round.mirrored, outcome(round.outcome), round.rosterOrder});
+        for (const auto &team: parsed->teams)
+            view.teams.push_back({team.rank, team.team, team.totalPoints, team.rankedPlayerIds});
+        return view;
+    }
+
     Identity StableIdentitySource::issue(IdentityCategory category) {
         constexpr Identity CounterMask = (Identity{1} << 56u) - 1u;
         Identity &candidate = next[category];
@@ -1407,7 +1466,7 @@ namespace Duel6::Network::Replication {
                && value != 0 && value < found->second;
     }
 
-    static bool validateCanonicalStateUnchecked(const CanonicalState &state) {
+    static bool validateCanonicalStateUnchecked(const CanonicalState &state, CanonicalValidationDetail *detail) {
             if (state.sessionId == 0 || state.participants.empty() || !validPhase(state.phase)
                 || state.participants.size() > MaxReplicatedParticipants
                 || state.players.size() > MaxReplicatedPlayers
@@ -1452,6 +1511,26 @@ namespace Duel6::Network::Replication {
             std::set<std::uint8_t> rosterPositions;
             if (!uniqueNonzero(state.players, [](const auto &value) { return value.playerId; }, &playerIds)) return false;
             for (const auto &player: state.players) {
+                constexpr std::int64_t MaximumDuration = INT64_C(86400) * 65536;
+                if (!validPlayerAnimation(player.animation)) return false;
+                if (player.animation.weaponVisible && ((player.lifeState != LifeState::Alive && player.lifeState != LifeState::Departed)
+                    || player.heldWeapon.empty() || player.animation.pose == PlayerPose::Pick)) return false;
+                for (std::size_t index = 0; index < player.hudIndicators.size(); ++index) {
+                    const auto &indicator = player.hudIndicators[index];
+                    if (indicator.elapsed < 0 || indicator.total < 0 || indicator.total > MaximumDuration
+                        || indicator.elapsed > indicator.total) {
+                        if (detail) {
+                            detail->indicatorIndex = static_cast<int>(index);
+                            detail->elapsed = std::clamp(indicator.elapsed, -MaximumDuration, MaximumDuration);
+                            detail->total = std::clamp(indicator.total, -MaximumDuration, MaximumDuration);
+                        }
+                        return false;
+                    }
+                }
+                if (player.width < 0 || player.height < 0 || player.width > 4 * 65536 || player.height > 4 * 65536
+                    || player.roundKills < 0 || player.roundKills > D6_NETWORK_ROUND_PLAYER_HISTORY) return false;
+                if (player.bonusDuration < 0 || player.bonusDuration > MaximumDuration
+                    || player.reloadDuration < 0 || player.reloadDuration > MaximumDuration) return false;
                 if (!participantIds.count(player.ownerParticipantId) || !rosterPositions.insert(player.rosterPosition).second
                     || !Trust::validParticipantName(player.displayName) || !validText(player.heldWeapon, 64, true)
                     || !validText(player.activeBonus, 64, true) || !validLifeState(player.lifeState)
@@ -1480,6 +1559,12 @@ namespace Duel6::Network::Replication {
                         || entity.primaryValue % 2 != 0)) return false;
             }
             if (state.round) {
+                if (state.round->animation.ticks > (UINT64_C(1) << 48)
+                    || state.round->animation.waterResetStep > state.round->animation.ticks / 30) return false;
+                if (state.round->worldTime < 0 || state.round->worldTime > (INT64_C(1) << 48)
+                    || static_cast<unsigned>(state.round->waterType) > static_cast<unsigned>(LiquidKind::Green)
+                    || state.round->waterLevel < -1 || state.round->waterLevel >= 4 * 1024 * 1024
+                    || (state.round->waterRaising && state.round->waterType == LiquidKind::None)) return false;
                 if (state.round->roundId == 0 || state.round->roundNumber == 0
                     || !canonicalLevels.count(state.round->level)
                     || state.round->roundNumber != state.currentRoundNumber
@@ -1601,6 +1686,29 @@ namespace Duel6::Network::Replication {
                 || !uniqueNonzero(state.messages.currentPlayerIndicators, [](Identity value) { return value; })) return false;
             if (!uniqueNonzero(state.effects, [](const auto &value) { return value.effectId; })) return false;
             for (const auto &effect: state.effects) {
+                // Texture layers are semantic, not an arbitrary client texture
+                // index. Bound each current visual to the shipped effect family.
+                unsigned maximumFrame = 0;
+                if (effect.type == "tree-burning") maximumFrame = 48;
+                else if (effect.type.compare(0, 13, "water-splash:") == 0) {
+                    if (effect.type != "water-splash:blue" && effect.type != "water-splash:red"
+                        && effect.type != "water-splash:green") return false;
+                    maximumFrame = 9;
+                } else if (effect.type.compare(0, 12, "weapon-boom:") == 0) {
+                    const auto weapon = effect.type.substr(12);
+                    if (weapon == "bazooka" || weapon == "triton" || weapon == "double-laser") maximumFrame = 35;
+                    else if (weapon == "pistol" || weapon == "uzi" || weapon == "shotgun" || weapon == "plasma"
+                        || weapon == "slime" || weapon == "lightning" || weapon == "kiss-of-death") maximumFrame = 1;
+                    else if (weapon != "bow" && weapon != "stopper-gun" && weapon != "sling"
+                        && weapon != "shit-thrower" && weapon != "machine-gun" && weapon != "spray"
+                        && weapon != "laser") return false;
+                }
+                if (effect.visual.frame > maximumFrame) return false;
+                if (effect.visual.blend > 2 || effect.visual.frame > 255
+                    || effect.visual.ageTicks > (UINT64_C(1) << 48)
+                    || std::any_of(effect.visual.geometry.begin(), effect.visual.geometry.end(), [](auto value) {
+                        return value < -INT64_C(1073741824) || value > INT64_C(1073741824);
+                    }) || effect.visual.geometry[3] < 0 || effect.visual.geometry[4] < 0) return false;
                 if (!validText(effect.type) || effect.remaining < 0
                     || (effect.playerId && !playerIds.count(effect.playerId))
                     || (effect.entityId && std::none_of(state.entities.begin(), state.entities.end(), [&](const auto &entity) {
@@ -1615,9 +1723,11 @@ namespace Duel6::Network::Replication {
         return true;
     }
 
-    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state) noexcept {
+    CanonicalValidationOutcome validateCanonicalStateDetailed(const CanonicalState &state,
+            CanonicalValidationDetail *detail) noexcept {
+        if (detail) *detail = {};
         try {
-            return validateCanonicalStateUnchecked(state)
+            return validateCanonicalStateUnchecked(state, detail)
                    ? CanonicalValidationOutcome::Valid : CanonicalValidationOutcome::Invalid;
         } catch (...) {
             return CanonicalValidationOutcome::InternalFailure;
@@ -1645,39 +1755,57 @@ namespace Duel6::Network::Replication {
     }
 
     std::optional<IncrementalUpdate> AuthoritativeStateReplicator::publish(
-            CanonicalState state, std::vector<PresentationEvent> events) {
+            CanonicalState state, std::vector<PresentationEvent> events, PublishRejectionDetail *detail) {
         publishInternalFailure = false;
+        if (detail) *detail = {};
+        const auto rejects = [detail](bool failed, PublishRejection reason) {
+            if (failed && detail) detail->reason = reason;
+            return failed;
+        };
         const bool roundChanged = current && !sameRound(current->round, state.round);
         if (roundChanged) {
             std::set<Identity> priorEntities;
             for (const auto &entity: current->entities) priorEntities.insert(entity.entityId);
-            for (const auto &entity: state.entities) if (priorEntities.count(entity.entityId)) return std::nullopt;
+            for (const auto &entity: state.entities)
+                if (rejects(priorEntities.count(entity.entityId), PublishRejection::RoundEntityReuse)) return std::nullopt;
         }
-        const auto validation = validateCanonicalStateDetailed(state);
+        const auto validation = validateCanonicalStateDetailed(state, detail ? &detail->canonical : nullptr);
+        if (detail) { detail->canonicalChecked = true; detail->canonicalOutcome = validation; }
         if (validation == CanonicalValidationOutcome::InternalFailure) {
             publishInternalFailure = true;
+            rejects(true, PublishRejection::CanonicalInternalFailure);
             return std::nullopt;
         }
-        if (!current || currentVersion == std::numeric_limits<StateVersion>::max()
-            || validation != CanonicalValidationOutcome::Valid || !validAvailableTerminalResult(state)
-            || state.sessionId != current->sessionId
-            || (current->matchId != 0 && state.matchId == current->matchId
-                && sameRound(current->round, state.round) && state.phaseTime < current->phaseTime)
-            || containsReusedCreation(current->participants, state.participants,
+        if (rejects(!current, PublishRejection::Uninitialized)
+            || rejects(currentVersion == std::numeric_limits<StateVersion>::max(), PublishRejection::VersionExhausted)
+            || rejects(validation != CanonicalValidationOutcome::Valid, PublishRejection::CanonicalInvalid)
+            || rejects(!validAvailableTerminalResult(state, detail ? &detail->resultReason : nullptr), PublishRejection::TerminalResult)
+            || rejects(state.sessionId != current->sessionId, PublishRejection::SessionChanged)
+            || rejects(current->matchId != 0 && state.matchId == current->matchId
+                && sameRound(current->round, state.round)
+                && (state.phaseTime < current->phaseTime
+                    || (state.round && current->round
+                        && (state.round->worldTime < current->round->worldTime
+                            || state.round->animation.ticks < current->round->animation.ticks
+                            || state.round->animation.waterResetStep < current->round->animation.waterResetStep))), PublishRejection::ClockRegression)
+            || rejects(containsReusedCreation(current->participants, state.participants,
                                       issuedParticipantIdentities,
-                                      [](const auto &value) { return value.participantId; })
-            || containsReusedCreation(current->players, state.players, issuedPlayerIdentities,
-                                      [](const auto &value) { return value.playerId; })
-            || introducesUnseenRetainedResultIdentity(*current, state, issuedPlayerIdentities)
-            || changesActiveMatchSettings(*current, state)
-            || altersEstablishedResult(*current, state)
-            || !validRoundTransition(*current, state, issuedRoundIdentities,
-                                     issuedRoundNumbers)
-            || !validFollowingLobbyTransition(*current, state, issuedMatchIdentities,
-                                               issuedRoundIdentities)
-            || containsNonMonotonicCreation(current->entities, state.entities, highestEntityIdentity,
-                                             [](const auto &value) { return value.entityId; })
-            || events.size() > MaxReplicatedEvents) return std::nullopt;
+                                      [](const auto &value) { return value.participantId; }), PublishRejection::ParticipantReuse)
+            || rejects(containsReusedCreation(current->players, state.players, issuedPlayerIdentities,
+                                      [](const auto &value) { return value.playerId; }), PublishRejection::PlayerReuse)
+            || rejects(introducesUnseenRetainedResultIdentity(*current, state, issuedPlayerIdentities), PublishRejection::UnseenResultIdentity)
+            || rejects(changesActiveMatchSettings(*current, state), PublishRejection::SettingsChanged)
+            || rejects(altersEstablishedResult(*current, state), PublishRejection::ResultChanged)
+            || rejects(!validRoundTransition(*current, state, issuedRoundIdentities,
+                                     issuedRoundNumbers), PublishRejection::RoundTransition)
+            || rejects(!validFollowingLobbyTransition(*current, state, issuedMatchIdentities,
+                                               issuedRoundIdentities), PublishRejection::LobbyTransition)
+            || rejects(containsNonMonotonicCreation(current->entities, state.entities, highestEntityIdentity,
+                                             [](const auto &value) { return value.entityId; }), PublishRejection::EntityCreationOrder)
+            || rejects(events.size() > MaxReplicatedEvents, PublishRejection::EventLimit)) {
+            if (detail && detail->reason == PublishRejection::EventLimit) detail->eventCount = events.size();
+            return std::nullopt;
+        }
         const auto newParticipantCount = static_cast<std::size_t>(std::count_if(
                 state.participants.begin(), state.participants.end(), [&](const auto &participant) {
                     return !issuedParticipantIdentities.count(participant.participantId);
@@ -1687,27 +1815,43 @@ namespace Duel6::Network::Replication {
                 referencedPlayers.begin(), referencedPlayers.end(), [&](Identity identity) {
                     return !issuedPlayerIdentities.count(identity);
                 }));
-        if (newParticipantCount > MaxReplicatedIdentityHistory - issuedParticipantIdentities.size()
-            || newPlayerCount > MaxReplicatedIdentityHistory - issuedPlayerIdentities.size()
-            || (state.matchId && !issuedMatchIdentities.count(state.matchId)
-                && issuedMatchIdentities.size() >= MaxReplicatedIdentityHistory)
-            || (state.round && !issuedRoundIdentities.count(state.round->roundId)
-                && issuedRoundIdentities.size() >= MaxReplicatedIdentityHistory))
+        if (rejects(newParticipantCount > MaxReplicatedIdentityHistory - issuedParticipantIdentities.size(), PublishRejection::ParticipantHistoryLimit)
+            || rejects(newPlayerCount > MaxReplicatedIdentityHistory - issuedPlayerIdentities.size(), PublishRejection::PlayerHistoryLimit)
+            || rejects(state.matchId && !issuedMatchIdentities.count(state.matchId)
+                && issuedMatchIdentities.size() >= MaxReplicatedIdentityHistory, PublishRejection::MatchHistoryLimit)
+            || rejects(state.round && !issuedRoundIdentities.count(state.round->roundId)
+                && issuedRoundIdentities.size() >= MaxReplicatedIdentityHistory, PublishRejection::RoundHistoryLimit))
             return std::nullopt;
         std::set<Identity> eventIds;
+        std::set<Identity> pickupCreations;
         auto nextTransientIdentities = transientEntityIdentities;
         std::size_t eventTextBytes = 0;
-        for (const auto &event: events) {
-            if (!validEvent(event) || !eventIds.insert(event.eventId).second
-                || event.eventId <= highestEmittedEvent
-                || !validEventReferences(roundChanged ? state : *current, state, event,
-                                         nextTransientIdentities, highestEntityIdentity))
+        for (std::size_t index = 0; index < events.size(); ++index) {
+            const auto &event = events[index];
+            if (rejects(!validEvent(event), PublishRejection::InvalidEvent)
+                || rejects(!eventIds.insert(event.eventId).second, PublishRejection::DuplicateEvent)
+                || rejects(event.eventId <= highestEmittedEvent, PublishRejection::EventReplay)
+                || rejects(!validEventReferences(roundChanged ? state : *current, state, event,
+                                         nextTransientIdentities, highestEntityIdentity, pickupCreations,
+                                         detail ? &detail->reference : nullptr), PublishRejection::EventReference)) {
+                if (detail) {
+                    detail->eventIndex = static_cast<int>(index);
+                    constexpr const char *types[] = {"shot-fired", "bonus-picked", "weapon-picked", "bonus-spawned",
+                                                     "weapon-spawned", "entity-spawned", "entity-removed"};
+                    for (int code = 0; code < 7; ++code) if (event.type == types[code]) detail->eventType = code + 1;
+                }
                 return std::nullopt;
+            }
             eventTextBytes += event.type.size();
         }
         for (const auto &entity: state.entities)
-            if (nextTransientIdentities.count(entity.entityId)) return std::nullopt;
-        if (!withinPayloadLimit(state, events.size(), eventTextBytes)) return std::nullopt;
+            if (rejects(nextTransientIdentities.count(entity.entityId), PublishRejection::TransientResurrection)) return std::nullopt;
+        if (rejects(!withinPayloadLimit(state, events.size(), eventTextBytes,
+                                       detail ? &detail->payloadEstimate : nullptr), PublishRejection::PayloadLimit)) {
+            if (detail) detail->eventCount = events.size();
+            return std::nullopt;
+        }
+        if (detail) *detail = {}; // Successful attempts expose no stale failure metadata.
         IncrementalUpdate update;
         update.sessionId = state.sessionId; update.matchId = state.matchId;
         update.baseline = currentVersion; update.version = currentVersion + 1;
@@ -1769,7 +1913,11 @@ namespace Duel6::Network::Replication {
             || (accepted && snapshot.state.sessionId != accepted->sessionId)
             || (accepted && accepted->matchId != 0 && snapshot.state.matchId == accepted->matchId
                 && sameRound(accepted->round, snapshot.state.round)
-                && snapshot.state.phaseTime < accepted->phaseTime)
+                && (snapshot.state.phaseTime < accepted->phaseTime
+                    || (snapshot.state.round && accepted->round
+                        && (snapshot.state.round->worldTime < accepted->round->worldTime
+                            || snapshot.state.round->animation.ticks < accepted->round->animation.ticks
+                            || snapshot.state.round->animation.waterResetStep < accepted->round->animation.waterResetStep))))
             || (acceptedVersion && (snapshot.version < acceptedVersion
                 || (snapshot.version == acceptedVersion
                     && (!resynchronizing || !sameCanonicalState(*accepted, snapshot.state))))))
@@ -1877,7 +2025,12 @@ namespace Duel6::Network::Replication {
         candidate.messages = update.messages; candidate.effects = update.effects; candidate.result = update.result;
         if (accepted->matchId != 0 && candidate.matchId == accepted->matchId
             && sameRound(accepted->round, candidate.round)
-            && candidate.phaseTime < accepted->phaseTime) return rejectIncremental();
+            && (candidate.phaseTime < accepted->phaseTime
+                || (candidate.round && accepted->round
+                    && (candidate.round->worldTime < accepted->round->worldTime
+                        || candidate.round->animation.ticks < accepted->round->animation.ticks
+                        || candidate.round->animation.waterResetStep < accepted->round->animation.waterResetStep))))
+            return rejectIncremental();
         if (introducesUnseenRetainedResultIdentity(*accepted, candidate, acceptedPlayerIdentities)
             || changesActiveMatchSettings(*accepted, candidate)
             || altersEstablishedResult(*accepted, candidate)
@@ -1904,11 +2057,12 @@ namespace Duel6::Network::Replication {
             for (const auto &entity: candidate.entities) if (priorEntities.count(entity.entityId)) return rejectIncremental();
         }
         std::set<Identity> eventIds;
+        std::set<Identity> pickupCreations;
         std::size_t eventTextBytes = 0;
         for (const auto &event: update.events) {
             if (!validEvent(event)
                 || !validEventReferences(roundChanged ? candidate : *accepted, candidate, event,
-                                           nextAcceptedTransientEntities, highestEntityIdentity)
+                                           nextAcceptedTransientEntities, highestEntityIdentity, pickupCreations)
                 || !eventIds.insert(event.eventId).second || event.eventId <= highestPresentedEvent)
                 return rejectIncremental();
             eventTextBytes += event.type.size();

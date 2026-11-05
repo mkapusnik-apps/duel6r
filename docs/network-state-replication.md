@@ -84,8 +84,100 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-PRES-007** Replicated state must not contain a canonical fallback-background selection field.
 - **REP-PRES-008** A client must derive a fallback background under `NET-VIS-012` through `NET-VIS-017` from existing replicated identities and its eligible background list.
 - **REP-PRES-009** Reconnect and resynchronization must restore the same fallback background when the replicated identities and eligible background list remain equal.
+- **REP-PRES-010** Replicated state and events must supply sufficient gameplay type, action, effect age, and phase information to satisfy `PRES-ARENA-004`–`PRES-ARENA-012` in the [common arena presentation contract](screens/play-fullscreen.md#common-arena-presentation-contract).
+
+This includes authoritative water type and surface, player hit and weapon-pick presentation, water-entry splashes, and ongoing or completed tree burning. A client must distinguish the presented world's animation time from connection time and round-end countdown time. These semantic requirements do not select a wire encoding or require visual-resource identities. Snapshot and incremental equality compares equivalent presentation time as well as equivalent current state. `REP-029`–`REP-030` retain current-effect restoration without expired-event replay; `NRP-PRS-005`–`NRP-PRS-010` retain the existing prediction boundary.
 
 ## Entity lifecycle
+
+### Arena presentation wire fields
+
+Replication frame version 7 is paired with admission release ID `duel6r-network-r6`.
+Earlier release IDs are rejected during admission as a network-release mismatch;
+earlier replication frames are not decoded as version 7. The admission frame layout itself
+is unchanged.
+
+After the round outcome, both full and incremental round records append signed
+64-bit `worldTime` (Q16 seconds), byte `waterType` (`0` none, `1` blue, `2` red,
+`3` green), signed 32-bit `waterLevel` (highest completely flooded tile row,
+`-1` before the first row), and boolean `waterRaising`. `worldTime` follows the
+world rather than the match countdown; it stops in frozen phases. The liquid
+type comes from the authority even on a map initially without liquid. Rendering
+overlays accepted flooded rows on the loaded map without simulating a rise.
+Two unsigned 64-bit values follow: `animation.ticks` counts cosmetic 90 Hz reference
+ticks, and `animation.waterResetStep` records the frame step at the latest water
+regeneration. Static geometry uses `ticks / 30`; water uses
+`ticks / 30 - waterResetStep`. This preserves the original local accumulator's
+30-tick cadence and frame-zero regeneration without changing the 60 Hz server simulation.
+
+Player records append signed 64-bit `bonusDuration` and `reloadDuration`, both
+Q16 seconds. They are the totals corresponding to the existing remaining-time
+fields, including the current reload modifier. `life` remains unscaled; `air`
+and remaining times retain Q16 units. Rendering converts units once and clamps
+visible proportions, including the zero-total case.
+They are followed by six pairs of signed 64-bit Q16-second `elapsed` and `total`
+HUD indicator values, ordered reload, air, bonus, health, name, ammunition.
+Inactive indicators use zero pairs. Signed 64-bit Q16-world-unit `width` and
+`height`, then signed 32-bit `roundKills`, follow the indicator values.
+The final six bytes are byte `animation.pose` (Stand, HitStand, Walk, Fall, Jump,
+Duck, HitDuck, DeadFall, DeadHit, DeadLying, Dying, Pick, numbered 0–11), unsigned
+16-bit `bodyFrame` and `weaponFrame` pair offsets within their semantic clips,
+and boolean `weaponVisible`. These restore the current cursor without replaying
+events or using global world age. The headless cosmetic cursor advances at the
+90 Hz reference cadence without changing the 60 Hz simulation, death flags or
+fixed pickup lock. Offsets must be even and within the default semantic clip;
+weapon offsets range from 0 through 12. A visible weapon requires an equipped
+player outside the Pick pose; dead/waiting players cannot expose a gun. Departed
+historical players may retain their frozen animation record but are not drawn.
+No profile or animation-resource identity
+is transmitted.
+
+Continuing-effect records append eight signed 64-bit Q16 geometry components
+(x, y, z, width, height, rotation, rotation-centre x/y), unsigned 16-bit texture
+frame, unsigned 64-bit reference age, byte alpha and blend (`0` opaque, `1` source
+alpha, `2` source color), four RGBA bytes and facing-left/no-depth booleans. These
+82 bytes describe current actual sprites (`weapon-boom:<weapon>`, `tree-burning`,
+`water-splash:<water>`) rather than event-derived substitutes. `explosion-ring`
+uses x/y for its centre and width/height for its current/maximum radius, with its
+actual color. Nonvisual bonus/arrival effects leave these values at defaults.
+Geometry is bounded to ±16384 units (sizes nonnegative), blend to 0–2 and age to
+2^48 ticks. Texture frames are bounded by family: tree 0–48, splash 0–9, weapon
+boom 0–35, 0–1 or 0 according to its shipped animation, and non-sprite effects 0.
+Effects retain stable identities until removed; a full
+snapshot restores the current frame/geometry, not the birth animation. Tree
+entity `primaryValue` distinguishes intact (`0`) from completed burned (`1`)
+artwork while the independent burn effect runs to its actual completion.
+
+The fields use the existing little-endian framing and participate in snapshot
+equality and player delta comparison. Validation rejects unknown liquid types,
+negative world time or durations, world times above 2^48 Q16 units, durations
+above 86400 seconds, water rows below -1 or outside the maximum level-cell bound,
+and a raising surface with no liquid type. Reference ticks are capped at 2^48 and
+the water reset step cannot exceed `ticks / 30`. Within a round, world time,
+reference ticks and water reset step cannot move backwards. Indicator elapsed time
+must be nonnegative and no greater than its total, capped at 86400 seconds.
+Dimensions are bounded to 0–4 world units and round kills to the round player-history
+limit. Conservative payload accounting includes 30 additional round bytes, 138
+additional bytes per player and a 256-byte allowance per effect; existing frame
+and aggregate payload limits remain in force.
+
+Version 7 adds the event types `bonus-spawned` and `weapon-spawned` in the existing
+presentation-event encoding (no field-layout change). The authoritative snapshot
+producer derives them from real bonus/weapon collections on first observation,
+before the corresponding `entity-spawned`; player/target/value fields are zero.
+The generic spawn/removal and any real consumption occurrences remain in causal
+order. This supplies kind establishment when cap eviction or collection removes
+a pickup entirely between the three simulation ticks separating publications.
+These creation events do not represent collection and trigger no pickup sound.
+
+Validation requires a fresh nonzero identity above the published live-entity
+high-water mark, no prior transient establishment or duplicate creation, and kind
+agreement with any endpoint entity. For entities absent from both endpoints, the
+existing bounded transient-kind history permits only matching lifecycle and
+consumption events; unknown generic references, kind conflicts and resurrection
+remain rejected transactionally. Full snapshots carry current entities, not past
+events, so recovery does not replay these occurrences. New events use the existing
+event-count, per-event/text payload accounting and history limits unchanged.
 
 - **REP-031** A full snapshot must declare the complete set of current replicated entities at its state version.
 - **REP-032** An incremental update must identify each entity creation, update, and removal that applies after its baseline.
@@ -180,6 +272,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 - **REP-PRES-AC-002 — Profile exclusion:** Replication does not require or provide profile, skin, animation-resource, or visual-resource identities for selected-profile appearance parity.
 - **REP-PRES-AC-003 — Read-only presentation:** A client presents replicated state without mutating it or creating another gameplay simulation.
 - **REP-PRES-AC-004 — Background derivation:** Equal replicated session, match, round, and level logical identities and equal eligible background lists select the same presentation-only fallback background from a full snapshot, equivalent incremental state, reconnect, or resynchronization. Replication adds no canonical background-selection field.
+- **REP-PRES-AC-005 — Arena presentation state:** Full and incremental state provide the authoritative water type, status quantities, action states, effect age, and phase information needed for `PRES-ARENA-AC-001`–`PRES-ARENA-AC-004`. Recovery restores current animation and burn completion without replaying expired effects or changing canonical gameplay.
 - **REP-OWN-AC-001 — Immutable ownership:** Lobby person and roster-order changes preserve admitted player identities and ownership. A participant-local control change also preserves identity and ownership. Participant removal removes all player slots owned by that participant.
 
 ## Downstream boundaries

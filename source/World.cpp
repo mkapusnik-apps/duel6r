@@ -40,6 +40,8 @@ namespace Duel6 {
 #ifndef D6R_HEADLESS_CORE
               explosionList(game.isHeadless() ? Texture() : game.getResources().getExplosionTextures(),
                             D6_EXPL_SPEED),
+#else
+              explosionList(Texture(), D6_EXPL_SPEED),
 #endif
 #ifdef D6R_HEADLESS_CORE
               fireList(spriteList), bonusList(game.getSettings(), *this), elevatorList(Texture()), time(0) {
@@ -49,13 +51,14 @@ namespace Duel6 {
                                           : BonusList(game.getSettings(), game.getResources(), *this)),
               elevatorList(game.isHeadless() ? Texture() : game.getResources().getElevatorTextures()), time(0) {
 #endif
+        headlessPresentation = game.isHeadless();
         game.log(Format("...Width   : {0}") << level.getWidth());
         game.log(Format("...Height  : {0}") << level.getHeight());
 #ifndef D6R_HEADLESS_CORE
         if (!game.isHeadless()) {
             game.log("...Preparing faces");
             levelRenderData = std::make_unique<LevelRenderData>(
-                    level, game.getAppService().getVideo().getRenderer(), D6_ANM_SPEED);
+                    level, game.getAppService().getVideo().getRenderer());
             levelRenderData->generateFaces();
             game.log(Format("...Walls   : {0}") << levelRenderData->getWalls().getFaces().size());
             game.log(Format("...Sprites : {0}") << levelRenderData->getSprites().getFaces().size());
@@ -81,10 +84,19 @@ namespace Duel6 {
 
     void World::update(Float32 elapsedTime) {
         time += elapsedTime;
+        const auto previousAnimationTick = arenaAnimationClock.state().ticks;
+        arenaAnimationClock.update(elapsedTime);
 
-        spriteList.update(elapsedTime);
+        if (headlessPresentation) {
+            for (auto tick = previousAnimationTick; tick < arenaAnimationClock.state().ticks; ++tick) {
+                spriteList.update(1.0f / D6_UPDATE_FREQUENCY);
+                explosionList.update(1.0f / D6_UPDATE_FREQUENCY);
+            }
+        } else {
+            spriteList.update(elapsedTime);
+            explosionList.update(elapsedTime);
+        }
 #ifndef D6R_HEADLESS_CORE
-        explosionList.update(elapsedTime);
         if (levelRenderData) levelRenderData->update(elapsedTime);
 #endif
         shotList.update(*this, elapsedTime);
@@ -102,6 +114,7 @@ namespace Duel6 {
     }
 
     void World::raiseWater() {
+        arenaAnimationClock.resetWater();
         const Int32 previousLevel = level.getWaterLevel();
         level.raiseWater();
         if (previousLevel != level.getWaterLevel())

@@ -34,6 +34,8 @@
 #include "Explosion.h"
 #include "gamemodes/DeathMatch.h"
 #include "gamemodes/TeamDeathMatch.h"
+#include "ArenaPresentation.h"
+#include "ArenaScene.h"
 
 namespace Duel6 {
     WorldRenderer::WorldRenderer(Duel6::AppService &appService, const Duel6::Game &game)
@@ -52,24 +54,6 @@ namespace Duel6 {
 #else
         renderer.setViewport(x, y, width, height);
 #endif
-    }
-
-    void WorldRenderer::walls(const FaceList &walls) const {
-        walls.render(game.getResources().getBlockTextures(), false);
-    }
-
-    void WorldRenderer::water(const FaceList &water) const {
-        renderer.enableDepthWrite(false);
-        renderer.setBlendFunc(BlendFunc::SrcColor);
-
-        water.render(game.getResources().getBlockTextures(), false);
-
-        renderer.setBlendFunc(BlendFunc::None);
-        renderer.enableDepthWrite(true);
-    }
-
-    void WorldRenderer::sprites(const FaceList &sprites) const {
-        sprites.render(game.getResources().getBlockTextures(), true);
     }
 
     void WorldRenderer::background(Texture texture) const {
@@ -206,34 +190,46 @@ namespace Duel6 {
     }
 
     void WorldRenderer::gameOverSummary() const {
-        const bool teamDeathMatch = dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;
-        const bool deathMatch = dynamic_cast<const DeathMatch *>(&game.getMode()) != nullptr;
-        if (!deathMatch && !teamDeathMatch) {
-            roundOverSummary(false, false);
-            return;
+        FinalSummaryPresentation::render(renderer, font, finalSummaryPlan());
+    }
+
+    FinalSummaryPresentation::Plan WorldRenderer::finalSummaryPlan() const {
+        using namespace FinalSummaryPresentation;
+        Model model;
+        model.completedRounds = game.getCurrentRound() + 1;
+        model.roundLimit = game.getSettings().getMaxRounds();
+        model.lastRoundNumber = model.completedRounds;
+        model.curtainAlpha = getGameOverOverlay().getAlpha();
+        const auto &outcome = game.getRound().getEstablishedOutcome();
+        model.lastRoundOutcome.noWinner = outcome.kind == MatchResultRules::OutcomeKind::NoWinner;
+        static const char *teams[] = {"", "Alpha", "Bravo", "Charlie", "Delta"};
+        if (outcome.team > 0 && outcome.team <= 4) model.lastRoundOutcome.winningTeam = teams[outcome.team];
+        for (const auto id: outcome.winners) {
+            const auto player = std::find_if(game.getPlayers().begin(), game.getPlayers().end(),
+                    [id](const auto &value) { return value.getRosterSlot() + 1 == id; });
+            if (player != game.getPlayers().end())
+                model.lastRoundOutcome.winners.push_back({player->getPerson().getName(), {},
+                        model.lastRoundOutcome.winningTeam, false});
         }
-
-        const std::string notice = "End of Game";
-        const Int32 fontSize = 32;
-        const Int32 horizontalPadding = 16;
-        const Int32 verticalPadding = 8;
-        const Int32 bottomInset = 16;
-        const Int32 panelGap = 16;
-        const Int32 noticeHeight = fontSize + 2 * verticalPadding;
-        const Float32 noticeTextWidth = font.getTextWidth(notice, fontSize);
-        const Float32 noticeWidth = noticeTextWidth + 2 * horizontalPadding;
-        const Float32 noticeX = video.getScreen().getClientWidth() / 2.0f - noticeWidth / 2.0f;
-        const Int32 counterBottom = finalRoundCounter();
-
-        roundOverSummary(false, teamDeathMatch, true, bottomInset + noticeHeight + panelGap, counterBottom - panelGap);
-        // Keep counter text above an oversized score panel's intersecting backing surface.
-        finalRoundCounter();
-
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(noticeX, Float32(bottomInset)), Vector(noticeWidth, Float32(noticeHeight)),
-                        Color(0, 0, 255, 255));
-        renderer.setBlendFunc(BlendFunc::None);
-        font.print(noticeX + horizontalPadding, bottomInset + verticalPadding, 0.0f, Color::WHITE, notice, fontSize);
+        model.matchOutcome = model.lastRoundOutcome;
+        model.cumulative.title = "CUMULATIVE RANKING";
+        model.cumulative.columns = {{"Player / team"}, {"K", true}, {"A", true}, {"D", true},
+                                    {"K/D", true}, {"PTS", true}};
+        const Ranking ranking = game.getMode().getRanking(game.getPlayers());
+        const auto append = [&](const Ranking::Entry &entry, bool nested, bool separator) {
+            Row row{{entry.name, std::to_string(entry.kills), std::to_string(entry.assistances),
+                    std::to_string(entry.deaths), Person::getKillsToDeathsRatio(entry.kills, entry.deaths),
+                    std::to_string(entry.points)}, nested, separator, {}};
+            if (!entry.entries.empty()) row.teamColor = entry.bcgColor;
+            model.cumulative.rows.push_back(std::move(row));
+        };
+        for (std::size_t index = 0; index < ranking.entries.size(); ++index) {
+            const auto &entry = ranking.entries[index];
+            append(entry, false, index > 0 && !entry.entries.empty());
+            for (const auto &nested: entry.entries) append(nested, true, false);
+        }
+        return compose(model, video.getScreen().getClientWidth(), video.getScreen().getClientHeight(),
+                       game.getFinalScroll());
     }
 
     void WorldRenderer::roundsPlayed() const {
@@ -246,23 +242,6 @@ namespace Duel6 {
                    Format("Rounds: {0,3}|{1,3}") << game.getCurrentRound() + 1 << game.getSettings().getMaxRounds());
     }
 
-    Int32 WorldRenderer::finalRoundCounter() const {
-        const std::string counter = Format("Rounds: {0,3}|{1,3}") << game.getCurrentRound() + 1
-                                                                  << game.getSettings().getMaxRounds();
-        const Int32 fontSize = 32;
-        const Int32 horizontalPadding = 8;
-        const Int32 verticalPadding = 2;
-        const Int32 topInset = 2;
-        const Int32 width = font.getTextWidth(counter, fontSize) + 2 * horizontalPadding;
-        const Int32 height = fontSize + 2 * verticalPadding;
-        const Int32 x = video.getScreen().getClientWidth() / 2 - width / 2;
-        const Int32 y = video.getScreen().getClientHeight() - topInset - height;
-
-        renderer.quadXY(Vector(x, y), Vector(width, height), Color::BLACK);
-        font.print(x + horizontalPadding, y + verticalPadding, 0.0f, Color::WHITE, counter, fontSize);
-        return y;
-    }
-
     void WorldRenderer::fpsCounter() const {
         std::string fpsCount = Format("FPS - {0}") << Int32(video.getFps());
         Int32 width = 8 * Int32(fpsCount.size()) + 2;
@@ -272,209 +251,6 @@ namespace Duel6 {
 
         renderer.quadXY(Vector(x - 1, y - 1), Vector(width + 2, 18), Color::BLACK);
         font.print(x, y, Color::WHITE, fpsCount);
-    }
-
-    void WorldRenderer::youAreHere() const {
-        Float32 remainingTime = game.getRound().getRemainingYouAreHere();
-        if (remainingTime <= 0) return;
-
-        renderer.enableDepthTest(false);
-
-        Float32 radius = 0.5f + 0.5f * std::abs(D6_YOU_ARE_HERE_DURATION / 2 - remainingTime);
-        for (const Player &player : game.getPlayers()) {
-            Vector playerCentre = player.getCentre();
-            playerCentre.z = 0.5;
-            Vector lastPoint;
-            Vector segments[72];
-            for (Int32 u = 0; u < 37; u++) {
-                Float32 spike = (u % 2 == 0) ? 0.95f : 1.05f;
-                Vector pos = playerCentre + spike * radius * Vector::direction(u * 10);
-                if (u > 0) {
-                    segments[2 * (u - 1)] = lastPoint;
-                    segments[2 * (u - 1) + 1] = pos;
-                }
-                lastPoint = pos;
-            }
-            renderer.lines(segments, 72, 3.0f, Color::YELLOW);
-        }
-
-        renderer.enableDepthTest(true);
-    }
-
-    Float32
-    WorldRenderer::playerIndicator(const Player &player, const Indicator &indicator, const Color &color, Float32 value,
-                                   Float32 xOfs, Float32 yOfs) const {
-        Float32 width = value * 0.98f;
-        Float32 X = xOfs - 0.5f;
-        Float32 Y = yOfs;
-
-        Uint8 alpha = Uint8(255 * indicator.getAlpha());
-
-        renderer.enableDepthWrite(false);
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(X, Y - 0.1f, 0.5f), Vector(1.0f, 0.1f), Color::BLACK.withAlpha(alpha));
-        renderer.quadXY(Vector(X + 0.01f, Y - 0.08f, 0.5f), Vector(width, 0.07f), color.withAlpha(alpha));
-        renderer.setBlendFunc(BlendFunc::None);
-        renderer.enableDepthWrite(true);
-
-        return 0.1f;
-    }
-
-    void WorldRenderer::playerName(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const {
-        const std::string &name = player.getPerson().getName();
-
-        Float32 width = 0.15f * name.size();
-        Float32 X = xOfs - width / 2;
-        Float32 Y = yOfs;
-
-        Uint8 alpha = Uint8(255 * indicator.getAlpha());
-
-        renderer.enableDepthWrite(false);
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(X, Y, 0.5f), Vector(width, 0.3f), Color::BLUE.withAlpha(alpha));
-        renderer.setBlendFunc(BlendFunc::None);
-
-        font.print(X, Y, 0.5f, Color::YELLOW.withAlpha(alpha), name, 0.3f);
-
-        renderer.enableDepthWrite(true);
-    }
-
-    void
-    WorldRenderer::bulletIndicator(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const {
-        std::string bulletCount = Format("{0}") << player.getAmmo();
-
-        Float32 width = 0.15f * bulletCount.size();
-        Float32 X = xOfs - width / 2;
-        Float32 Y = yOfs;
-
-        Uint8 alpha = Uint8(255 * indicator.getAlpha());
-
-        renderer.enableDepthWrite(false);
-
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(X, Y, 0.5f), Vector(width, 0.3f), Color::YELLOW.withAlpha(alpha));
-        renderer.setBlendFunc(BlendFunc::None);
-
-        font.print(X, Y, 0.5f, Color::BLUE.withAlpha(alpha), bulletCount, 0.3f);
-
-        renderer.enableDepthWrite(true);
-    }
-
-    void
-    WorldRenderer::bonusIndicator(const Player &player, const Indicator &indicator, Float32 xOfs, Float32 yOfs) const {
-        Uint8 alpha = Uint8(255 * indicator.getAlpha());
-        auto bonusType = player.getBonus();
-        Material material = Material::makeColoredTexture(game.getResources().getBonusTextures(),
-                                                         Color::WHITE.withAlpha(alpha));
-
-        Float32 size = 0.3f;
-        Float32 X = xOfs - size / 2;
-        Float32 Y = yOfs;
-
-        renderer.enableDepthWrite(false);
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(X, Y, 0.5f), Vector(size, size),
-                        Vector(0.3f, 0.7f, Float32(bonusType->getTextureIndex())), Vector(0.4f, -0.4f), material);
-        renderer.setBlendFunc(BlendFunc::None);
-        renderer.enableDepthWrite(true);
-    }
-
-    void WorldRenderer::playerStatus(const Player &player) const {
-        const auto &indicators = player.getIndicators();
-
-        if (player.isAlive()) {
-            Rectangle rect = player.getCollisionRect();
-            Float32 xOfs = rect.getCentre().x;
-            Float32 yOfs = rect.right.y + 0.15f;
-
-            const auto &reload = indicators.getReload();
-            if (reload.isVisible()) {
-                Float32 interval = player.getReloadInterval();
-                Float32 value = 1.0f - std::min(interval, player.getReloadTime()) / interval;
-                yOfs += playerIndicator(player, reload, Color::GREEN, value, xOfs, yOfs);
-            }
-
-            const auto &air = indicators.getAir();
-            if (air.isVisible()) {
-                yOfs += playerIndicator(player, air, Color::BLUE, player.getAir() / D6_MAX_AIR, xOfs, yOfs);
-            }
-
-            const auto &bonus = indicators.getBonus();
-            if (bonus.isVisible()) {
-                yOfs += playerIndicator(player, bonus, Color::MAGENTA,
-                                        player.getBonusRemainingTime() / player.getBonusDuration(), xOfs, yOfs);
-            }
-
-            const auto &health = indicators.getHealth();
-            if (health.isVisible()) {
-                yOfs += playerIndicator(player, health, Color::RED, player.getLife() / D6_MAX_LIFE, xOfs, yOfs);
-            }
-
-            const auto &name = indicators.getName();
-            const auto &bullets = indicators.getBullets();
-
-            Float32 space = 0.08f;
-            Float32 nameWidth = name.isVisible() ? space + player.getPerson().getName().size() * 0.15f : 0;
-            std::string bulletString = Format("{0}") << player.getAmmo();
-            Float32 bulletWidth = bullets.isVisible() ? space + bulletString.size() * 0.15f : 0;
-            Float32 bonusWidth = bonus.isVisible() ? space + 0.3f : 0;
-            Float32 totalWidth = nameWidth + bulletWidth + bonusWidth;
-            Float32 halfWidth = totalWidth / 2;
-            Float32 xStart = xOfs - halfWidth;
-
-            if (name.isVisible()) {
-                Float32 nameX = xStart + nameWidth / 2;
-                playerName(player, name, nameX, yOfs);
-            }
-
-            if (bullets.isVisible()) {
-                Float32 bulletX = xStart + nameWidth + bulletWidth / 2;
-                bulletIndicator(player, bullets, bulletX, yOfs);
-            }
-
-            if (bonus.isVisible() && player.getBonus() != BonusType::NONE) {
-                Float32 bonusX = xStart + nameWidth + bulletWidth + bonusWidth / 2;
-                bonusIndicator(player, bonus, bonusX, yOfs);
-            }
-
-            if (name.isVisible() || bullets.isVisible() || bonus.isVisible()) {
-                yOfs += 0.4f;
-            }
-
-            roundKills(player, xOfs, yOfs);
-        }
-    }
-
-    void WorldRenderer::roundKills(const Player &player, Float32 xOfs, Float32 yOfs) const {
-        Float32 width = (2 * player.getRoundKills() - 1) * 0.1f;
-        Float32 X = xOfs + 0.05f - width / 2;
-        Float32 Y = yOfs + 0.1f;
-
-        for (Int32 i = 0; i < player.getRoundKills(); i++, X += 0.2f) {
-            renderer.point(Vector(X, Y, 0.5f), 5.0f, Color::BLUE);
-        }
-    }
-
-    void WorldRenderer::invulRing(const Player &player) const {
-        Vector playerCentre = player.getCentre();
-        Float32 radius = player.getDimensions().length() / 2.0f;
-        Int32 p = Int32(player.getBonusRemainingTime() * 30) % 360;
-
-        Vector points[24];
-        for (Int32 uh = p; uh < 360 + p; uh += 15) {
-            Int32 u = uh % 360;
-            Vector pos = playerCentre + radius * Vector::direction(u);
-            points[(uh - p) / 15] = Vector(pos.x, pos.y, 0.5f);
-        }
-        renderer.points(points, 24, 2.0f, Color::RED);
-    }
-
-    void WorldRenderer::invulRings(const std::vector<Player> &players) const {
-        for (const Player &player : players) {
-            if (player.isInvulnerable()) {
-                invulRing(player);
-            }
-        }
     }
 
     void WorldRenderer::screenCurtain(const Color &color) const {
@@ -513,8 +289,9 @@ namespace Duel6 {
         }
 
         const World &world = game.getRound().getWorld();
-        walls(world.getLevelRenderData().getWalls());
-        sprites(world.getLevelRenderData().getSprites());
+        const auto &geometry = world.getLevelRenderData();
+        ArenaPresentation::staticGeometry(renderer, {geometry.getWalls(), geometry.getSprites(), geometry.getWater(),
+                game.getResources().getBlockTextures(), world.getTime()});
 
         renderer.enableWireframe(false);
     }
@@ -531,21 +308,33 @@ namespace Duel6 {
         video.setMode(Video::Mode::Orthogonal);
     }
 
-    void WorldRenderer::view(const Player &player) const {
+    void WorldRenderer::view() const {
         const World &world = game.getRound().getWorld();
-        world.getElevatorList().render(renderer);
-        world.getBonusList().render(renderer);
-        world.getSpriteList().render(renderer);
-        invulRings(game.getPlayers());
-        water(world.getLevelRenderData().getWater());
-        youAreHere();
-
-        for (const Player &hpPlayer : game.getPlayers()) {
-            playerStatus(hpPlayer);
+        const auto &geometry = world.getLevelRenderData();
+        ArenaScene scene{{geometry.getWalls(), geometry.getSprites(), geometry.getWater(),
+                game.getResources().getBlockTextures(), world.getTime()}};
+        scene.elevatorTexture = game.getResources().getElevatorTextures();
+        scene.bonusTexture = game.getResources().getBonusTextures();
+        scene.explosionTexture = game.getResources().getExplosionTextures();
+        for (const auto &elevator: world.getElevatorList().values()) scene.elevators.push_back(elevator.getPosition());
+        const auto &bonuses = world.getBonusList();
+        scene.bonuses.assign(bonuses.getBonuses().begin(), bonuses.getBonuses().end());
+        scene.weapons.assign(bonuses.getWeapons().begin(), bonuses.getWeapons().end());
+        scene.sprites.assign(world.getSpriteList().values().begin(), world.getSpriteList().values().end());
+        scene.explosions.assign(world.getExplosionList().values().begin(), world.getExplosionList().values().end());
+        for (const auto &actor: game.getPlayers()) {
+            ArenaPlayerHud hud;
+            hud.centre = actor.getCentre(); hud.dimensions = actor.getDimensions();
+            hud.name = actor.getPerson().getName(); hud.ammunition = actor.getAmmo(); hud.kills = actor.getRoundKills();
+            hud.life = actor.getLife(); hud.air = actor.getAir();
+            hud.reload = actor.getReloadTime(); hud.reloadTotal = actor.getReloadInterval();
+            hud.bonus = actor.getBonusRemainingTime(); hud.bonusTotal = actor.getBonusDuration();
+            hud.bonusTexture = actor.getBonus() == BonusType::NONE ? -1 : actor.getBonus()->getTextureIndex();
+            hud.indicators = actor.getIndicators(); hud.alive = actor.isAlive(); hud.invulnerable = actor.isInvulnerable();
+            hud.locationRemaining = game.getRound().getRemainingYouAreHere();
+            scene.players.push_back(std::move(hud));
         }
-        //shotCollisionBox(world.getShotList());
-
-        world.getExplosionList().render(renderer);
+        ArenaRenderer::render(renderer, font, scene);
     }
 
     Color WorldRenderer::getGameOverOverlay() const {
@@ -576,9 +365,9 @@ namespace Duel6 {
         renderer.enableDepthTest(true);
         video.setMode(Video::Mode::Perspective);
         setPlayerCamera(player);
-        view(player);
+        view();
 
-        if (game.getRound().hasWinner()) {
+        if (game.getRound().hasWinner() && !game.getRound().isLast()) {
             Color overlayColor = getGameOverOverlay();
             screenCurtain(overlayColor);
         }
@@ -600,6 +389,11 @@ namespace Duel6 {
         video.setMode(Video::Mode::Orthogonal);
         setView(0, 0, video.getScreen().getClientWidth(), video.getScreen().getClientHeight());
 
+        if (game.getRound().hasWinner() && game.getRound().isLast()) {
+            gameOverSummary();
+            return;
+        }
+
         infoMessages();
 
         if (settings.isShowFps()) {
@@ -610,9 +404,7 @@ namespace Duel6 {
             playerRankings();
         }
 
-        const bool localizedFinalSummary = game.getRound().hasWinner() && game.getRound().isLast() &&
-                                           (dynamic_cast<const DeathMatch *>(&game.getMode()) != nullptr ||
-                                            dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr);
+        const bool localizedFinalSummary = game.getRound().hasWinner() && game.getRound().isLast();
         if (settings.isRoundLimit() && !showRoundSummaryProgress && !localizedFinalSummary) {
             roundsPlayed();
         }

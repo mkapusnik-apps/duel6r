@@ -8,6 +8,7 @@
 
 #include "AuthoritativeMatch.h"
 #include "../network/StateReplication.h"
+#include "../network/HostServiceDiagnostics.h"
 
 namespace Duel6::Server::Authoritative {
     enum class CanonicalLobbyMutationOutcome {
@@ -46,7 +47,8 @@ namespace Duel6::Server::Authoritative {
         std::optional<Network::Replication::IncrementalUpdate> beginMatch(const AuthoritativeMatch &match);
         std::optional<Network::Replication::IncrementalUpdate> appendParticipants(
             const AuthoritativeMatch &match, const std::vector<Network::Replication::ParticipantState> &participants);
-        std::optional<Network::Replication::IncrementalUpdate> capture(const AuthoritativeMatch &match);
+        std::optional<Network::Replication::IncrementalUpdate> capture(const AuthoritativeMatch &match,
+                Network::HostServiceDiagnostics *diagnostics = nullptr);
         std::optional<Network::Replication::IncrementalUpdate> markResultParticipantsDeparted(
                 const std::vector<Identity> &participantIds);
         std::optional<Network::Replication::IncrementalUpdate> enterFollowingLobby();
@@ -70,7 +72,8 @@ namespace Duel6::Server::Authoritative {
         std::map<Identity, std::uint64_t> playerArrivalTicks;
 
         bool updateFromMatch(const AuthoritativeMatch &match,
-                             std::vector<Network::Replication::PresentationEvent> &events);
+                             std::vector<Network::Replication::PresentationEvent> &events,
+                             Network::HostServiceDiagnostics *diagnostics = nullptr);
         CanonicalLobbyMutationResult updateLobbyStateTransactional(
                 const std::vector<Network::Replication::ParticipantState> &participants,
                 const std::vector<PlayerDefinition> &roster, const MatchConfig &settings,

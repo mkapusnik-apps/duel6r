@@ -8,6 +8,7 @@
 #include "Context.h"
 #include "AppService.h"
 #include "CanonicalWorldPresenter.h"
+#include "FinalSummaryPresentation.h"
 #include "client/NetworkSessionRuntime.h"
 #include "client/HostDirectory.h"
 #include "network/ListeningSelection.h"
@@ -77,6 +78,8 @@ namespace Duel6 {
         int setupScroll = 0;
         int setupPersonsScroll = 0, setupPlayersScroll = 0;
         int summaryScroll = 0;
+        FinalSummaryPresentation::Scroll finalScroll;
+        Network::Replication::Identity finalSession = 0, finalMatch = 0;
         int summaryHorizontal = 0;
         int rankingScroll = 0;
         Confirmation confirmation = Confirmation::None;
@@ -152,6 +155,8 @@ namespace Duel6 {
                        bool showLiveNetworkState = true) const;
         void drawLobby(const Client::NetworkRuntimeSnapshot &snapshot) const;
         void drawSummary(const Client::NetworkRuntimeSnapshot &snapshot) const;
+        FinalSummaryPresentation::Plan finalSummaryPlan(const Client::NetworkRuntimeSnapshot &snapshot) const;
+        void moveFinalSummary(const Client::NetworkRuntimeSnapshot &snapshot, int rows, int columns);
         void drawRoundSummary(const Client::NetworkRuntimeSnapshot &snapshot,
                               Int32 width, Int32 height) const;
         void drawRetainedContext(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;

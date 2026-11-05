@@ -14,6 +14,8 @@
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeReplication.h"
 #include "tests/TestHarness.h"
+#include "source/PresentationClock.h"
+#include "source/ArenaAnimationClock.h"
 
 namespace {
     namespace R = Duel6::Network::Replication;
@@ -2164,9 +2166,277 @@ namespace {
         state.result.serialized.assign(64 * 1024, 'r');
         R::FullSnapshot snapshot{1, state};
         snapshot.authoritativeProducedAt = 1;
-        const auto payload = R::serializeReplicationSnapshot(snapshot);
+        auto payload = R::serializeReplicationSnapshot(snapshot);
+        // Keep the boundary fixture's encoded size stable when presentation
+        // fields grow. This leaves two partial reservations on the ninth client
+        // before the shared limit, independently of the protocol header size.
+        constexpr std::size_t EncodedBytes = 64 * 1024 - 256;
+        const auto overhead = payload.size() - snapshot.state.result.serialized.size();
+        D6R_REQUIRE(overhead < EncodedBytes);
+        snapshot.state.result.serialized.resize(EncodedBytes - overhead);
+        payload = R::serializeReplicationSnapshot(snapshot);
+        D6R_REQUIRE_EQ(EncodedBytes, payload.size());
         D6R_REQUIRE(payload.size() < Duel6::Network::MaxPayloadBytes);
         return payload;
+    }
+}
+
+D6R_TEST_CASE("REP-PRES liquid clock and HUD durations survive full delta and recovery without event replay") {
+    auto state = activeState();
+    state.round->waterType = Duel6::LiquidKind::Blue;
+    state.round->worldTime = 65536;
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    for (const auto type: {Duel6::LiquidKind::Blue, Duel6::LiquidKind::Red, Duel6::LiquidKind::Green}) {
+        state.phaseTime += 60;
+        state.round->worldTime += 65536;
+        state.round->waterType = type;
+        state.round->waterRaising = true;
+        ++state.round->waterLevel;
+        state.players.front().bonusDuration += 65536;
+        state.players.front().reloadDuration += 32768;
+        state.players.front().hudIndicators[0] = {32768, 2 * 65536};
+        state.players.front().width = 32768; state.players.front().height = 65536;
+        ++state.players.front().roundKills;
+        state.players.front().animation = {Duel6::PlayerPose::Pick,
+                static_cast<std::uint16_t>(state.players.front().roundKills * 2), 8, false};
+        state.round->animation.ticks += 90;
+        state.round->animation.waterResetStep = state.round->animation.ticks / 30;
+        auto update = publisher.publish(state);
+        D6R_REQUIRE(update);
+        D6R_REQUIRE_EQ(1u, update->players.size());
+        auto decoded = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+        D6R_REQUIRE(decoded && decoded->update);
+        D6R_REQUIRE(incremental.apply(*decoded->update) == R::ApplyResult::Applied);
+        R::ReplicatedState recovered;
+        auto snapshot = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+        D6R_REQUIRE(snapshot && snapshot->snapshot);
+        D6R_REQUIRE(recovered.apply(*snapshot->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE(recovered.takePresentationEvents().empty());
+        D6R_REQUIRE(R::serializeReplicationSnapshot({publisher.version(), *recovered.state()})
+                    == R::serializeReplicationSnapshot({publisher.version(), *incremental.state()}));
+        D6R_REQUIRE(recovered.state()->round->waterType == type);
+        D6R_REQUIRE_EQ(state.round->worldTime, recovered.state()->round->worldTime);
+        D6R_REQUIRE_EQ(state.players.front().reloadDuration, recovered.state()->players.front().reloadDuration);
+        D6R_REQUIRE(state.players.front().animation == recovered.state()->players.front().animation);
+    }
+    // A duplicate full version with different presentation time is not equal.
+    auto changed = *publisher.fullSnapshot();
+    ++changed.state.round->worldTime;
+    incremental.requireResynchronization();
+    D6R_REQUIRE(incremental.apply(changed) != R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+}
+
+D6R_TEST_CASE("REP-PRES invalid semantic fields reject atomically and earlier protocols are incompatible") {
+    const auto state = activeState();
+    const std::vector<std::function<void(R::CanonicalState &)>> corruptions = {
+        [](auto &s) { s.round->worldTime = -1; },
+        [](auto &s) { s.round->worldTime = INT64_MAX; },
+        [](auto &s) { s.round->waterType = static_cast<Duel6::LiquidKind>(4); },
+        [](auto &s) { s.round->waterLevel = -2; },
+        [](auto &s) { s.round->waterLevel = INT32_MAX; },
+        [](auto &s) { s.round->waterRaising = true; },
+        [](auto &s) { s.players.front().bonusDuration = -1; },
+        [](auto &s) { s.players.front().reloadDuration = INT64_MAX; },
+        [](auto &s) { s.players.front().hudIndicators[0] = {2, 1}; },
+        [](auto &s) { s.players.front().hudIndicators[1] = {-1, 1}; },
+        [](auto &s) { s.players.front().hudIndicators[5] = {0, INT64_MAX}; },
+        [](auto &s) { s.players.front().width = -1; },
+        [](auto &s) { s.players.front().height = INT64_MAX; },
+        [](auto &s) { s.players.front().roundKills = -1; },
+        [](auto &s) { s.players.front().animation.pose = static_cast<Duel6::PlayerPose>(12); },
+        [](auto &s) { s.players.front().animation.bodyFrame = 1; },
+        [](auto &s) { s.players.front().animation.bodyFrame = 22; },
+        [](auto &s) { s.players.front().animation.weaponFrame = 14; },
+        [](auto &s) { s.players.front().animation.weaponFrame = 3; },
+        [](auto &s) { s.players.front().animation = {Duel6::PlayerPose::Pick, 0, 12, true}; },
+        [](auto &s) { s.round->animation.waterResetStep = 1; },
+        [](auto &s) { s.round->animation.ticks = UINT64_MAX; }
+    };
+    for (const auto &corrupt: corruptions) {
+        auto invalid = state;
+        corrupt(invalid);
+        D6R_REQUIRE(!R::validateCanonicalState(invalid));
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply({1, state}) == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.apply({2, invalid}) == R::ApplyResult::Invalid);
+        D6R_REQUIRE_EQ(1u, client.version());
+    }
+    auto bytes = R::serializeReplicationSnapshot({1, state});
+    // Four-byte identifier followed by the little-endian uint16 version.
+    for (const unsigned version: {3, 4, 5, 6}) {
+        bytes[4] = version; bytes[5] = 0;
+        D6R_REQUIRE(!R::deserializeReplicationFrame(bytes));
+    }
+}
+
+D6R_TEST_CASE("REP-PRES HUD rejection detail is optional bounded first failure and resets") {
+    const auto valid = activeState();
+    R::CanonicalValidationDetail detail;
+    constexpr std::int64_t limit = INT64_C(86400) * 65536;
+    for (const auto &timers: {Duel6::HudIndicatorState{-1, 1}, {2, 1}, {0, -1},
+             {0, INT64_MAX}, {INT64_MIN, INT64_MAX}}) {
+        auto state = valid;
+        state.players.front().hudIndicators[2] = timers;
+        state.players.front().hudIndicators[5] = {-1, 1};
+        D6R_REQUIRE(R::validateCanonicalStateDetailed(state) == R::CanonicalValidationOutcome::Invalid);
+        D6R_REQUIRE(R::validateCanonicalStateDetailed(state, &detail) == R::CanonicalValidationOutcome::Invalid);
+        D6R_REQUIRE_EQ(2, detail.indicatorIndex);
+        D6R_REQUIRE_EQ(std::clamp(timers.elapsed, -limit, limit), detail.elapsed);
+        D6R_REQUIRE_EQ(std::clamp(timers.total, -limit, limit), detail.total);
+        D6R_REQUIRE(R::validateCanonicalStateDetailed(valid, &detail) == R::CanonicalValidationOutcome::Valid);
+        D6R_REQUIRE_EQ(-1, detail.indicatorIndex);
+        D6R_REQUIRE_EQ(0, detail.elapsed);
+        D6R_REQUIRE_EQ(0, detail.total);
+        state.sessionId = 0; // Earlier non-HUD failure must not report a later HUD predicate.
+        D6R_REQUIRE(R::validateCanonicalStateDetailed(state, &detail) == R::CanonicalValidationOutcome::Invalid);
+        D6R_REQUIRE_EQ(-1, detail.indicatorIndex);
+    }
+}
+
+D6R_TEST_CASE("REP-PRES current effect geometry color and age restore through delta recovery expiry and duplicate checks") {
+    auto state = activeState();
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    R::ReplicatedState observer;
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    R::ContinuingEffectState effect{77, "tree-burning", 0, 0, 98};
+    effect.visual.geometry = {65536, 131072, 51118, 104858, 104858, 0, 0, 0};
+    effect.visual.blend = 2; effect.visual.frame = 31; effect.visual.ageTicks = 80;
+    effect.visual.color = {255, 32, 16, 200};
+    effect.visual.facingLeft = false; effect.visual.noDepth = true;
+    state.effects = {effect};
+    for (unsigned step = 0; step < 3; ++step) {
+        ++state.phaseTime; ++state.effects.front().visual.ageTicks;
+        ++state.effects.front().visual.frame; --state.effects.front().remaining;
+        const auto update = publisher.publish(state);
+        D6R_REQUIRE(update);
+        const auto wire = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+        D6R_REQUIRE(wire && wire->update);
+        D6R_REQUIRE(observer.apply(*wire->update) == R::ApplyResult::Applied);
+        const auto full = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+        D6R_REQUIRE(full && full->snapshot);
+        R::ReplicatedState recovered;
+        D6R_REQUIRE(recovered.apply(*full->snapshot) == R::ApplyResult::Applied);
+        D6R_REQUIRE(recovered.takePresentationEvents().empty());
+        D6R_REQUIRE(recovered.state()->effects.front().visual == state.effects.front().visual);
+        D6R_REQUIRE(observer.state()->effects.front().visual == state.effects.front().visual);
+    }
+    auto duplicate = *publisher.fullSnapshot();
+    ++duplicate.state.effects.front().visual.frame;
+    observer.requireResynchronization();
+    D6R_REQUIRE(observer.apply(duplicate) != R::ApplyResult::Applied);
+    D6R_REQUIRE(observer.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    const std::vector<std::function<void(Duel6::EffectVisualState &)>> invalid{
+        [](auto &v) { v.geometry[0] = INT64_MAX; }, [](auto &v) { v.geometry[3] = -1; },
+        [](auto &v) { v.frame = 49; }, [](auto &v) { v.ageTicks = UINT64_MAX; },
+        [](auto &v) { v.blend = 3; }};
+    for (const auto &corrupt: invalid) {
+        auto bad = state; corrupt(bad.effects.front().visual);
+        D6R_REQUIRE(!R::validateCanonicalState(bad));
+    }
+    state.effects.clear(); ++state.phaseTime;
+    const auto expired = publisher.publish(state);
+    D6R_REQUIRE(expired && observer.apply(*expired) == R::ApplyResult::Applied);
+    D6R_REQUIRE(observer.state()->effects.empty());
+}
+
+D6R_TEST_CASE("REP-PRES current sprite frames are bounded by actual texture family") {
+    const std::vector<std::pair<std::string, unsigned>> families{
+        {"tree-burning", 48}, {"water-splash:blue", 9}, {"water-splash:red", 9}, {"water-splash:green", 9},
+        {"weapon-boom:bazooka", 35}, {"weapon-boom:double-laser", 35}, {"weapon-boom:triton", 35},
+        {"weapon-boom:pistol", 1}, {"weapon-boom:uzi", 1}, {"weapon-boom:shotgun", 1},
+        {"weapon-boom:plasma", 1}, {"weapon-boom:slime", 1}, {"weapon-boom:lightning", 1},
+        {"weapon-boom:kiss-of-death", 1}, {"weapon-boom:bow", 0}, {"weapon-boom:sling", 0},
+        {"weapon-boom:stopper-gun", 0}, {"weapon-boom:shit-thrower", 0}, {"weapon-boom:machine-gun", 0},
+        {"weapon-boom:spray", 0}, {"weapon-boom:laser", 0}, {"explosion-ring", 0}};
+    for (const auto &family: families) {
+        auto state = activeState();
+        state.effects = {{77, family.first, 0, 0, 1}};
+        state.effects.front().visual.frame = family.second;
+        D6R_REQUIRE(R::validateCanonicalState(state));
+        ++state.effects.front().visual.frame;
+        D6R_REQUIRE(!R::validateCanonicalState(state));
+    }
+    for (const auto *unknown: {"weapon-boom:unknown", "water-splash:unknown"}) {
+        auto state = activeState(); state.effects = {{77, unknown, 0, 0, 1}};
+        D6R_REQUIRE(!R::validateCanonicalState(state));
+    }
+}
+
+D6R_TEST_CASE("REP-PRES accepted round clock rejects rollback in publisher full and delta paths") {
+    for (unsigned field = 0; field < 3; ++field) {
+    auto state = activeState();
+    state.round->worldTime = 2 * 65536;
+    state.round->animation = {180, 4};
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(state));
+    const auto initial = *publisher.fullSnapshot();
+    auto rollback = state;
+    if (field == 0) --rollback.round->worldTime;
+    if (field == 1) --rollback.round->animation.ticks;
+    if (field == 2) --rollback.round->animation.waterResetStep;
+    ++rollback.phaseTime; // Increasing match time cannot legitimize world rollback.
+    D6R_REQUIRE(!publisher.publish(rollback));
+    D6R_REQUIRE_EQ(initial.version, publisher.version());
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply(initial) == R::ApplyResult::Applied);
+    D6R_REQUIRE(client.apply({initial.version + 1, rollback}) == R::ApplyResult::Invalid);
+    D6R_REQUIRE_EQ(state.round->worldTime, client.state()->round->worldTime);
+    ++state.phaseTime;
+    state.round->worldTime += 65536;
+    state.round->animation.ticks += 90;
+    const auto forward = publisher.publish(state);
+    D6R_REQUIRE(forward);
+    auto invalid = *forward;
+    invalid.round = rollback.round;
+    D6R_REQUIRE(client.apply(invalid) == R::ApplyResult::ResynchronizationRequired);
+    D6R_REQUIRE(client.state() == nullptr);
+    D6R_REQUIRE(client.retainedState());
+    D6R_REQUIRE_EQ(initial.state.round->worldTime, client.retainedState()->round->worldTime);
+    D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(state.round->worldTime, client.state()->round->worldTime);
+    D6R_REQUIRE(client.state()->round->animation == state.round->animation);
+    }
+}
+
+D6R_TEST_CASE("REP-PRES clock bridges snapshots but freezes retained worlds and restores accepted age") {
+    Duel6::PresentationClock clock;
+    D6R_REQUIRE_NEAR(1.01f, clock.update(65536, 0.01f, true), 0.0001f);
+    D6R_REQUIRE_NEAR(1.03f, clock.update(65536, 0.02f, true), 0.0001f);
+    D6R_REQUIRE_NEAR(1.05f, clock.update(65536, 10.0f, true), 0.0001f);
+    D6R_REQUIRE_NEAR(1.0f, clock.update(65536, 5.0f, false), 0.0001f);
+    D6R_REQUIRE_NEAR(9.0f, clock.update(9 * 65536, 0.0f, false), 0.0001f);
+    clock.reset();
+    D6R_REQUIRE_NEAR(0.0f, clock.update(0, 0.0f, true), 0.0001f);
+}
+
+D6R_TEST_CASE("Arena water cadence follows original 90Hz reset accumulator across rises and 60Hz authority") {
+    Duel6::ArenaAnimationClock clock;
+    float originalWait = 0;
+    std::uint64_t originalFrame = 0, originalWater = 0;
+    for (unsigned tick = 1; tick <= 900; ++tick) {
+        // Literal baseline algorithm, deliberately not derived from the new clock.
+        originalWait += 1.0f / 90;
+        if (originalWait > 0.328f) { originalWait = 0; ++originalFrame; ++originalWater; }
+        clock.update(1.0f / 90);
+        if (tick == 89) D6R_REQUIRE_EQ(2u, originalFrame);
+        if (tick == 89 || tick == 145 || tick == 300 || tick == 899) {
+            originalWater = 0; // generateWater rebuilt Face instances at frame zero.
+            clock.resetWater();
+        }
+        D6R_REQUIRE_EQ(originalFrame, Duel6::ArenaAnimationClock::frame(clock.state()));
+        D6R_REQUIRE_EQ(originalWater, Duel6::ArenaAnimationClock::waterFrame(clock.state()));
+    }
+    Duel6::ArenaAnimationClock authority;
+    for (unsigned tick = 1; tick <= 600; ++tick) {
+        authority.update(1.0 / 60);
+        D6R_REQUIRE_EQ(tick / 20, Duel6::ArenaAnimationClock::frame(authority.state()));
+        if (tick == 59) authority.resetWater();
+        if (tick == 60) D6R_REQUIRE_EQ(1u, Duel6::ArenaAnimationClock::waterFrame(authority.state()));
     }
 }
 
@@ -2670,6 +2940,150 @@ D6R_TEST_CASE("REP-012 REP-027 REP-030 REP-032 production combat events survive 
     D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
     D6R_REQUIRE(entity(*client.state(), 777) == nullptr);
     D6R_REQUIRE(client.takePresentationEvents().empty());
+}
+
+D6R_TEST_CASE("Transient pickup typed creation preserves strict rejection and bounded histories") {
+    for (const bool weapon: {false, true}) {
+        const std::string type = weapon ? "weapon-spawned" : "bonus-spawned";
+        const auto initial = activeState();
+        auto next = initial; ++next.phaseTime;
+        const std::vector<R::PresentationEvent> valid{
+                {900, type, 0, 0, 777, 0}, {901, "entity-spawned", 0, 0, 777, 0},
+                {902, "entity-removed", 0, 0, 777, 0}};
+        const std::vector<std::vector<R::PresentationEvent>> attacks{
+                {{900, "entity-spawned", 0, 0, 777, 0}},
+                {{900, type, 0, 0, 777, 0}, {901, weapon ? "bonus-picked" : "weapon-picked", 101, 0, 777, 1}},
+                {{900, type, 0, 0, 777, 0}, {901, type, 0, 0, 777, 0}},
+                {{900, type, 0, 0, 0, 0}}, {{900, type, 0, 0, 50, 0}},
+                {{900, type, 101, 0, 777, 0}}, {{900, type, 0, 0, 777, 1}},
+                {{900, type, 0, 0, 777, 0}, {900, "entity-removed", 0, 0, 777, 0}}};
+        for (const auto &events: attacks) {
+            R::AuthoritativeStateReplicator publisher;
+            D6R_REQUIRE(publisher.initialize(initial));
+            const auto before = *publisher.fullSnapshot();
+            R::ReplicatedState client;
+            D6R_REQUIRE(client.apply(before) == R::ApplyResult::Applied);
+            D6R_REQUIRE(!publisher.publish(next, events));
+            auto attack = validUpdate(initial, next); attack.events = events;
+            D6R_REQUIRE(client.apply(attack) == R::ApplyResult::ResynchronizationRequired);
+            D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(before), R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+            D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(before), R::serializeReplicationSnapshot({1, *client.retainedState()}));
+            D6R_REQUIRE(client.takePresentationEvents().empty());
+            // Failed prefixes did not consume identities or occurrences.
+            D6R_REQUIRE(client.apply(before) == R::ApplyResult::Applied);
+            const auto accepted = publisher.publish(next, valid);
+            D6R_REQUIRE(accepted && client.apply(*accepted) == R::ApplyResult::Applied);
+            D6R_REQUIRE_EQ(valid.size(), client.takePresentationEvents().size());
+            auto replay = *accepted; replay.baseline = 2; replay.version = 3;
+            D6R_REQUIRE(!publisher.publish(next, valid));
+            D6R_REQUIRE(client.apply(replay) == R::ApplyResult::ResynchronizationRequired);
+            D6R_REQUIRE(client.takePresentationEvents().empty());
+        }
+        // A creation claiming the wrong kind cannot use a live endpoint to bypass validation.
+        auto live = next;
+        R::WorldEntityState entity;
+        entity.entityId = 777; entity.kind = weapon ? R::EntityKind::BonusPickup : R::EntityKind::WeaponPickup;
+        entity.type = weapon ? "shield" : "pistol"; entity.lifecycle = "available";
+        live.entities.push_back(entity);
+        R::AuthoritativeStateReplicator publisher;
+        D6R_REQUIRE(publisher.initialize(initial));
+        R::ReplicatedState client;
+        D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+        const std::vector<R::PresentationEvent> wrongKind{{900, type, 0, 0, 777, 0}};
+        D6R_REQUIRE(!publisher.publish(live, wrongKind));
+        auto mismatch = validUpdate(initial, live); mismatch.events = wrongKind;
+        D6R_REQUIRE(client.apply(mismatch) == R::ApplyResult::ResynchronizationRequired);
+        D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+        const auto accepted = publisher.publish(next, valid);
+        D6R_REQUIRE(accepted && client.apply(*accepted) == R::ApplyResult::Applied);
+        (void) client.takePresentationEvents();
+        auto resurrection = validUpdate(next, live); resurrection.baseline = 2; resurrection.version = 3;
+        D6R_REQUIRE(!publisher.publish(live));
+        D6R_REQUIRE(client.apply(resurrection) == R::ApplyResult::ResynchronizationRequired);
+        D6R_REQUIRE(client.apply({3, live}) == R::ApplyResult::Invalid);
+        D6R_REQUIRE_EQ(2u, publisher.version());
+        D6R_REQUIRE_EQ(2u, client.version());
+        D6R_REQUIRE(client.apply(*publisher.fullSnapshot()) == R::ApplyResult::Applied);
+        D6R_REQUIRE(client.takePresentationEvents().empty());
+        // Exhaust the existing bounded transient history with fresh typed creations,
+        // never with generic assertions. The extra identity is rejected atomically.
+        R::AuthoritativeStateReplicator bounded;
+        D6R_REQUIRE(bounded.initialize(initial));
+        R::ReplicatedState boundedClient;
+        D6R_REQUIRE(boundedClient.apply(*bounded.fullSnapshot()) == R::ApplyResult::Applied);
+        R::Identity eventId = 1000, entityId = 1000;
+        for (std::size_t used = 0; used < R::MaxReplicatedIdentityHistory; used += R::MaxReplicatedEvents) {
+            std::vector<R::PresentationEvent> batch;
+            for (std::size_t i = 0; i < R::MaxReplicatedEvents; ++i)
+                batch.push_back({eventId++, type, 0, 0, entityId++, 0});
+            ++next.phaseTime;
+            const auto update = bounded.publish(next, batch);
+            D6R_REQUIRE(update && boundedClient.apply(*update) == R::ApplyResult::Applied);
+            (void) boundedClient.takePresentationEvents();
+        }
+        const auto full = *bounded.fullSnapshot();
+        R::PublishRejectionDetail detail;
+        D6R_REQUIRE(!bounded.publish(next, {{eventId, type, 0, 0, entityId, 0}}, &detail));
+        D6R_REQUIRE(detail.reason == R::PublishRejection::EventReference);
+        D6R_REQUIRE(detail.reference == R::EventReferenceRejection::TransientHistoryLimit);
+        D6R_REQUIRE_EQ(R::serializeReplicationSnapshot(full), R::serializeReplicationSnapshot(*bounded.fullSnapshot()));
+        auto excess = validUpdate(next, next);
+        excess.baseline = full.version; excess.version = full.version + 1;
+        excess.events = {{eventId, type, 0, 0, entityId, 0}};
+        D6R_REQUIRE(boundedClient.apply(excess) == R::ApplyResult::ResynchronizationRequired);
+        D6R_REQUIRE_EQ(full.version, boundedClient.version());
+        D6R_REQUIRE(boundedClient.takePresentationEvents().empty());
+    }
+}
+
+D6R_TEST_CASE("Publisher failure detail preserves first reason clock result budgets and reset") {
+    const auto initial = activeState();
+    R::AuthoritativeStateReplicator publisher;
+    D6R_REQUIRE(publisher.initialize(initial));
+    const auto before = R::serializeReplicationSnapshot(*publisher.fullSnapshot());
+    R::PublishRejectionDetail detail;
+    auto next = initial; --next.phaseTime;
+    const std::vector<R::PresentationEvent> unknown{{900, "entity-spawned", 0, 0, 777, 0}};
+    D6R_REQUIRE(!publisher.publish(next, unknown, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::ClockRegression);
+    D6R_REQUIRE_EQ(-1, detail.eventIndex);
+    next = initial; ++next.phaseTime;
+    D6R_REQUIRE(!publisher.publish(next, unknown, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::EventReference);
+    D6R_REQUIRE(detail.reference == R::EventReferenceRejection::UntypedUnknownEntity);
+    D6R_REQUIRE_EQ(0, detail.eventIndex); D6R_REQUIRE_EQ(6, detail.eventType);
+    auto terminal = completedResultWithDepartureLabels();
+    D6R_REQUIRE(replaceOnce(terminal.result.serialized, "\"displayName\":\"Guest\"", "\"displayName\":\"Other\""));
+    D6R_REQUIRE(R::validateCanonicalState(terminal));
+    D6R_REQUIRE(!publisher.publish(terminal, {}, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::TerminalResult);
+    D6R_REQUIRE_EQ(7, detail.resultReason);
+    D6R_REQUIRE_EQ(-1, detail.eventIndex);
+    std::vector<R::PresentationEvent> events;
+    for (std::size_t i = 0; i < R::MaxReplicatedEvents; ++i)
+        events.push_back({1000 + i, std::string(64, 'x'), 0, 0, 0, 0});
+    auto budgetState = next;
+    for (R::Identity id = 51; id < 651; ++id) {
+        auto entity = initial.entities.front(); entity.entityId = id;
+        budgetState.entities.push_back(entity);
+    }
+    D6R_REQUIRE(R::validateCanonicalState(budgetState));
+    D6R_REQUIRE(!publisher.publish(budgetState, events, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::PayloadLimit);
+    D6R_REQUIRE_EQ(R::MaxReplicatedResultBytes + 1, detail.payloadEstimate);
+    D6R_REQUIRE_EQ(R::MaxReplicatedEvents, detail.eventCount);
+    events.push_back({6000, "extra", 0, 0, 0, 0});
+    D6R_REQUIRE(!publisher.publish(next, events, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::EventLimit);
+    D6R_REQUIRE_EQ(0u, detail.payloadEstimate);
+    D6R_REQUIRE_EQ(before, R::serializeReplicationSnapshot(*publisher.fullSnapshot()));
+    D6R_REQUIRE(publisher.publish(next, {}, &detail));
+    D6R_REQUIRE(detail.reason == R::PublishRejection::None);
+    D6R_REQUIRE(detail.canonicalOutcome == R::CanonicalValidationOutcome::Valid);
+    D6R_REQUIRE_EQ(-1, detail.eventIndex);
+    D6R_REQUIRE_EQ(0, detail.resultReason);
+    D6R_REQUIRE_EQ(0u, detail.payloadEstimate);
+    D6R_REQUIRE(!publisher.lastPublishFailedInternally());
 }
 
 D6R_TEST_CASE("PR83 transient typed spawn remove absent from both captures converges and cannot be recreated") {

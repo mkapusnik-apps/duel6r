@@ -29,8 +29,10 @@
 #define DUEL6_PLAYER_H
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <time.h>
+#include "Sprite.h"
 #ifndef D6R_HEADLESS_CORE
 #include "math/Camera.h"
 #include "SpriteList.h"
@@ -52,8 +54,8 @@
 #include "Defines.h"
 #include "Level.h"
 #include "collision/WorldCollision.h"
-#ifndef D6R_HEADLESS_CORE
 #include "PlayerIndicators.h"
+#ifndef D6R_HEADLESS_CORE
 #include "PlayerView.h"
 #endif
 
@@ -140,14 +142,16 @@ namespace Duel6 {
         World *world; // TODO: Remove
         Float32 bodyAlpha;
         clock_t roundStartTime;
-#ifndef D6R_HEADLESS_CORE
         PlayerIndicators indicators;
-#endif
         Uint32 controllerState;
         CollidingEntity collider;
         bool headless;
         Float32 roundElapsedTime;
         const Size rosterSlot;
+        std::optional<Sprite> canonicalBody, canonicalGun;
+        PlayerPose presentationPose = PlayerPose::Stand;
+        bool canonicalDying = false, canonicalPicking = false;
+        double presentationRemainder = 0;
 
     public:
 #ifndef D6R_HEADLESS_CORE
@@ -175,6 +179,8 @@ namespace Duel6 {
         void updateControllerStatus();
 
         void update(World &world, Float32 elapsedTime);
+
+        PlayerAnimationState getAnimationState() const;
 
 #ifndef D6R_HEADLESS_CORE
         void prepareCam(const Video &video, Int32 levelSizeX, Int32 levelSizeY);
@@ -221,7 +227,6 @@ namespace Duel6 {
             return isKneeling() ? getSpritePosition() - Vector(0.0f, 0.15f) : getSpritePosition();
         }
 
-#ifndef D6R_HEADLESS_CORE
         PlayerIndicators &getIndicators() {
             return indicators;
         }
@@ -230,6 +235,7 @@ namespace Duel6 {
             return indicators;
         }
 
+#ifndef D6R_HEADLESS_CORE
         const PlayerView &getView() const {
             return view;
         }
@@ -322,9 +328,7 @@ namespace Duel6 {
 
         Player &pickAmmo(Int32 ammo) {
             this->ammo += ammo;
-#ifndef D6R_HEADLESS_CORE
             indicators.getBullets().show();
-#endif
             return *this;
         }
 
@@ -379,6 +383,9 @@ namespace Duel6 {
         bool isInGame() const {
             return isAlive() || isLying();
         }
+
+        // Body presence is independent of alpha/invisibility and membership.
+        bool isBodyVisible() const { return isAlive() || isGhost() || isLying(); }
 
         bool isInvulnerable() const {
             return (getBonus() == BonusType::INVULNERABILITY);

@@ -16,6 +16,7 @@
 #include "tests/TestHarness.h"
 #include "source/client/HostServiceSupervisor.h"
 #include "source/network/HostServiceControlProtocol.h"
+#include "tests/HostDiagnosticFixture.h"
 
 namespace {
 using namespace Duel6;
@@ -46,6 +47,7 @@ struct ChildState {
     bool forceWorks = true;
     bool hideStatusUntilExit = false;
     bool invalidExitBuffer = false;
+    std::atomic<bool> throwExitObservation{false};
     bool statusSealed = false;
     std::deque<Client::HostServiceStatusEvent> exitBufferedEvents;
     std::function<void(unsigned)> onStatusPollTimeout;
@@ -84,6 +86,7 @@ public:
     bool observeExitAndDrainStatus(
             Client::HostServiceExitEvent &exit, std::vector<Client::HostServiceStatusEvent> &statuses,
             const std::function<Client::HostServiceTimePoint()> &observationClock) override {
+        if (state->throwExitObservation) throw std::runtime_error("test observer failure");
         if (!HostServiceChild::observeExit(exit, observationClock)) return false;
         std::lock_guard<std::mutex> lock(state->mutex);
         if (state->statusSealed) return true;
@@ -985,3 +988,33 @@ D6R_TEST_CASE("HSL-AC-008 immediate process creation failure has generic exact r
     D6R_REQUIRE(result.cleanupComplete);
     D6R_REQUIRE(result.retryAllowed);
 }
+
+#ifdef __linux__
+D6R_TEST_CASE("Host diagnostics preserve observer exception separately from selected cleanup reason") {
+    Test::HostDiagnosticFixture trace;
+    Fixture fixture;
+    auto config = fixture.config();
+    config.diagnostics = Network::HostServiceDiagnostics::open(trace.fifo.string());
+    D6R_REQUIRE(config.diagnostics != nullptr);
+    Client::HostServiceSupervisor supervisor(fixture.dependencies());
+    D6R_REQUIRE(supervisor.start(config));
+    makeReady(fixture, supervisor);
+    fixture.child()->throwExitObservation = true;
+    requireState(supervisor, Client::HostServiceState::SessionFailed);
+    requireCleanup(supervisor);
+    unsigned exception = 0, selected = 0, reset = 0;
+    for (const auto &r : trace.drain()) {
+        switch (static_cast<Network::HostDiagnosticEvent>(r.event)) {
+            case Network::HostDiagnosticEvent::ObserverException: exception = r.seq; break;
+            case Network::HostDiagnosticEvent::StopSelected:
+                selected = r.seq;
+                D6R_REQUIRE_EQ(static_cast<int>(Client::HostServiceStopReason::SessionFailure), r.a);
+                break;
+            case Network::HostDiagnosticEvent::BeforeReset: reset = r.seq; break;
+            case Network::HostDiagnosticEvent::NativeExit: D6R_REQUIRE(false); break;
+            default: break;
+        }
+    }
+    D6R_REQUIRE(exception > 0 && exception < selected && selected < reset);
+}
+#endif

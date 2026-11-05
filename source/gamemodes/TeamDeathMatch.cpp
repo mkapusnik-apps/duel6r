@@ -30,7 +30,7 @@
 namespace Duel6 {
     namespace {
         bool rankingComparator(const Ranking::Entry &left, const Ranking::Entry &right) {
-            return left.points > right.points;
+            return MatchResultRules::compareTeamPoints(left.points, right.points) < 0;
         }
     }
 
@@ -160,7 +160,11 @@ namespace Duel6 {
     }
 
     bool TeamDeathMatch::checkRoundOver(World &world, const std::vector<Player *> &alivePlayers) {
-        if (alivePlayers.empty()) {
+        std::vector<MatchResultRules::Survivor> survivors;
+        for (const auto *player: alivePlayers) survivors.push_back({player->getRosterSlot() + 1, teamNumber(*player), false});
+        const auto outcome = MatchResultRules::evaluateSurvivors(MatchResultRules::Mode::TeamDeathmatch, survivors, true);
+        if (outcome.kind == MatchResultRules::OutcomeKind::Pending) return false;
+        if (outcome.kind == MatchResultRules::OutcomeKind::NoWinner) {
             for (const Player &player : world.getPlayers()) {
                 world.getMessageQueue().add(player, "End of round - no winner");
             }
@@ -168,13 +172,6 @@ namespace Duel6 {
         }
 
         const Team *lastAliveTeam = teamMap.at(alivePlayers[0]);
-        for (Player *player : alivePlayers) {
-            const Team *playerTeam = teamMap.at(player);
-            if (playerTeam != lastAliveTeam) {
-                return false;
-            }
-        }
-
         for (Player &player : world.getPlayers()) {
             const Team *playerTeam = teamMap.at(&player);
             if (playerTeam == lastAliveTeam) {
