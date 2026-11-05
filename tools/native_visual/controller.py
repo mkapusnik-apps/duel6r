@@ -35,7 +35,7 @@ def seed_names(root, names):
     counters["elo"] = 1000
     (root / "data/persons.json").write_text(json.dumps({
         "persons": [dict(counters, name=n) for n in names], "playing": names, "rounds": 0,
-    }), encoding="utf-8")
+    }, ensure_ascii=False), encoding="utf-8")
 
 
 def expand(steps, macros=None, stack=()):

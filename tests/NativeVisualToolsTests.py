@@ -191,6 +191,72 @@ class IdentityTests(unittest.TestCase):
                 self.assertTrue(all(x==0 for x in person.values()))
             with self.assertRaises(ValueError): seed_names(root,["é"*33])
 
+    def test_multibyte_names_are_raw_utf8_for_the_byte_copy_consumer(self):
+        names = ["H00-" + "á" * 30, "P01-" + "ž" * 30,
+                 "N-" + "e\u0301" * 20 + "xy"]
+        self.assertTrue(all(len(name.encode("utf-8")) == 64 for name in names))
+        before = names.copy()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); self.runtime(root)
+            seed_names(root, names)
+            raw = (root / "data/persons.json").read_bytes()
+            data = json.loads(raw)
+            self.assertEqual(before, names)
+            self.assertEqual(names, data["playing"])
+            self.assertEqual(names, [person["name"] for person in data["persons"]])
+            self.assertNotIn(b"\\u", raw)
+            for name in names:
+                # Frozen8b JsonParser::parseString/readUntil copies these bytes
+                # verbatim; a JSON roundtrip alone would miss escaped Unicode.
+                literal = name.encode("utf-8")
+                self.assertIn(b'"name": "' + literal + b'"', raw)
+                self.assertEqual(2, raw.count(literal))  # persons and playing
+
+    def test_ascii_fixture_bytes_and_literal_backslashes_are_unchanged(self):
+        names = ["Alder", r"User\u017e"]
+        counters = dict.fromkeys(("shots", "hits", "kills", "deaths", "assistances", "wins", "penalties",
+                                 "games", "timeAlive", "totalGameTime", "totalDamage", "assistedDamage",
+                                 "eloTrend", "eloGames"), 0)
+        counters["elo"] = 1000
+        legacy = json.dumps({"persons": [dict(counters, name=name) for name in names],
+                             "playing": names, "rounds": 0}).encode("utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); self.runtime(root)
+            seed_names(root, names)
+            raw = (root / "data/persons.json").read_bytes()
+            self.assertEqual(legacy, raw)
+            self.assertEqual(names, json.loads(raw)["playing"])
+
+    def test_full_multibyte_roster_keeps_only_zero_default_person_fields(self):
+        names = [f"P{index:02d}-" + "ž" * 30 for index in range(15)]
+        expected_counters = {"shots": 0, "hits": 0, "kills": 0, "deaths": 0,
+                             "assistances": 0, "wins": 0, "penalties": 0, "games": 0,
+                             "timeAlive": 0, "totalGameTime": 0, "totalDamage": 0,
+                             "assistedDamage": 0, "eloTrend": 0, "eloGames": 0, "elo": 1000}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); self.runtime(root)
+            before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            seed_names(root, names)
+            data = json.loads((root / "data/persons.json").read_bytes())
+            self.assertEqual({"persons", "playing", "rounds"}, set(data))
+            self.assertEqual(names, data["playing"])
+            self.assertEqual(0, data["rounds"])
+            self.assertEqual([dict(expected_counters, name=name) for name in names], data["persons"])
+            self.assertEqual(set(before) | {Path("data/persons.json")},
+                             {p.relative_to(root) for p in root.rglob("*") if p.is_file()})
+            for path, raw in before.items(): self.assertEqual(raw, (root / path).read_bytes())
+
+    def test_invalid_name_guards_reject_without_rewriting_fixture(self):
+        invalid = [[], [""], ["Same", "Same"], [str(index) for index in range(16)],
+                   ["P01-" + "ž" * 31], ["line\nbreak"]]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); self.runtime(root)
+            seed_names(root, ["Valid"])
+            path = root / "data/persons.json"; before = path.read_bytes()
+            for names in invalid:
+                with self.subTest(names=names), self.assertRaises(ValueError): seed_names(root, names)
+                self.assertEqual(before, path.read_bytes())
+
     def test_receipt_is_additive(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/"receipt.json"; record(path,{"historical":True}); before=path.read_bytes()
