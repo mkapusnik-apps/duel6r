@@ -14,13 +14,95 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest, verify_runtime
-from tools.native_visual.controller import Scheduler
+from tools.native_visual.controller import Scheduler, display_diagnostic, execute
 from tools.native_visual.operator import OperatorChannel, load_request
 from tools.native_visual.transport_relay import finite_number, private_port, Flow
 from NativeVisualToolsTests import Clock, FakeNative, keys_down
 import NativeVisualToolsTests as baseline
 
 WORKSPACE = Path(__file__).resolve().parents[1]
+
+
+def failure_logs(root):
+    """Copy only bounded, secret-free sinks to CTest stderr before tmp cleanup."""
+    for relative, limit in (("stdout", 2048), ("stderr", 4096),
+                            ("output/fixture.log", 2048), ("output/display-startup.jsonl", 12288),
+                            ("output/process.jsonl", 2048), ("output/completion.json", 2048)):
+        try:
+            with (root / relative).open("rb") as stream:
+                stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, stream.tell() - limit))
+                tail = stream.read(limit).decode(errors="replace")
+            print(f"native-operator failure log {relative} (tail <= {limit} bytes):\n{tail}",
+                  file=sys.stderr, flush=True)
+        except BaseException:
+            try:
+                print(f"native-operator failure log unavailable: {relative}", file=sys.stderr, flush=True)
+            except BaseException:
+                pass
+
+
+class DisplayDiagnosticTests(unittest.TestCase):
+    def test_allowlisted_bounded_log_and_passive_socket_read_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); log = root / "fixture.log"; log.write_text("x" * 4096)
+            process = Mock(pid=123); process.poll.return_value = None
+            with patch("tools.native_visual.controller.os.stat", side_effect=PermissionError(13, "test-only")):
+                display_diagnostic(root, "fixture", "geometry-probe-begin", process,
+                                   {"DISPLAY": ":0", "SECRET_TEST_ONLY": "not-for-output"}, log)
+            data = json.loads((root / "display-startup.jsonl").read_text())
+            self.assertEqual(":0", data["display"])
+            self.assertTrue(data["xvfb_alive"])
+            self.assertIsNone(data["xvfb_returncode"])
+            self.assertEqual(13, data["socket"]["stat_errno"])
+            self.assertEqual(1024, len(data["owned_log_tail"]))
+            self.assertNotIn("not-for-output", json.dumps(data))
+            process.terminate.assert_not_called(); process.wait.assert_not_called()
+
+    def test_log_read_failure_is_recorded_and_write_failure_cannot_replace_primary_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            display_diagnostic(root, "fixture", "xvfb-start", None, {}, root / "missing.log")
+            self.assertEqual("FileNotFoundError", json.loads(
+                (root / "display-startup.jsonl").read_text())["log_read_error"])
+            primary = ValueError("test-only primary")
+            with patch.object(Path, "open", side_effect=OSError("test-only diagnostic IO")), \
+                    patch("sys.stderr"), self.assertRaises(ValueError) as raised:
+                try:
+                    raise primary
+                finally:
+                    display_diagnostic(root, "fixture", "startup-failed", None, {}, root / "fixture.log")
+            self.assertIs(primary, raised.exception)
+
+    def test_failed_single_geometry_probe_preserves_error_and_owned_cleanup_when_journal_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); runtime = root / "runtime"; runtime.mkdir()
+            identity = baseline.IdentityTests().runtime(runtime)
+            output = root / "output"; output.mkdir()
+            xvfb = Mock(pid=123); xvfb.poll.return_value = None
+            def reaped(timeout):
+                xvfb.poll.return_value = 0
+                return 0
+            xvfb.wait.side_effect = reaped
+            original_open = Path.open
+            def fail_journal(path, *args, **kwargs):
+                if path.name == "display-startup.jsonl": raise OSError("test-only journal failure")
+                return original_open(path, *args, **kwargs)
+            failed = subprocess.CompletedProcess(["xdotool", "getdisplaygeometry"], 1,
+                                                 stdout=b"", stderr=b"test-only X11 open failure")
+            with patch.object(Path, "open", fail_journal), patch("sys.stderr"), \
+                    patch("tools.native_visual.controller.subprocess.Popen", return_value=xvfb) as launch, \
+                    patch("tools.native_visual.controller.select.select", return_value=([1], [], [])), \
+                    patch("tools.native_visual.controller.os.read", return_value=b"0\n"), \
+                    patch("tools.native_visual.controller.subprocess.run", return_value=failed) as probe, \
+                    self.assertRaisesRegex(ValueError, "unexpected display geometry"):
+                execute(runtime, identity, dict(clients=[dict(id="fixture", geometry=[850,700],
+                    names=["Test-only"])], budget_seconds=3, steps=[]), output, operator=True)
+            launch.assert_called_once()  # No client starts after the failed geometry probe.
+            probe.assert_called_once()
+            self.assertEqual(":0", probe.call_args.kwargs["env"]["DISPLAY"])
+            xvfb.terminate.assert_called_once(); xvfb.wait.assert_called_once_with(timeout=2)
+            self.assertFalse(json.loads((output / "controller.json").read_text())["normal_application_exit"])
 
 
 class OperatorTests(unittest.TestCase):
@@ -277,6 +359,7 @@ class NativeOperatorTests(unittest.TestCase):
                     "--runtime", str(runtime), "--identity", str(root / "identity.json"),
                     "--recipe", str(root / "recipe.json"), "--output", str(root / "output")],
                     cwd=WORKSPACE, stdout=stdout, stderr=stderr)
+                failed = False
                 try:
                     ready = root / "output/operator/ready.json"
                     end = time.monotonic() + 10
@@ -286,9 +369,25 @@ class NativeOperatorTests(unittest.TestCase):
                         time.sleep(.02)
                     yield root, process, load_request(ready)
                     verify_runtime(runtime, identity)
+                except BaseException:
+                    failed = True
+                    raise
                 finally:
-                    if process.poll() is None: process.terminate()
-                    process.wait(timeout=8)
+                    try:
+                        if process.poll() is None: process.terminate()
+                        process.wait(timeout=8)
+                    except BaseException as error:
+                        try:
+                            print("native-operator cleanup wait failed: " + type(error).__name__,
+                                  file=sys.stderr, flush=True)
+                        except BaseException:
+                            pass
+                        if not failed:
+                            failed = True
+                            raise
+                        # Keep an already active test/startup exception authoritative.
+                    finally:
+                        if failed: failure_logs(root)
 
     def submit(self, root, ready, batch, **request):
         path = root / f"request-{batch}.json"; path.write_text(json.dumps(request))

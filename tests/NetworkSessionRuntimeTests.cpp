@@ -5193,6 +5193,7 @@ D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team cont
 
 D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and guest sustain release edges") {
     using namespace std::chrono_literals;
+    const auto caseStarted = std::chrono::steady_clock::now();
     char name[] = "duel6r-pr83-capacity-tests";
     char *arguments[] = {name};
     Application application(1, arguments);
@@ -5326,8 +5327,61 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
             host.update(); guest.update();
             std::this_thread::sleep_for(5ms);
         }
-        D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Match);
-        D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Match);
+        try {
+            D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Match);
+            D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Match);
+        } catch (...) {
+            // Failure-only observations: never pump, retry, or replace the original assertion.
+            try {
+                const auto bounded = [](const std::string &text) {
+                    auto result = text.substr(0, 160);
+                    for (auto &character : result)
+                        if (static_cast<unsigned char>(character) < 32) character = '?';
+                    return result;
+                };
+                std::ostringstream detail;
+                detail << "PR83 capacity Match assertion;step=" << step << ";elapsed_ms="
+                       << std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - caseStarted).count();
+                for (const auto *runtime : {&host, &guest}) {
+                    const auto snapshot = runtime->snapshot();
+                    detail << "\npeer=" << (runtime == &host ? "host" : "guest")
+                           << ";journey=" << unsigned(snapshot.journey)
+                           << ";status=" << bounded(snapshot.status) << ";failure=" << bounded(snapshot.failure);
+                    if (snapshot.canonical) {
+                        const auto &state = *snapshot.canonical;
+                        detail << ";phase=" << unsigned(state.phase) << ";tick=" << state.phaseTime
+                               << ";round=" << unsigned(state.currentRoundNumber)
+                               << ";round_id=" << (state.round ? state.round->roundId : 0)
+                               << ";players=" << state.players.size();
+                        for (std::size_t index = 0; index < std::min<std::size_t>(15, state.players.size()); ++index) {
+                            const auto &slot = state.players[index];
+                            detail << ";player=" << slot.playerId << ":life=" << unsigned(slot.lifeState)
+                                   << ":mask=" << slot.actionMask;
+                        }
+                    } else detail << ";canonical=unavailable";
+                }
+                // These objects are already exposed by this existing test harness.
+                if (host.supervisor) {
+                    const auto service = host.supervisor->snapshot();
+                    detail << "\nhost-service-state=" << unsigned(service.state)
+                           << ";outcome=" << unsigned(service.outcome)
+                           << ";stop_reason=" << unsigned(service.stopReason)
+                           << ";cleanup=" << service.cleanupComplete;
+                } else detail << "\nhost-service=unavailable";
+                if (host.hostInput) {
+                    detail << ";input-policy-violation=" << host.hostInput->policyViolation();
+                    const auto outcome = host.hostInput->lastOutcome();
+                    if (outcome) detail << ";input-outcome=" << unsigned(outcome->category)
+                                        << ";effective_tick=" << outcome->effectiveTick;
+                    else detail << ";input-outcome=unavailable";
+                } else detail << ";host-input=unavailable";
+                std::cerr << detail.str() << std::endl;
+            } catch (...) {
+                try { std::cerr << "PR83 capacity failure context unavailable" << std::endl; } catch (...) {}
+            }
+            throw;
+        }
     }
     D6R_REQUIRE_EQ(120u, edges);
     D6R_REQUIRE(host.snapshot().canonical->phaseTime > initialTick + 1800);

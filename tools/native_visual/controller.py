@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import select
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -312,10 +313,46 @@ def probe_display_geometry(display, xvfb_pid, canvas, env):
     raise ValueError("unexpected display geometry: " + json.dumps(details, sort_keys=True)) from error
 
 
+def display_diagnostic(output, name, stage, process, env, log_path, **fields):
+    """Bounded, passive observations only; diagnostic IO must never own the outcome."""
+    try:
+        display = env.get("DISPLAY")
+        details = dict(client=name, stage=stage, monotonic=time.monotonic(), display=display, **fields)
+        if process is not None:
+            try:
+                code = process.poll()
+                details.update(xvfb_pid=process.pid, xvfb_returncode=code, xvfb_alive=code is None)
+            except Exception as error:
+                details["xvfb_observation_error"] = type(error).__name__
+        if isinstance(display, str) and re.fullmatch(r":[0-9]+", display):
+            socket = "/tmp/.X11-unix/X" + display[1:]
+            try:
+                info = os.stat(socket, follow_symlinks=False)
+                details["socket"] = dict(path=socket, exists=True, is_socket=stat.S_ISSOCK(info.st_mode),
+                    mode=info.st_mode, uid=info.st_uid, gid=info.st_gid, inode=info.st_ino,
+                    mtime_ns=info.st_mtime_ns)
+            except OSError as error:
+                details["socket"] = dict(path=socket, stat_errno=error.errno)
+        try:
+            with log_path.open("rb") as stream:
+                stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, stream.tell() - 1024))
+                details["owned_log_tail"] = stream.read(1024).decode(errors="replace")
+        except Exception as error:
+            details["log_read_error"] = type(error).__name__
+        with (output / "display-startup.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(details, sort_keys=True) + "\n")
+    except BaseException:
+        try:
+            print("native display diagnostic unavailable", file=sys.stderr, flush=True)
+        except BaseException:
+            pass
+
+
 def execute(runtime, identity, recipe, output, *, operator=False):
     """Worker runs under OwnedProcessRunner; all processes are its descendants."""
     runtime = verify_runtime(runtime, identity)
-    clients, processes = {}, []
+    clients, processes, displays = {}, [], []
     require(1 <= len(recipe["clients"]) <= 3, "expected 1–3 private clients")
     try:
         for index, item in enumerate(recipe["clients"]):
@@ -331,27 +368,40 @@ def execute(runtime, identity, recipe, output, *, operator=False):
             Path(env["HOME"]).mkdir()
             for key in ("XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME"):
                 env[key] = env["HOME"] + "/" + key.lower()
-            log = (output / (name + ".log")).open("xb")
+            log_path = output / (name + ".log")
+            log = log_path.open("xb")
+            xvfb = None
             try:
                 # Xvfb chooses an unused display and acknowledges its own startup.
                 # Never treat a response from someone else's :91 as our readiness.
                 reader, writer = os.pipe()
                 try:
                     try:
+                        display_diagnostic(output, name, "xvfb-start", None, env, log_path)
                         xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(writer), "-screen", "0",
                             f"{canvas.width}x{canvas.height}x24", "+extension", "GLX", "+render", "-noreset"],
                             env=env, stdout=log, stderr=log, pass_fds=(writer,))
                         processes.append(xvfb)
+                        displays.append((name, xvfb, env, log_path))
+                        display_diagnostic(output, name, "xvfb-launched", xvfb, env, log_path)
                     finally:
                         os.close(writer)
                     require(select.select([reader], [], [], 5)[0], "private display startup deadline")
                     number = os.read(reader, 32).decode().strip()
+                    display_diagnostic(output, name, "displayfd-read", xvfb, env, log_path,
+                                       displayfd_number=number if number.isdecimal() else "invalid")
                     require(number.isdecimal() and xvfb.poll() is None, "private display startup failed")
                     display = ":" + number
                     env["DISPLAY"] = display
                 finally:
                     os.close(reader)
-                probe_display_geometry(display, xvfb.pid, canvas, env)
+                display_diagnostic(output, name, "geometry-probe-begin", xvfb, env, log_path)
+                try:
+                    probe_display_geometry(display, xvfb.pid, canvas, env)
+                except BaseException:
+                    display_diagnostic(output, name, "geometry-probe-failed", xvfb, env, log_path)
+                    raise
+                display_diagnostic(output, name, "geometry-probe-passed", xvfb, env, log_path)
                 app = subprocess.Popen([str(root / "duel6r")], cwd=root, env=env, stdout=log, stderr=log)
                 processes.append(app)
                 end = time.monotonic() + 15
@@ -369,6 +419,9 @@ def execute(runtime, identity, recipe, output, *, operator=False):
                 client.process = app
                 client.command("xdotool", "windowfocus", client.window)
                 clients[name] = client
+            except BaseException:
+                display_diagnostic(output, name, "startup-failed", xvfb, env, log_path)
+                raise
             finally:
                 log.close()
         schedule = Scheduler(clients, output, recipe["budget_seconds"], recipe.get("states"))
@@ -384,6 +437,9 @@ def execute(runtime, identity, recipe, output, *, operator=False):
         normal = (len(processes) == len(recipe["clients"]) * 2
                   and all(process.poll() == 0 for process in processes[1::2]))
         wait_errors = []
+        for name, xvfb, env, log_path in displays:
+            display_diagnostic(output, name, "teardown-begin", xvfb, env, log_path,
+                               log_shared_with_client=name in clients)
         for process in reversed(processes):
             if process.poll() is None:
                 process.terminate()
@@ -392,6 +448,9 @@ def execute(runtime, identity, recipe, output, *, operator=False):
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 wait_errors.append("owned process did not exit; outer process owner must finish cleanup")
+        for name, xvfb, env, log_path in displays:
+            display_diagnostic(output, name, "teardown-end", xvfb, env, log_path,
+                               log_shared_with_client=name in clients)
         recipe_hash = hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
         record(output / "controller.json", {"runtime": str(runtime), "identity": identity,
                "recipe_sha256": recipe_hash, "normal_application_exit": normal,

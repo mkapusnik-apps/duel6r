@@ -65,6 +65,24 @@ Supplied provenance identities, not independently recomputed by Product: produce
 
 **The whole visual gate and #181 are not closed.** AP-N still needs actual Invisibility on body and held weapon with an opaque comparison and its qualifying actual-Guest native representative. FS-N still needs the actual last winning team different from the strict cumulative leader; FS-G still needs the Host-Predator/14-prey-winner scenario, departed winning identity and64-byte names at Guest720. Distinct crouch, ground-weapon pickup, unambiguous water-entry splash/age, elevator player carry after input release, complete intact→ignition→fully-burned tree presentation, genuine QuickOff two-survivor/two-rise sudden death, the applicable initial8-second QuickOn insufficient-preferred-spawn branch, and real in-progress-effect interruption/resynchronization/current-age/retained-context recovery remain unproved. Existing unassessed original ranges are inspection gaps, not automatic acquisition requests; candidate splash intervals Host c56304 ordinals209–215 and Guest183–188 remain ambiguous. Preserve all unaffected accepted references and outstanding baseline focused obligations. No unmet outcome, complete event chain, all-effect clearing, native-platform obligation or canonical capture release is waived by the accepted supplements.
 
+### Candidate563 capture provenance
+
+The seven originals above were acquired with application8b/capture-tool563, not fixture successor a258, in image `sha256:bba6e49e395bb1f44799822a4692b77bc04517bb2f6c22e141a26659eb06d174`: Ubuntu24.04.5, UID1000:GID989,8 CPUs/cpuset0–7,6GiB, private network-none, Release GL4/LuaON, software GL, owned24-bit Xvfb and dummy audio. Installed versions in this pinned image are SDL2 `2.30.0+dfsg-1ubuntu3.1`, Xvfb `2:21.1.12-1ubuntu1.9`, Mesa `25.2.8-0ubuntu0.24.04.4`, FFmpeg6.1.1 and ImageMagick6.9.12.98. Capture-time GL vendor/renderer/version strings were **not recorded**; the installed Mesa version is not a substitute. The closed native environment used `LANG=C.UTF-8`, `LIBGL_ALWAYS_SOFTWARE=1`, scenario-private HOME/XDG directories and owned DISPLAY; no `LP_NUM_THREADS` override was passed. This is the current bba image profile, not the historical cb54 image profile.
+
+All six movies preserve full1280 × 900 source frames: lossy RGB x11grab/libx264rgb, CRF18/veryfast,15fps, passthrough timestamps, `-bf 0`, no audio. The lossless native PNG is the full850 × 700 client. No crop, resize or composition was applied. Dates below are **2026-11-05 UTC**: movie times are recorder launches, not exact first GPU frames; the PNG interval is estimated acquisition-call bounds, not GPU-present time.
+
+| Original / existing destination above | UTC | State and ordinary route | Roster namespace / backend |
+|---|---|---|---|
+| c56301 Local |04:16:06.214530|`map 0` → Active Duel16, Deathmatch/QuickOff|L / local, no backend|
+| c56302 Local |04:18:37.048151|`map 22` → Active Duel27, Deathmatch/QuickOff|L / local, no backend|
+| c56303 Host |04:31:39.554764|Ready lobby → Start → Active Duel27, QuickOff|N Host / R0|
+| c56303 Guest |04:31:41.347609|Receiving Guest in the same ordinary session|N Guest / R0|
+| c56304 Host |04:22:49.858992|Ready lobby → Start → Active Duel16, QuickOn|N Host / RD|
+| c56304 Guest |04:22:51.653017|Receiving Guest in the same ordinary session|N Guest / RD|
+| native850 rightmost PNG |04:10:09.884093–04:10:10.647563|Completed12/12 No winner; actual rightmost overflow|S / direct loopback28201|
+
+L names are Alder/Birch/Cedar/Dogwood/Elm/Fir locally. N assigns Alder/Birch/Cedar to Host and Dogwood/Elm/Fir to Guest. S assigns Alder/Birch/Cedar to Host and Guest names `G01-` through `G12-`, each followed by60 ASCII `n` characters (64bytes). Each case used private NAME-only fixtures with initially zero counters and Elo1000; subsequent statistics changed through ordinary runtime, not injection. R0 is private loopback28202 →28201 with delay0. RD uses the same mapping with25ms delay deferred and **never activated**; the observed degradation was natural. These provenance additions do not expand the bounded acceptance or remaining-coverage disposition above.
+
 ## NET-10 current copy-removal matrix
 
 **Current scoped visual conformance: satisfied for all three supplied Linux originals. Capture release: completed after team-declared functional closure at `f994fa64b84558eb1e4cedc8283ab60aa6dbd22c`.** This three-row matrix owns current NET-10 results, NET-10-E empty, and NET-10-U unavailable coverage. Earlier artifacts and assessments below retain their original source/state scope; they do not establish the new copy requirement. All unaffected representatives and provenance remain unchanged.

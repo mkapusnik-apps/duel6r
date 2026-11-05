@@ -1,23 +1,84 @@
 #!/usr/bin/env python3
 """Regression checks for SCORE closure over arena-colored backgrounds."""
 
+from contextlib import contextmanager
 from pathlib import Path
 import subprocess
+import time
 import unittest
+from unittest.mock import patch
 
 import SharedArenaImageAssertions as images
+
+STARTED = time.monotonic()
+CHECK_OUTPUT = subprocess.check_output
+
+
+def progress(stage, **fields):
+    try:
+        print(f"image-assertions elapsed={time.monotonic() - STARTED:.6f} stage={stage} {fields}", flush=True)
+    except OSError:
+        pass  # Observations must not replace the test's own outcome.
+
+
+@contextmanager
+def observed_subcase(**fields):
+    began = time.monotonic()
+    progress("subcase-begin", **fields)
+    try:
+        yield
+    finally:
+        progress("subcase-end", seconds=time.monotonic() - began, **fields)
+
+
+def font_output(command, *args, **kwargs):
+    label = next((part[6:] for part in command if part.startswith("label:")), "unknown")
+    began = time.monotonic()
+    progress("font-convert-begin", label=label)
+    code = "unavailable"
+    try:
+        result = CHECK_OUTPUT(command, *args, **kwargs)
+        code = 0
+        return result
+    except subprocess.CalledProcessError as error:
+        code = error.returncode
+        raise
+    finally:
+        progress("font-convert-end", label=label, rc=code, seconds=time.monotonic() - began)
+
+
+class ProgressResult(unittest.TextTestResult):
+    def startTest(self, test):
+        progress("test-begin", test=test.id())
+        super().startTest(test)
+
+    def stopTest(self, test):
+        progress("test-end", test=test.id())
+        super().stopTest(test)
+
+
+class ProgressRunner(unittest.TextTestRunner):
+    resultclass = ProgressResult
 
 
 class ScoreClosureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        progress("class-setup-begin", test_class=cls.__name__)
+        # Observe fixture and detector font subprocesses without changing their args/timeouts.
+        observer = patch.object(subprocess, "check_output", font_output)
+        observer.start()
+        cls.addClassCleanup(observer.stop)
         font = Path(__file__).resolve().parents[1] / "resources/data/font.ttf"
         # Use the shipped font and real title, not a mask mirroring the detector.
-        cls.title = subprocess.check_output([
-            "convert", "-background", "blue", "-fill", "white", "-font", str(font),
-            "-pointsize", "32", "label:---SCORE---", "-resize", "176x32!",
-            "-depth", "8", "rgb:-",
-        ])
+        try:
+            cls.title = subprocess.check_output([
+                "convert", "-background", "blue", "-fill", "white", "-font", str(font),
+                "-pointsize", "32", "label:---SCORE---", "-resize", "176x32!",
+                "-depth", "8", "rgb:-",
+            ])
+        finally:
+            progress("class-setup-end", test_class=cls.__name__)
 
     def frame(self, color):
         return bytearray(bytes(color) * (images.WIDTH * images.HEIGHT))
@@ -49,7 +110,7 @@ class ScoreClosureTests(unittest.TestCase):
 
     def test_closed_blue_arena_is_not_a_score_title(self):
         for players, teams in ((2, 0), (3, 0), (4, 2), (6, 3), (8, 4)):
-            with self.subTest(players=players, teams=teams):
+            with self.subTest(players=players, teams=teams), observed_subcase(players=players, teams=teams):
                 self.assertLess(images.assert_score_overlay_closed(
                     self.frame((0, 0, 255)), self.open_frame(players, teams),
                     "closed-blue", players, teams), 0.80)
@@ -60,7 +121,7 @@ class ScoreClosureTests(unittest.TestCase):
 
     def test_open_overlay_is_rejected(self):
         for players, teams in ((2, 0), (3, 0), (4, 2), (6, 3), (8, 4)):
-            with self.subTest(players=players, teams=teams):
+            with self.subTest(players=players, teams=teams), observed_subcase(players=players, teams=teams):
                 reference = self.open_frame(players, teams)
                 with self.assertRaisesRegex(AssertionError, "header still visible"):
                     images.assert_score_overlay_closed(reference, reference, "still-open", players, teams)
@@ -129,7 +190,7 @@ class ScoreClosureTests(unittest.TestCase):
 
     def test_magenta_separator_gutters_do_not_create_headers(self):
         for ink_offset in (0, -1, 1):
-            with self.subTest(title_ink_offset=ink_offset):
+            with self.subTest(title_ink_offset=ink_offset), observed_subcase(title_ink_offset=ink_offset):
                 frame, _, _, _, _ = self.uneven_four_team_frame()
                 # Moving title ink does not move renderer rows or separators.
                 # It must not become a new exact row-origin requirement.
@@ -141,7 +202,7 @@ class ScoreClosureTests(unittest.TestCase):
 
     def test_missing_duplicate_and_extra_genuine_headers_still_fail(self):
         for kind in ("missing","duplicate","extra"):
-            with self.subTest(kind=kind):
+            with self.subTest(kind=kind), observed_subcase(kind=kind):
                 frame, left, width, headers, _ = self.uneven_four_team_frame()
                 if kind=="missing":
                     self.paint_box(frame,left,headers[2][0],width,32,(0,0,255))
@@ -156,25 +217,27 @@ class ScoreClosureTests(unittest.TestCase):
         frame, left, width, headers, _ = self.uneven_four_team_frame()
         bottom = headers[0][0] + 19*32 + 3*8
         self.paint_box(frame, left, bottom, width, 32, (210,40,210))
-        self.assertEqual(4, len(images.assert_score_overlay(frame,"magenta-footer",15,4)[0]))
+        with observed_subcase(kind="magenta-footer"):
+            self.assertEqual(4, len(images.assert_score_overlay(frame,"magenta-footer",15,4)[0]))
         self.paint_header(frame, left, bottom, width, "Delta")
-        with self.assertRaisesRegex(AssertionError,"expected 4 score group headers"):
+        with observed_subcase(kind="real-extra-footer"), self.assertRaisesRegex(AssertionError,"expected 4 score group headers"):
             images.assert_score_overlay(frame,"real-extra-footer",15,4)
 
     def test_color_without_name_and_name_without_full_backing_fail(self):
         for kind in ("no-glyph", "partial-row"):
-            frame, left, width, headers, _ = self.uneven_four_team_frame()
-            top = headers[1][0]
-            if kind == "no-glyph":
-                self.paint_box(frame,left,top,width,32,(255,0,0))
-            else:
-                self.paint_box(frame,left,top,width,1,(0,0,255))
-            with self.assertRaisesRegex(AssertionError,"expected 4 score group headers"):
-                images.assert_score_overlay(frame,kind,15,4)
+            with observed_subcase(kind=kind):
+                frame, left, width, headers, _ = self.uneven_four_team_frame()
+                top = headers[1][0]
+                if kind == "no-glyph":
+                    self.paint_box(frame,left,top,width,32,(255,0,0))
+                else:
+                    self.paint_box(frame,left,top,width,1,(0,0,255))
+                with self.assertRaisesRegex(AssertionError,"expected 4 score group headers"):
+                    images.assert_score_overlay(frame,kind,15,4)
 
     def test_missing_short_thick_and_extra_separator_rules_still_fail(self):
         for kind in ("missing","short","thick","extra"):
-            with self.subTest(kind=kind):
+            with self.subTest(kind=kind), observed_subcase(kind=kind):
                 frame, left, width, headers, rules = self.uneven_four_team_frame()
                 if kind=="missing":
                     self.paint_box(frame,left,rules[1],width,2,(210,40,210))
@@ -189,4 +252,4 @@ class ScoreClosureTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(testRunner=ProgressRunner, verbosity=2)
