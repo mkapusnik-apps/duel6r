@@ -127,7 +127,8 @@ class Native:
 
 class Scheduler:
     def __init__(self, clients, output, budget, states=None, clock=time.monotonic, sleep=time.sleep):
-        require(math.isfinite(budget) and 0 < budget <= MAX_RECIPE_SECONDS, "invalid recipe budget")
+        require(type(budget) in (int, float) and 0 < budget <= MAX_RECIPE_SECONDS
+                and math.isfinite(budget), "invalid recipe budget")
         self.clients, self.output = clients, Path(output)
         self.clock, self.sleep = clock, sleep
         self.started = clock()
@@ -427,7 +428,8 @@ def main():
             validate_frame_limit(step["seconds"], step["frames"])
     args.output.mkdir(parents=True, exist_ok=False)
     budget = recipe["budget_seconds"]
-    require(math.isfinite(budget) and 0 < budget <= MAX_RECIPE_SECONDS, "invalid recipe budget")
+    require(type(budget) in (int, float) and 0 < budget <= MAX_RECIPE_SECONDS
+            and math.isfinite(budget), "invalid recipe budget")
     command = [sys.executable, "-m", "tools.native_visual.controller", "--runtime", str(args.runtime.resolve()),
                "--identity", str(args.identity.resolve()), "--recipe", str(args.recipe.resolve()),
                "--output", str(args.output.resolve()), "--worker"]

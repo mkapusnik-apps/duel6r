@@ -31,7 +31,8 @@ class OperatorTests(unittest.TestCase):
                 schedule = Scheduler({}, ".", budget, clock=clock, sleep=clock.sleep)
                 self.assertEqual(budget, schedule.remaining())
                 self.assertEqual(clock() + budget, schedule.deadline)
-        for budget in (0, -1, float("nan"), float("inf"), -float("inf"), 1200.01, sys.float_info.max):
+        for budget in (0, -1, float("nan"), float("inf"), -float("inf"), 1200.01, sys.float_info.max,
+                       True, False, "600", None, [600], {"seconds": 600}, 10**1000):
             with self.subTest(budget=budget), self.assertRaisesRegex(ValueError, "invalid recipe budget"):
                 Scheduler({}, ".", budget)
 
@@ -41,7 +42,8 @@ class OperatorTests(unittest.TestCase):
             root = Path(tmp); runtime = root / "runtime"; runtime.mkdir()
             identity = baseline.IdentityTests().runtime(runtime)
             identity_path = root / "identity.json"; identity_path.write_text(json.dumps(identity))
-            for index, budget in enumerate((600, 1200, 0, -1, float("nan"), float("inf"), 1200.01, sys.float_info.max)):
+            for index, budget in enumerate((600, 1200, 0, -1, float("nan"), float("inf"), 1200.01, sys.float_info.max,
+                                             True, False, "600", None, [600], {"seconds": 600}, 10**1000)):
                 for operator in (False, True):
                     with self.subTest(budget=budget, operator=operator):
                         recipe = root / "recipe.json"
