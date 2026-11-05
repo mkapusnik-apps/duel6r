@@ -14,7 +14,8 @@ import time
 import unittest
 from unittest import mock
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(REPOSITORY_ROOT))
 from tools.native_visual.common import digest
 from tools.native_visual.media import validate, index, inspect
 from tools.native_visual.mp4_timing import recover, tables
@@ -340,7 +341,7 @@ class DecoderTests(unittest.TestCase):
                       "--sha256",digest(source),"--candidate","a"*40,"--provenance","Synthetic only",
                       "--frames",str(frames),"--seconds","2/5" if frames==6 else "3/5"]
                 if flag: args.append("--inspection-only")
-                result=subprocess.run(args,capture_output=True,text=True,timeout=30)
+                result=subprocess.run(args,cwd=REPOSITORY_ROOT,capture_output=True,text=True,timeout=30)
                 self.assertEqual(code,result.returncode,result.stderr)
                 if code!=1:
                     status=json.loads(result.stdout)
@@ -412,7 +413,7 @@ class ExportBudgetTests(unittest.TestCase):
                 args=[sys.executable,"-B","-m","tools.native_visual.media",str(source),str(output),
                       "--sha256",digest(source),"--candidate","a"*40,"--provenance","Synthetic only",
                       "--frames","6","--seconds","2/5","--export-timeout",budget]
-                result=subprocess.run(args,capture_output=True,text=True,timeout=30)
+                result=subprocess.run(args,cwd=REPOSITORY_ROOT,capture_output=True,text=True,timeout=30)
                 self.assertEqual(0 if budget=="600" else 1,result.returncode,result.stderr)
                 if budget=="600":
                     self.assertTrue(json.loads(result.stdout)["qualification_valid"])
