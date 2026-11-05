@@ -6,6 +6,8 @@ import os
 import subprocess
 import sys
 
+import SharedArenaImageAssertions as final_images
+
 
 WIDTH = 1280
 HEIGHT = 900
@@ -236,6 +238,16 @@ def has_top_progress(image):
 
 def summary_state_evidence(image, played, total, font_path):
     """Return whether a frame has the complete expected summary semantics."""
+    if total > 0 and played == total:
+        # Completed games use the approved shared final shell, not the legacy
+        # centered non-final strip or the live arena's top progress indicator.
+        try:
+            final_images.assert_shared_final_body(image, "final", players=3, teams=0)
+            final_images.assert_final_round_counter(image, "final", font_path, played, total)
+            final_images.assert_end_of_game_notice(image, "final", font_path)
+        except AssertionError as error:
+            return False, str(error)
+        return True, f"shared final shell, three result rows, Rounds: {played} | {total}, End of Game"
     bands = blue_strip_bands(image)
     non_final_limited = total > 0 and played < total
     expected_strip = (366, 402) if non_final_limited else (350, 386)
@@ -243,8 +255,7 @@ def summary_state_evidence(image, played, total, font_path):
         return False, f"score-strip bands={bands}, expected={[expected_strip]}"
 
     # A non-final limited summary moves progress into its dedicated panel row.
-    # Final summaries retain the live top indicator; unlimited summaries have
-    # no round progress in either location.
+    # Unlimited summaries have no round progress in either location.
     top_progress, _, _ = has_top_progress(image)
     expected_top_progress = total > 0 and not non_final_limited
     if top_progress != expected_top_progress:
@@ -374,7 +385,11 @@ def main():
     assert_first(root, font_path)
     for label, played in (("resumed", 3), ("penultimate", 4)):
         assert_included(root, font_path, label, played)
-    assert_excluded(root, "final", "final/summary.png", True)
+    for frame in ("summary-early.png", "summary-late.png"):
+        matched, diagnostic = summary_state_evidence(
+            pixels(os.path.join(root, "final", frame)), 5, 5, font_path)
+        if not matched:
+            fail(f"final/{frame}: {diagnostic}")
     assert_excluded(root, "unlimited", "unlimited/summary.png", False)
 
     print("round-summary-progress: all visual behavior assertions passed")

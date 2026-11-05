@@ -320,8 +320,18 @@ def assert_end_of_game_notice(data, label, font_path):
     return similarity, (surface_left, surface_top, surface_right, surface_bottom)
 
 
-def assert_final_round_counter(data, label, font_path):
-    text = "Rounds: 1 | 1"
+@functools.lru_cache(maxsize=128)
+def final_counter_mask(font_path, text):
+    raw = subprocess.check_output([
+        "convert", "-background", "black", "-fill", "white", "-font", font_path,
+        "-pointsize", "32", f"label:{text}", "-resize", f"{len(text) * 16}x32!",
+        "-depth", "8", "gray:-",
+    ])
+    return [value >= 64 for value in raw]
+
+
+def assert_final_round_counter(data, label, font_path, played=1, rounds=1):
+    text = f"Rounds: {played} | {rounds}"
     text_width = len(text) * 16
     text_height = 32
     panel_width = min(1184, WIDTH - 32)
@@ -345,12 +355,7 @@ def assert_final_round_counter(data, label, font_path):
         if coverage < 0.98:
             fail(f"{label}: final round counter padding {index} is not opaque black: {coverage:.3f}")
 
-    expected = subprocess.check_output([
-        "convert", "-background", "black", "-fill", "white", "-font", font_path,
-        "-pointsize", "32", f"label:{text}", "-resize", f"{text_width}x{text_height}!",
-        "-depth", "8", "gray:-",
-    ])
-    expected_mask = [value >= 64 for value in expected]
+    expected_mask = final_counter_mask(font_path, text)
     observed_mask = [
         min(pixel(data, text_left + x, text_top + y)) >= 205
         for y in range(text_height)
@@ -361,6 +366,29 @@ def assert_final_round_counter(data, label, font_path):
     similarity = 2.0 * overlap / total if total else 0.0
     if similarity < 0.42:
         fail(f"{label}: final round counter text is missing or illegible: similarity={similarity:.3f}")
+    # Shared label glyphs must not hide a stale or incorrect played/total digit.
+    for index, digit in enumerate(text):
+        if not digit.isdigit():
+            continue
+        offsets = [y * text_width + x for y in range(text_height)
+                   for x in range(index * 16, (index + 1) * 16)]
+        # SDL glyph rasterization and ImageMagick's label rasterization differ
+        # by at most one pixel here. Padding/full-label checks keep layout fixed.
+        observations = [[min(pixel(data, text_left + index * 16 + x + dx,
+                                   text_top + y + dy)) >= 205
+                         for y in range(text_height) for x in range(16)]
+                        for dx in (-1, 0, 1) for dy in (-1, 0, 1)]
+        scores = {}
+        for candidate in "0123456789":
+            mask = final_counter_mask(font_path, text[:index] + candidate + text[index + 1:])
+            expected = [mask[offset] for offset in offsets]
+            scores[candidate] = max(
+                2.0 * sum(a and b for a, b in zip(expected, observed))
+                / (sum(expected) + sum(observed))
+                if sum(expected) + sum(observed) else 0.0
+                for observed in observations)
+        if max(scores, key=scores.get) != digit or scores[digit] < 0.42:
+            fail(f"{label}: final round counter numeral {index} expected {digit}: {scores}")
     return similarity, (surface_left, surface_top, surface_right, surface_bottom)
 
 

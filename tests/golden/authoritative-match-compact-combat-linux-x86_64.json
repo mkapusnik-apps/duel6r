@@ -1,5 +1,5 @@
 {
-  "productionHead": "6eca64ca7c3165dfdaf8a9ca7cc8a31d39f6844f",
+  "productionHead": "fcfd78bbe82982b3fe12d56e6bb4336effd24d34",
   "platform": "linux-x86_64",
   "buildTypes": ["Debug", "Release"],
   "seed": 424242,
@@ -28,7 +28,7 @@
     [336, 5004313067247710613],
     [360, 13004267418185780423]
   ],
-  "eventCount": 43,
+  "eventCount": 45,
   "eventKinds": {
     "player-spawned": 2,
     "entity-spawned": 16,
@@ -38,6 +38,8 @@
     "shot-hit": 4,
     "player-died": 1,
     "player-killed": 1,
-    "round-ended": 1
+    "round-ended": 1,
+    "bonus-spawned": 1,
+    "weapon-spawned": 1
   }
 }

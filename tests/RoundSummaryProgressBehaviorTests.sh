@@ -8,6 +8,7 @@ set -euo pipefail
 # winning predator without changing application code.
 
 workspace_dir="${WORKSPACE_DIR:-/workspace}"
+export PYTHONPATH="${workspace_dir}/tests${PYTHONPATH:+:${PYTHONPATH}}"
 build_dir="${BUILD_DIR:-${workspace_dir}/build}"
 resource_dir="${RESOURCE_DIR:-${build_dir}}"
 test_root="${TEST_ROOT:-${build_dir}/round-summary-progress}"

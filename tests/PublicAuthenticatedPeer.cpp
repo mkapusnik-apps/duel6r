@@ -4,6 +4,7 @@
 #include "source/network/SessionTransport.h"
 #include "source/network/SessionLifecycle.h"
 #include "source/network/PublicSession.h"
+#include "source/network/StateReplicationProtocol.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -159,11 +160,15 @@ static std::vector<std::uint8_t> frame(const std::vector<std::uint8_t> &payload)
     bytes.insert(bytes.end(), payload.begin(), payload.end()); return bytes;
 }
 static bool summary(const Frame &value) {
-    // Fixed replication v3 header and phase only. Never dump result/grant bytes.
-    const auto &b = value.bytes;
-    const auto p = TransportEnvelopeBytes;
-    return b.size() >= p + 49 && b[p] == 'P' && b[p+1] == 'R' && b[p+2] == '6' && b[p+3] == 'D'
-        && b[p+4] == 3 && b[p+5] == 0 && (b[p+6] == 1 || b[p+6] == 2) && b[p+7] == 0 && b[p+48] == 3;
+    // Decode the current wire format; version/phase offsets are not stable.
+    // Never dump result/grant bytes from either authenticated leg.
+    if (value.bytes.size() <= TransportEnvelopeBytes) return false;
+    const std::vector<std::uint8_t> payload(
+        value.bytes.begin() + TransportEnvelopeBytes, value.bytes.end());
+    const auto decoded = Replication::deserializeReplicationFrame(payload);
+    return decoded && ((decoded->snapshot
+        && decoded->snapshot->state.phase == Replication::Phase::FinalSummary)
+        || (decoded->update && decoded->update->phase == Replication::Phase::FinalSummary));
 }
 struct HalfCloseTestControl {
     std::mutex mutex;

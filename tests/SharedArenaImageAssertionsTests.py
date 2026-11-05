@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 import SharedArenaImageAssertions as images
+import RoundSummaryProgressImageAssertions as summaries
 
 STARTED = time.monotonic()
 CHECK_OUTPUT = subprocess.check_output
@@ -137,7 +138,8 @@ class ScoreClosureTests(unittest.TestCase):
             images.assert_score_overlay_closed(
                 self.frame((0, 0, 0)), self.frame((0, 0, 255)), "bad-reference", 2, 0)
 
-    def paint_box(self, frame, left, top, width, height, color):
+    @staticmethod
+    def paint_box(frame, left, top, width, height, color):
         for y in range(top, top + height):
             offset = (y * images.WIDTH + left) * 3
             frame[offset:offset + width * 3] = bytes(color) * width
@@ -304,6 +306,49 @@ class ScoreClosureTests(unittest.TestCase):
 
 
 class SharedFinalTests(unittest.TestCase):
+    @staticmethod
+    def paint_text(frame, text, left, top, background):
+        width = len(text) * 16
+        raw = subprocess.check_output([
+            "convert", "-background", background, "-fill", "white", "-font", str(images.FONT),
+            "-pointsize", "32", f"label:{text}", "-resize", f"{width}x32!",
+            "-depth", "8", "rgb:-",
+        ])
+        for row in range(32):
+            offset = ((top + row) * images.WIDTH + left) * 3
+            frame[offset:offset + width * 3] = raw[row * width * 3:(row + 1) * width * 3]
+
+    def completed_frame(self, played=5, total=5):
+        frame = self.frame(3, 0)
+        text = f"Rounds: {played} | {total}"
+        left = 1232 - 24 - len(text) * 16
+        ScoreClosureTests.paint_box(frame, left - 8, 22, len(text) * 16 + 16, 32, (0, 0, 0))
+        self.paint_text(frame, text, left, 22, "black")
+        ScoreClosureTests.paint_box(frame, 536, 836, 208, 48, (0, 0, 255))
+        self.paint_text(frame, "End of Game", 552, 844, "blue")
+        return frame
+
+    def test_completed_summary_requires_final_shell_and_exact_count(self):
+        for played, total, accepted in ((5, 5, True), (4, 5, False), (5, 6, False), (1, 1, False)):
+            with self.subTest(played=played, total=total):
+                frame = self.completed_frame(played, total)
+                matched, diagnostic = summaries.summary_state_evidence(frame, 5, 5, str(images.FONT))
+                self.assertEqual(accepted, matched, diagnostic)
+
+    def test_final_counter_supports_multi_digit_completion(self):
+        images.assert_final_round_counter(self.completed_frame(12, 12), "12/12", str(images.FONT), 12, 12)
+
+    def test_final_classifier_rejects_missing_notice_rows_and_nonfinal_shell(self):
+        for missing, box in (("notice", (536, 836, 208, 48)),
+                             ("row", (80, 210, 320, 16)),
+                             ("title", (50, 18, 1180, 40))):
+            with self.subTest(missing=missing):
+                frame = self.completed_frame()
+                ScoreClosureTests.paint_box(frame, *box, (0, 0, 0))
+                self.assertFalse(summaries.summary_state_evidence(frame, 5, 5, str(images.FONT))[0])
+        self.assertFalse(summaries.summary_state_evidence(
+            self.completed_frame(), 4, 5, str(images.FONT))[0])
+
     def frame(self, players=15, teams=4):
         frame = bytearray(images.WIDTH * images.HEIGHT * 3)
         def fill(x, y, width, height, color):
