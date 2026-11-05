@@ -47,7 +47,8 @@ python3 -B -m tools.native_visual.controller --runtime /inputs/runtime \
 ```
 
 Output must be a **new** directory outside the runtime. Recipes explicitly name
-1–3 clients, their viewport and names, a budget (at most 600 seconds), and a
+1–3 clients, their viewport and names, an explicit `budget_seconds` (ordinary600s,
+approved long FS-N at most1200s), and a
 finite list of at most 500 actions. Setup macros expand finite lists only;
 cycles, unknown macros and oversized expansion fail. Example inactive setup:
 
@@ -147,10 +148,15 @@ application-state API.
 In an already approved private Docker worker, start the ordinary controller with
 the additional `--operator` flag. Keep its runtime/identity/recipe and backend
 configuration fixed. The existing outer process owner still supervises startup,
-the single session and final cleanup. **The common <=600s scheduler deadline
+the single session and final cleanup. Ordinary profiles retain600s; only the
+approved long FS-N recipe explicitly requests up to1200s, without automatic
+extension or forced advancement. Single-clip recording and relay limits remain600s.
+**The one requested scheduler deadline (absolute maximum1200s)
 continues while the operator is absent; all expanded batches together, including
 initial steps, have at most500 actions.** `at` remains relative to that original
 start. Recordings remain live between batches and finalize once on overall exit.
+The outer ownership watchdog retains the requested budget plus its existing90s
+startup/cleanup allowance; no batch resets either budget.
 
 `/work/acquisition/operator/ready.json` gives the context hash, actual owned
 PID/window/display/geometry and absolute monotonic deadline. Use the same UID as

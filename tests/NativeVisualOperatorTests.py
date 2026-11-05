@@ -24,6 +24,66 @@ WORKSPACE = Path(__file__).resolve().parents[1]
 
 
 class OperatorTests(unittest.TestCase):
+    def test_explicit_recipe_budget_boundaries_preserve_600_and_allow_1200(self):
+        for budget in (600, 600.01, 1200):
+            with self.subTest(budget=budget):
+                clock = Clock()
+                schedule = Scheduler({}, ".", budget, clock=clock, sleep=clock.sleep)
+                self.assertEqual(budget, schedule.remaining())
+                self.assertEqual(clock() + budget, schedule.deadline)
+        for budget in (0, -1, float("nan"), float("inf"), -float("inf"), 1200.01, sys.float_info.max):
+            with self.subTest(budget=budget), self.assertRaisesRegex(ValueError, "invalid recipe budget"):
+                Scheduler({}, ".", budget)
+
+    def test_cli_budget_validation_and_unchanged_outer_watchdog_allowance(self):
+        from tools.native_visual.controller import main
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); runtime = root / "runtime"; runtime.mkdir()
+            identity = baseline.IdentityTests().runtime(runtime)
+            identity_path = root / "identity.json"; identity_path.write_text(json.dumps(identity))
+            for index, budget in enumerate((600, 1200, 0, -1, float("nan"), float("inf"), 1200.01, sys.float_info.max)):
+                for operator in (False, True):
+                    with self.subTest(budget=budget, operator=operator):
+                        recipe = root / "recipe.json"
+                        recipe.write_text(json.dumps(dict(budget_seconds=budget,
+                            clients=[dict(id="g", geometry=[850,700], names=["Test-only"])],
+                            steps=[dict(action="wait", client="g", seconds=0)])))
+                        output = root / f"output-{index}-{operator}"
+                        argv = ["controller", "--runtime", str(runtime), "--identity", str(identity_path),
+                                "--recipe", str(recipe), "--output", str(output)] + (["--operator"] if operator else [])
+                        result = dict(cleanup=True, phase="exited", exit=0, reaped={123: 0})
+                        with patch.object(sys, "argv", argv), patch(
+                                "tools.native_visual.controller.run_owned", return_value=result) as owner:
+                            if budget in (600, 1200):
+                                main()
+                                owner.assert_called_once()
+                                command, timeout, log = owner.call_args.args
+                                self.assertEqual(budget + 90, timeout)
+                                self.assertEqual(operator, "--operator" in command)
+                                self.assertIn("--worker", command)
+                                self.assertEqual(output / "process.jsonl", log)
+                            else:
+                                with self.assertRaisesRegex(ValueError, "invalid recipe budget"): main()
+                                owner.assert_not_called()
+
+    def test_long_budget_is_one_deadline_across_batches_and_still_expires(self):
+        for expired in (False, True):
+            with self.subTest(expired=expired):
+                with self.assertRaisesRegex(ValueError, "deadline expired") if expired else self.subTest():
+                    with self.channel(budget=1200) as (channel, schedule, client, clock):
+                        original = schedule.started, schedule.deadline
+                        ready = load_request(channel.root / "ready.json")
+                        self.assertEqual(original[0] + 1200, ready["deadline_monotonic"])
+                        self.request(channel, 1, steps=[dict(action="wait", client="g", seconds=600 if expired else 599)])
+                        self.request(channel, 2, steps=[dict(action="exit_wait", client="g", at=1199)])
+                        self.request(channel, 3, finish=True)
+                        try:
+                            self.run_channel(channel, schedule, [dict(action="wait", client="g", seconds=600)])
+                        finally:
+                            self.assertEqual(original, (schedule.started, schedule.deadline))
+                            self.assertEqual(1200 if expired else 1199, clock() - schedule.started)
+                            self.assertFalse(client.events)
+
     @contextmanager
     def channel(self, budget=10, macros=None):
         with tempfile.TemporaryDirectory() as tmp:

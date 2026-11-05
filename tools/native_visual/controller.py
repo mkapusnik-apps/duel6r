@@ -21,6 +21,8 @@ from .input_guard import hold_input
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
 from OwnedProcessRunner import run_owned
 
+MAX_RECIPE_SECONDS = 1200
+
 
 def seed_names(root, names):
     """Only names are variable. All counters/default Elo mirror SharedArenaBehaviorTests."""
@@ -125,7 +127,7 @@ class Native:
 
 class Scheduler:
     def __init__(self, clients, output, budget, states=None, clock=time.monotonic, sleep=time.sleep):
-        require(math.isfinite(budget) and 0 < budget <= 600, "invalid recipe budget")
+        require(math.isfinite(budget) and 0 < budget <= MAX_RECIPE_SECONDS, "invalid recipe budget")
         self.clients, self.output = clients, Path(output)
         self.clock, self.sleep = clock, sleep
         self.started = clock()
@@ -425,7 +427,7 @@ def main():
             validate_frame_limit(step["seconds"], step["frames"])
     args.output.mkdir(parents=True, exist_ok=False)
     budget = recipe["budget_seconds"]
-    require(math.isfinite(budget) and 0 < budget <= 600, "invalid recipe budget")
+    require(math.isfinite(budget) and 0 < budget <= MAX_RECIPE_SECONDS, "invalid recipe budget")
     command = [sys.executable, "-m", "tools.native_visual.controller", "--runtime", str(args.runtime.resolve()),
                "--identity", str(args.identity.resolve()), "--recipe", str(args.recipe.resolve()),
                "--output", str(args.output.resolve()), "--worker"]
