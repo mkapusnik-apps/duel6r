@@ -2,8 +2,10 @@
 """Synthetic metadata/media test inputs, explicitly not historical capture receipts."""
 import copy
 from fractions import Fraction
+import io
 import json
 from pathlib import Path
+import re
 import subprocess
 import struct
 import sys
@@ -15,7 +17,7 @@ from unittest import mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest
 from tools.native_visual.media import validate, index, inspect
-from tools.native_visual.mp4_timing import recover
+from tools.native_visual.mp4_timing import recover, tables
 from tools.native_visual.recording import Recording
 from tools.native_visual.controller import Scheduler
 from NativeVisualToolsTests import native_window
@@ -421,6 +423,104 @@ class ExportBudgetTests(unittest.TestCase):
 
 
 class RecordingTests(unittest.TestCase):
+    def recording_argv(self, path, **options):
+        """Exercise production argv/finalization without a display or real encoder."""
+        client=mock.Mock(env={"DISPLAY":":argv-fixture"})
+        client.canvas.width,client.canvas.height=32,24
+        process=mock.Mock(stdout=io.StringIO('frame=6\ndup_frames=0\ndrop_frames=0\n'))
+        process.poll.return_value=process.wait.return_value=0
+        def start(*args,**kwargs):
+            path.write_bytes(b'Test-only argv fixture, not encoded media')
+            return process
+        with mock.patch('tools.native_visual.recording.subprocess.Popen',side_effect=start) as launch:
+            recorder=Recording(client,path,.4,**options)
+        recorder.stop()
+        client.verify_geometry.assert_called_once_with()
+        return launch.call_args.args[0],json.loads(path.with_suffix('.recording.json').read_text())
+
+    def test_capped_bframes_argv_receipt_and_exact_uncapped_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name,options in (('uncapped',{}),('capped',dict(frames=6))):
+                with self.subTest(name=name):
+                    path=Path(tmp)/(name+'.mp4')
+                    args,receipt=self.recording_argv(path,**options)
+                    expected=['ffmpeg','-nostdin','-n','-v','warning','-progress','pipe:1','-stats_period','0.1',
+                              '-f','x11grab','-draw_mouse','0','-video_size','32x24','-framerate','15',
+                              '-i',':argv-fixture','-an','-c:v','libx264rgb','-crf','18','-preset','veryfast',
+                              '-fps_mode','passthrough','-enc_time_base','1/1000000',
+                              '-video_track_timescale','1000000','-t','0.4',
+                              *(['-frames:v','6'] if options else []),str(path)]
+                    if options:
+                        bf=args.index('-bf')
+                        self.assertEqual(['-bf','0'],args[bf:bf+2])
+                        self.assertEqual(expected,args[:bf]+args[bf+2:])
+                    else:self.assertEqual(expected,args)
+                    self.assertEqual(args,receipt['acquisition_args'])
+                    self.assertEqual(6 if options else None,receipt['requested_contract']['frame_limit'])
+
+    def test_capped_offline_irregular_pts_has_strict_whole_sample_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'synthetic-capped.mp4'
+            production_args,_=self.recording_argv(root/'argv-only.mp4',frames=6)
+            pts=[0,66000,134000,200000,267000,333000]
+            expression=str(pts[-1])
+            for ordinal,value in reversed(list(enumerate(pts[:-1]))):
+                expression=f'if(eq(N,{ordinal}),{value},{expression})'
+            # Reuse production output options; substitute only a finite synthetic
+            # source for x11grab. showinfo proves its actual pre-encoder timestamps.
+            args=production_args[:production_args.index('-f')]+[
+                '-v','info','-f','lavfi','-i','testsrc=size=32x24:rate=15:duration=0.4',
+                '-vf',f"settb=expr=1/1000000,setpts='{expression}',showinfo",
+            ]+production_args[production_args.index('-an'):-1]+[str(source)]
+            encoded=subprocess.run(args,capture_output=True,text=True,timeout=30)
+            (root/'synthetic.encoder.log').write_text(encoded.stderr)
+            (root/'synthetic.progress.log').write_text(encoded.stdout)
+            (root/'synthetic-source.json').write_text(json.dumps(dict(
+                synthetic_only=True,production_args=production_args,actual_args=args,
+                input_pts=pts,input_time_base='1/1000000',input_filter_expression=expression),indent=2))
+            self.assertEqual(0,encoded.returncode,encoded.stderr)
+            observed=[int(p) for p in re.findall(r'\bn:\s*\d+\s+pts:\s*(-?\d+)\s+pts_time:',encoded.stderr)]
+            self.assertEqual(pts,observed)
+            probes={}
+            for mode,extra in (('normal',[]),('raw',['-ignore_editlist','1'])):
+                probe=json.loads(subprocess.check_output(['ffprobe','-v','error',*extra,
+                    '-select_streams','v:0','-show_streams','-show_packets','-show_entries',
+                    'stream=index,id,codec_name,width,height,time_base,start_pts,duration_ts,nb_frames,has_b_frames:'
+                    'packet=stream_index,pts,dts,duration,pos,size,flags','-of','json',str(source)],timeout=15))
+                probes[mode]=probe
+                (root/('synthetic-'+mode+'.json')).write_text(json.dumps(probe,indent=2))
+                self.assertEqual(0,probe['streams'][0]['has_b_frames'])
+                self.assertEqual(pts,[p['pts'] for p in probe['packets']])
+                self.assertEqual(pts,[p['dts'] for p in probe['packets']])
+                self.assertTrue(all('D' not in p['flags'] for p in probe['packets']))
+            self.assertEqual(probes['normal']['packets'],probes['raw']['packets'])
+            track=tables(source)
+            (root/'synthetic-tables.json').write_text(json.dumps(track,indent=2,default=str))
+            self.assertTrue(all(c==0 for c in track['offsets']))
+            self.assertEqual([b-a for a,b in zip(pts,pts[1:])],track['durations'][:-1])
+            self.assertEqual(track['duration'],track['mdhd_duration'])
+            for probe in probes.values():
+                self.assertEqual(track['duration'],probe['streams'][0]['duration_ts'])
+                self.assertEqual(track['durations'],[p['duration'] for p in probe['packets']])
+            self.assertIsNotNone(track['edit'])
+            media_start,edit_length=track['edit']
+            self.assertEqual(0,media_start)
+            self.assertTrue(all(0<=p and p+d<=edit_length for p,d in zip(pts,track['durations'])))
+            before=digest(source);diagnostics={}
+            try:result=inspect(source,6,Fraction(2,5),Fraction(15),diagnostics)
+            finally:
+                (root/'synthetic-qualification.json').write_text(json.dumps(diagnostics,indent=2))
+            self.assertEqual(before,digest(source))
+            self.assertTrue(diagnostics['decode_valid'])
+            self.assertTrue(diagnostics['qualification_valid'])
+            self.assertTrue(all(v['valid'] for v in diagnostics['qualification'].values()))
+            self.assertEqual(pts,result['source_pts'])
+            self.assertEqual(track['durations'],result['source_durations'])
+            self.assertEqual(Fraction(pts[-1]+track['durations'][-1],track['scale']),
+                             Fraction(result['content_end']))
+            (root/'synthetic-result.json').write_text(json.dumps(dict(sha256=before,validation=result),indent=2))
+            self.assertFalse(list(root.rglob('*.png')))
+
     def test_invalid_explicit_caps_fail_before_geometry_or_encoder_launch(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/"absent.mp4"

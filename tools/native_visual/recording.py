@@ -40,15 +40,17 @@ class Recording:
         self.ready = threading.Event()
         self.counters = {}
         self.log = path.with_suffix(".encoder.log").open("xb")
-        self.process = subprocess.Popen([
+        self.acquisition_args = [
             "ffmpeg", "-nostdin", "-n", "-v", "warning", "-progress", "pipe:1", "-stats_period", "0.1",
             "-f", "x11grab", "-draw_mouse", "0",
             "-video_size", f"{client.canvas.width}x{client.canvas.height}", "-framerate", "15",
             "-i", client.env["DISPLAY"], "-an", "-c:v", "libx264rgb", "-crf", "18",
             "-preset", "veryfast", "-fps_mode", "passthrough", "-enc_time_base", "1/1000000",
             "-video_track_timescale", "1000000", "-t", str(seconds),
-            *(["-frames:v", str(self.frame_limit)] if self.frame_limit is not None else []), str(path),
-        ], env=client.env, stdout=subprocess.PIPE, stderr=self.log, text=True)
+            *(["-bf", "0", "-frames:v", str(self.frame_limit)] if self.frame_limit is not None else []), str(path),
+        ]
+        self.process = subprocess.Popen(self.acquisition_args, env=client.env,
+                                        stdout=subprocess.PIPE, stderr=self.log, text=True)
         self.cancel = threading.Event()
         self.reader = threading.Thread(target=self.progress, daemon=True)
         self.reader.start()
@@ -124,6 +126,7 @@ class Recording:
                                     "frame_limit": self.frame_limit, "timestamps": "passthrough"},
             "forced_stop": forced, "geometry": self.geometry, "display": self.display,
             "controller_receipt": "controller.json", "encoder_progress": self.counters,
+            "acquisition_args": self.acquisition_args,
             "codec": "libx264rgb", "crf": 18, "preset": "veryfast", "nominal_rate": "15",
             "capture": "full-display x11grab, lossy RGB, passthrough timestamps, no audio",
             "validation": "pending; run additive offline media validation separately",

@@ -120,12 +120,14 @@ drain, hashing and offline probes are deferred until outside the input schedule.
 Omitting `frames` preserves the duration-only default exactly. For an explicitly
 count-bounded acquisition, e.g. `{"action":"record","client":"guest","clip":"apn","seconds":90,"frames":1350}`,
 `frames` must be a positive integer <=9000 and equal `seconds *15`; explicit null
-is invalid. The recorder adds `-frames:v N` as an acquisition stop, retaining `-t`,
+is invalid. The recorder adds `-bf 0 -frames:v N`, disabling B-frame reordering
+for this capped profile and setting its acquisition stop, retaining `-t`,
 the80MB threshold, wall deadline and bounded drain. It does not drop/resample or
 duplicate already recorded frames, rewrite timestamps, or guarantee coverage if
 another limit stops acquisition first. Strict offline qualification remains
 required. Receipts distinguish planned `frame_limit` (N or null when omitted)
-and duration/nominal rate from actual encoder results. Historical receipts are
+and duration/nominal rate from actual encoder results, and include the actual
+`acquisition_args` passed to FFmpeg. Historical receipts are
 unchanged. Stop observations record the request time,
 polled return code and whether SIGINT was requested. `stop_reason` is the first
 SIGINT request reason, or null; it is not a claim about the actual termination
