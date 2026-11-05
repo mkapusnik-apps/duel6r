@@ -7,6 +7,7 @@
 #include <fstream>
 #include <functional>
 #include <future>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -4721,6 +4722,16 @@ D6R_TEST_CASE("PR87 real canonical motion and timed water project through submit
 
 D6R_TEST_CASE("NET-SOLO actual hosted Start works in all modes and host-only following lobby starts again") {
     using namespace std::chrono_literals;
+    const auto started = std::chrono::steady_clock::now();
+    const auto trace = [&](const std::string &mode, const char *phase) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started).count();
+        // Fixed phase markers only: flush before each potentially blocking
+        // action/wait, so the unchanged90s outer budget retains its last phase.
+        std::cerr << "NET-SOLO elapsed_ms=" << elapsed << " mode=" << mode
+                  << " phase=" << phase << std::endl;
+    };
+    trace("all", "case-begin");
     const auto root = std::filesystem::temp_directory_path()
         / ("duel6r-solo-start-" + std::to_string(::getpid()));
     D6R_REQUIRE(std::filesystem::create_directory(root));
@@ -4743,13 +4754,19 @@ D6R_TEST_CASE("NET-SOLO actual hosted Start works in all modes and host-only fol
         setup.localPlayerNames = {"Solo host"}; setup.mode = mode;
         setup.teamCount = mode == "Team deathmatch" ? 2 : 0;
         setup.fixedLevel = "levels/solo.json"; setup.roundLimit = 1; setup.quickLiquid = true;
+        trace(mode, "start-host");
         D6R_REQUIRE(host.startHost({"127.0.0.1", unusedLoopbackPort()}, D6R_RUNTIME_TEST_SERVER,
             root.string(), setup, {player("Solo host")}));
+        trace(mode, "wait-lobby");
         D6R_REQUIRE(pumpRuntimes(host, unused, other, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
         D6R_REQUIRE(!everyParticipantReady(host.snapshot(), true));
+        trace(mode, "set-ready");
         host.setReady(true);
+        trace(mode, "wait-ready");
         D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+        trace(mode, "start-match");
         host.startMatch();
+        trace(mode, "wait-active-round");
         D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] {
             const auto snapshot = host.snapshot();
             return snapshot.journey == Client::NetworkJourney::Match && snapshot.canonical
@@ -4757,17 +4774,25 @@ D6R_TEST_CASE("NET-SOLO actual hosted Start works in all modes and host-only fol
                 && snapshot.canonical->participants.size() == 1 && snapshot.canonical->players.size() == 1
                 && snapshot.canonical->settings.mode == mode && !snapshot.canonical->result.available;
         }));
+        trace(mode, "active-round");
         const auto firstMatch = host.snapshot().canonical->matchId;
         if (mode == "Deathmatch") {
+            trace(mode, "wait-natural-summary");
             D6R_REQUIRE(pumpRuntimes(host, unused, other, 90s, [&] { return host.snapshot().journey == Client::NetworkJourney::Summary; }));
             D6R_REQUIRE(host.snapshot().canonical->result.available);
             D6R_REQUIRE(host.snapshot().canonical->score.winner.noWinner);
+            trace(mode, "return-to-lobby");
             host.returnToLobby();
+            trace(mode, "wait-return-lobby");
             D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
             D6R_REQUIRE(everyParticipantReady(host.snapshot(), false));
+            trace(mode, "restart-set-ready");
             host.setReady(true);
+            trace(mode, "restart-wait-ready");
             D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return everyParticipantReady(host.snapshot(), true); }));
+            trace(mode, "restart-start-match");
             host.startMatch();
+            trace(mode, "restart-wait-active");
             D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] {
                 const auto snapshot = host.snapshot();
                 return snapshot.journey == Client::NetworkJourney::Match && snapshot.canonical
@@ -4775,10 +4800,14 @@ D6R_TEST_CASE("NET-SOLO actual hosted Start works in all modes and host-only fol
                     && snapshot.canonical->participants.size() == 1 && snapshot.canonical->players.size() == 1;
             }));
         }
+        trace(mode, "end-session");
         host.endSession();
+        trace(mode, "wait-inactive");
         D6R_REQUIRE(pumpRuntimes(host, unused, other, 5s, [&] { return host.snapshot().journey == Client::NetworkJourney::Inactive; }));
         D6R_REQUIRE(host.supervisor->snapshot().cleanupComplete);
+        trace(mode, "cleanup-complete");
     }
+    trace("all", "case-complete");
 }
 
 D6R_TEST_CASE("PR83 real runtime End from naturally completed final summary drains and discards result") {
@@ -5164,6 +5193,7 @@ D6R_TEST_CASE("NET-SOLO host and guest charged bows release while solo team cont
 
 D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and guest sustain release edges") {
     using namespace std::chrono_literals;
+    const auto caseStarted = std::chrono::steady_clock::now();
     char name[] = "duel6r-pr83-capacity-tests";
     char *arguments[] = {name};
     Application application(1, arguments);
@@ -5297,8 +5327,61 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
             host.update(); guest.update();
             std::this_thread::sleep_for(5ms);
         }
-        D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Match);
-        D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Match);
+        try {
+            D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Match);
+            D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Match);
+        } catch (...) {
+            // Failure-only observations: never pump, retry, or replace the original assertion.
+            try {
+                const auto bounded = [](const std::string &text) {
+                    auto result = text.substr(0, 160);
+                    for (auto &character : result)
+                        if (static_cast<unsigned char>(character) < 32) character = '?';
+                    return result;
+                };
+                std::ostringstream detail;
+                detail << "PR83 capacity Match assertion;step=" << step << ";elapsed_ms="
+                       << std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - caseStarted).count();
+                for (const auto *runtime : {&host, &guest}) {
+                    const auto snapshot = runtime->snapshot();
+                    detail << "\npeer=" << (runtime == &host ? "host" : "guest")
+                           << ";journey=" << unsigned(snapshot.journey)
+                           << ";status=" << bounded(snapshot.status) << ";failure=" << bounded(snapshot.failure);
+                    if (snapshot.canonical) {
+                        const auto &state = *snapshot.canonical;
+                        detail << ";phase=" << unsigned(state.phase) << ";tick=" << state.phaseTime
+                               << ";round=" << unsigned(state.currentRoundNumber)
+                               << ";round_id=" << (state.round ? state.round->roundId : 0)
+                               << ";players=" << state.players.size();
+                        for (std::size_t index = 0; index < std::min<std::size_t>(15, state.players.size()); ++index) {
+                            const auto &slot = state.players[index];
+                            detail << ";player=" << slot.playerId << ":life=" << unsigned(slot.lifeState)
+                                   << ":mask=" << slot.actionMask;
+                        }
+                    } else detail << ";canonical=unavailable";
+                }
+                // These objects are already exposed by this existing test harness.
+                if (host.supervisor) {
+                    const auto service = host.supervisor->snapshot();
+                    detail << "\nhost-service-state=" << unsigned(service.state)
+                           << ";outcome=" << unsigned(service.outcome)
+                           << ";stop_reason=" << unsigned(service.stopReason)
+                           << ";cleanup=" << service.cleanupComplete;
+                } else detail << "\nhost-service=unavailable";
+                if (host.hostInput) {
+                    detail << ";input-policy-violation=" << host.hostInput->policyViolation();
+                    const auto outcome = host.hostInput->lastOutcome();
+                    if (outcome) detail << ";input-outcome=" << unsigned(outcome->category)
+                                        << ";effective_tick=" << outcome->effectiveTick;
+                    else detail << ";input-outcome=unavailable";
+                } else detail << ";host-input=unavailable";
+                std::cerr << detail.str() << std::endl;
+            } catch (...) {
+                try { std::cerr << "PR83 capacity failure context unavailable" << std::endl; } catch (...) {}
+            }
+            throw;
+        }
     }
     D6R_REQUIRE_EQ(120u, edges);
     D6R_REQUIRE(host.snapshot().canonical->phaseTime > initialTick + 1800);

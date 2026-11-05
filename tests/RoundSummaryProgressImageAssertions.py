@@ -348,10 +348,7 @@ def assert_excluded(root, label, relative_path, expect_top):
         fail(f"{label}: top-center progress expectation failed (shown={shown}, dark={dark}, glyphs={glyphs})")
 
 
-def main():
-    if len(sys.argv) != 3:
-        fail("usage: assertions.py TEST_ROOT FONT_PATH")
-    root, font_path = sys.argv[1:]
+def assert_first(root, font_path):
     assert_included(
         root,
         font_path,
@@ -359,11 +356,6 @@ def main():
         1,
         ("winner-while-tab-held-early.png", "winner-while-tab-held-late.png"),
     )
-    for label, played in (("resumed", 3), ("penultimate", 4)):
-        assert_included(root, font_path, label, played)
-
-    assert_excluded(root, "final", "final/summary.png", True)
-    assert_excluded(root, "unlimited", "unlimited/summary.png", False)
     assert_excluded(root, "active-tab", "first/active-tab.png", True)
 
     for frame in ("next-round-first.png", "next-round-settled.png"):
@@ -373,6 +365,17 @@ def main():
             fail(f"{frame}: next-round top progress was not restored (dark={dark}, glyphs={glyphs})")
         if blue_strip_bands(image):
             fail(f"{frame}: round-summary panel remained on the next-round frame")
+
+
+def main():
+    if len(sys.argv) != 3:
+        fail("usage: assertions.py TEST_ROOT FONT_PATH")
+    root, font_path = sys.argv[1:]
+    assert_first(root, font_path)
+    for label, played in (("resumed", 3), ("penultimate", 4)):
+        assert_included(root, font_path, label, played)
+    assert_excluded(root, "final", "final/summary.png", True)
+    assert_excluded(root, "unlimited", "unlimited/summary.png", False)
 
     print("round-summary-progress: all visual behavior assertions passed")
 

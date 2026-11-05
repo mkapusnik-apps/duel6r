@@ -2,12 +2,67 @@
 """Deterministic pixel assertions for the shared-arena runtime harness."""
 
 import argparse
+import functools
 import os
+from pathlib import Path
 import subprocess
 import sys
 
 WIDTH = 1280
 HEIGHT = 900
+TEAM_NAMES = ("Alpha", "Bravo", "Charlie", "Delta")
+FONT = Path(__file__).resolve().parents[1] / "resources/data/font.ttf"
+
+
+@functools.lru_cache(maxsize=8)
+def glyph_mask(text):
+    """The same shipped-font mask convention used by the final-score checks."""
+    raw = subprocess.check_output([
+        "convert", "-background", "black", "-fill", "white", "-font", str(FONT),
+        "-pointsize", "32", f"label:{text}", "-resize", f"{len(text) * 16}x32!",
+        "-depth", "8", "gray:-"], timeout=10)
+    return [value >= 64 for value in raw]
+
+
+def glyph_similarity(data, text, left, top, dark=False):
+    expected = glyph_mask(text)
+    observed = [(max(rgb) <= 60 if dark else min(rgb) >= 205)
+                for rgb in region_pixels(data, left, top, left + len(text) * 16, top + 32)]
+    total = sum(expected) + sum(observed)
+    return 2 * sum(a and b for a, b in zip(expected, observed)) / total if total else 0
+
+
+def _score_title_candidates(data, tops):
+    """Fresh per-call ink for the union of the existing overlapping title windows."""
+    if not tops:
+        return []
+    expected = glyph_mask("---SCORE---")
+    expected_count = sum(expected)
+    left, width = WIDTH // 2 - 88, 176
+    first = tops[0]
+    ink = [min(rgb) >= 205 for rgb in region_pixels(data, left, first, left + width, tops[-1] + 32)]
+    scores = []
+    for top in tops:
+        offset = (top - first) * width
+        observed = ink[offset:offset + width * 32]
+        total = expected_count + sum(observed)
+        similarity = 2 * sum(a and b for a, b in zip(expected, observed)) / total if total else 0
+        scores.append((top, similarity))
+    return scores
+
+
+def score_team_row(data, left, width, top):
+    # Renderer contract: a complete32px backing, black unindented team glyphs;
+    # children use indented yellow/red glyphs. Arena color alone is not identity.
+    colors = []
+    for y in range(top, top + 32):
+        colors.append(parent_team_fractions(region_pixels(data, left + 2, y, left + width - 2, y + 1)))
+    matches = [name for name in TEAM_NAMES
+               if min(row[name] for row in colors) >= .25
+               and glyph_similarity(data, name, left, top + 1, dark=True) >= .42]
+    if len(matches) > 1:
+        fail(f"ambiguous score team glyphs at row {top}: {matches}")
+    return matches[0] if matches else None
 
 
 def fail(message):
@@ -122,7 +177,7 @@ def assert_shared_viewport(data, label):
 def ranking_geometry(players, teams):
     longest = 3
     if teams:
-        longest = max(longest, len(("Alpha", "Bravo", "Charlie", "Delta")[teams - 1]))
+        longest = max(longest, *(len(name) for name in TEAM_NAMES[:teams]))
     width = (longest + 6) * 8
     return WIDTH - width - 3, width, players + teams
 
@@ -157,7 +212,7 @@ def score_geometry(players, teams, team_separators=True):
     rows = players + teams
     longest = 3
     if teams:
-        longest = max(longest, len(("Alpha", "Bravo", "Charlie", "Delta")[teams - 1]))
+        longest = max(longest, *(len(name) for name in TEAM_NAMES[:teams]))
     width = (longest + 6 + 20) * 16
     separator_height = 8 if teams and team_separators else 0
     height = 96 + 32 * rows + separator_height * max(0, teams - 1)
@@ -169,11 +224,14 @@ def score_geometry(players, teams, team_separators=True):
     return WIDTH // 2 - width // 2, width, first_y, height
 
 
+def team_rule_fraction(data, left, width, y):
+    values = region_pixels(data, left, y, left + width, y + 1)
+    return fraction(values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85)
+
+
 def assert_team_separators(data, label, left, width, separators):
     def rule_fraction(y):
-        values = region_pixels(data, left, y, left + width, y + 1)
-        return fraction(values, lambda rgb: min(rgb) >= 165 and max(rgb) - min(rgb) <= 85)
-
+        return team_rule_fraction(data, left, width, y)
     for index, top in enumerate(separators, 1):
         rule = min(rule_fraction(top), rule_fraction(top + 1))
         clear_above = max(rule_fraction(y) for y in range(top - 3, top))
@@ -326,28 +384,56 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
         assert_no_team_separators(data, label, left, width, centers)
     else:
         first_y, height = geometry[2:]
-        # Ranking order can change when team point totals tie, and a 15-player
-        # roster does not divide evenly among four teams. Locate the rendered
-        # parent-row bands rather than assuming either team order or group size.
-        parent_rows = []
-        for y in range(first_y - 16, first_y + height - 80):
-            values = region_pixels(data, left + 2, y, left + width - 2, y + 1)
-            parent_fractions = parent_team_fractions(values)
-            color = max(parent_fractions, key=parent_fractions.get)
-            if parent_fractions[color] >= 0.25:
-                if not parent_rows or y != parent_rows[-1][1]:
-                    parent_rows.append([y, y + 1, color])
-                else:
-                    parent_rows[-1][1] = y + 1
-        groups = [band[2] for band in parent_rows]
-        if len(groups) != teams or len(set(groups)) != teams:
-            fail(f"{label}: expected {teams} score group headers, got {groups}")
+        # Locate the real title glyph, including the renderer's final-panel
+        # bounds adjustment, rather than deriving origin from arena-color bands.
+        title_scores = _score_title_candidates(
+            data, range(max(0, first_y - 144), min(HEIGHT - 32, first_y - 16)))
+        title_top, title_similarity = max(title_scores, key=lambda item: item[1])
+        if title_similarity < .42:
+            fail(f"{label}: SCORE title glyphs missing")
+        header_y = title_top + 16
+        # The title's best raster-mask origin is not a quad/row origin (GL
+        # coordinates may be fractional). Use it only to bound the table search:
+        # one32px heading cell before the body, plus one cell after it so a real
+        # appended header remains detectable. Do not quantize row starts to ink.
+        body_height = rows * 32 + (teams - 1) * (8 if team_separators else 0)
+        search_top = title_top + 32
+        search_bottom = min(HEIGHT, title_top + 96 + body_height)
+        separators = []
         if team_separators:
-            separators = [parent_rows[index][0] - 5 for index in range(1, len(parent_rows))]
+            # Discover the full-width rules independently of team-color pixels.
+            # Their centered2px lines anchor the unpainted8px gutters, whose
+            # translucent arena background can otherwise resemble a team row.
+            previous_rule_y = None
+            for y in range(search_top, search_bottom):
+                if team_rule_fraction(data, left, width, y) >= 0.85:
+                    if previous_rule_y != y - 1:
+                        separators.append(y)
+                    previous_rule_y = y
             if len(separators) != teams - 1:
                 fail(f"{label}: expected {teams - 1} separator positions, got {separators}")
             assert_team_separators(data, label, left, width, separators)
-        header_y = (parent_rows[0][0] + parent_rows[0][1]) // 2 - 64
+        # Full-row backing and complete source-font word establish identity;
+        # color alone only narrows candidate windows. Retain the original8px
+        # gutter exclusion, independently of the glyph/quad raster alignment.
+        gutters = {y for top in separators for y in range(top - 3, top + 5)}
+        color_rows = {
+            y: parent_team_fractions(region_pixels(data, left + 2, y, left + width - 2, y + 1))
+            for y in range(search_top, search_bottom)
+        }
+        parent_rows = []
+        for y in range(search_top, min(search_bottom - 31, HEIGHT - 32)):
+            if any(row in gutters for row in range(y, y + 32)):
+                continue
+            if not any(min(color_rows[row][name] for row in range(y, y + 32)) >= .25
+                       for name in TEAM_NAMES):
+                continue
+            name = score_team_row(data, left, width, y)
+            if name:
+                parent_rows.append([y, y + 32, name])
+        groups = [band[2] for band in parent_rows]
+        if len(groups) != teams or len(set(groups)) != teams:
+            fail(f"{label}: expected {teams} score group headers, got {groups}")
 
     header = region_median(data, WIDTH // 2 - 80, header_y - 8,
                            WIDTH // 2 + 80, header_y + 8)
