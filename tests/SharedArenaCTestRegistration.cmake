@@ -144,6 +144,10 @@ add_test(
     COMMAND ${D6R_BASH_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/RoundSummaryProgressBehaviorTests.sh
 )
+add_test(NAME round-summary-cleanup
+    COMMAND ${D6R_SHARED_ARENA_python3} -B ${CMAKE_SOURCE_DIR}/tests/RoundSummaryCleanupTests.py)
+set_tests_properties(round-summary-cleanup PROPERTIES
+    LABELS "application;regression;round-summary;sanity-unit" TIMEOUT 15)
 set_tests_properties(
     round-summary-progress-behavior
     PROPERTIES

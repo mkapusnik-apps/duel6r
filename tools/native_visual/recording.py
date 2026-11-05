@@ -1,19 +1,35 @@
 """Full-display original recording; finalization/probes never block scheduled input."""
 import signal
+import math
 import subprocess
 import threading
 import time
 from datetime import datetime, timezone
+from fractions import Fraction
 
 from .common import digest, record, require
 
 
+_UNCAPPED = object()
+
+
+def validate_frame_limit(seconds, frames):
+    require(type(frames) is int and 0 < frames <= 9000,
+            "recording frames must be a positive integer <=9000")
+    require(type(seconds) in (int, float) and math.isfinite(seconds) and 0 < seconds <= 600
+            and Fraction(str(seconds)) * 15 == frames,
+            "recording frames must equal requested seconds *15")
+
+
 class Recording:
-    def __init__(self, client, path, seconds):
+    def __init__(self, client, path, seconds, *, frames=_UNCAPPED):
         require(0 < seconds <= 600, "recording duration must be bounded")
+        if frames is not _UNCAPPED:
+            validate_frame_limit(seconds, frames)
         require(not path.exists(), "never overwrite an original recording")
         client.verify_geometry()
         self.path, self.seconds = path, seconds
+        self.frame_limit = None if frames is _UNCAPPED else frames
         self.geometry = [client.canvas.width, client.canvas.height]
         self.display = client.env["DISPLAY"]
         self.started = time.monotonic()
@@ -30,7 +46,8 @@ class Recording:
             "-video_size", f"{client.canvas.width}x{client.canvas.height}", "-framerate", "15",
             "-i", client.env["DISPLAY"], "-an", "-c:v", "libx264rgb", "-crf", "18",
             "-preset", "veryfast", "-fps_mode", "passthrough", "-enc_time_base", "1/1000000",
-            "-video_track_timescale", "1000000", "-t", str(seconds), str(path),
+            "-video_track_timescale", "1000000", "-t", str(seconds),
+            *(["-frames:v", str(self.frame_limit)] if self.frame_limit is not None else []), str(path),
         ], env=client.env, stdout=subprocess.PIPE, stderr=self.log, text=True)
         self.cancel = threading.Event()
         self.reader = threading.Thread(target=self.progress, daemon=True)
@@ -104,7 +121,7 @@ class Recording:
             "stop_reason_semantics": "first SIGINT request reason, or null; not the encoder termination cause",
             "stop_requests": self.stop_requests, "process_returncode_before_finalization": before_finalize,
             "requested_contract": {"duration_limit_seconds": self.seconds, "nominal_rate": "15",
-                                   "frame_limit": None, "timestamps": "passthrough"},
+                                    "frame_limit": self.frame_limit, "timestamps": "passthrough"},
             "forced_stop": forced, "geometry": self.geometry, "display": self.display,
             "controller_receipt": "controller.json", "encoder_progress": self.counters,
             "codec": "libx264rgb", "crf": 18, "preset": "veryfast", "nominal_rate": "15",

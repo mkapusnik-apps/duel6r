@@ -14,7 +14,7 @@ from tools.native_visual.common import digest
 from tools.native_visual.media import index
 
 
-def create_vfr_b_frames(path):
+def create_vfr_b_frames(path, *, timecode_track=False):
     """Genuine variable source PTS/B-frame input; not historical capture evidence."""
     pts = [0,99722,121728,187409,299776,330000]
     expression = str(pts[-1])
@@ -24,7 +24,9 @@ def create_vfr_b_frames(path):
                     "-frames:v","6","-vf",f"settb=expr=1/1000000,setpts='{expression}'",
                     "-fps_mode","passthrough","-enc_time_base","1/1000000",
                     "-c:v","libx264rgb","-crf","18","-bf","2","-b_strategy","0","-threads","1",
-                    "-video_track_timescale","1000000",str(path)],check=True,capture_output=True,timeout=30)
+                    "-video_track_timescale","1000000",
+                    *(["-timecode","00:00:00:00","-write_tmcd","1"] if timecode_track else []),
+                    str(path)],check=True,capture_output=True,timeout=30)
     return pts
 
 
@@ -54,8 +56,16 @@ def prepare(root):
     partial = root / "test-only-vfr.mp4"
     create_vfr_b_frames(partial)
     index(partial, root / "inspection-gap", expected_frames=9, seconds="3/5", rate="15", candidate="0"*40,
-          provenance="Synthetic nonqualifying viewer regression only; NOT application evidence",
-          expected_sha=digest(partial), inspection_only=True)
+           provenance="Synthetic nonqualifying viewer regression only; NOT application evidence",
+           expected_sha=digest(partial), inspection_only=True)
+    # A genuine additional timecode track is outside the narrow single-track
+    # timing fallback. Keep UNKNOWN coverage without falsifying the recoverable
+    # file's assessment or manually removing its now-known source lifetimes.
+    unsupported = root / "test-only-unsupported-timecode.mp4"
+    create_vfr_b_frames(unsupported, timecode_track=True)
+    index(unsupported, root / "inspection-unknown", expected_frames=9, seconds="3/5", rate="15", candidate="0"*40,
+          provenance="Synthetic unsupported multi-track timing fixture only; NOT application evidence",
+          expected_sha=digest(unsupported), inspection_only=True)
 
 
 def main():

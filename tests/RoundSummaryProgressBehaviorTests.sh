@@ -64,19 +64,26 @@ app_pid=""
 tab_held=false
 cleanup() {
     local status=$?
-    if (( status != 0 )); then preserve_candidates; fi
+    trap - EXIT
+    # Cleanup must not be short-circuited by diagnostics, failed commands or
+    # errexit; preserve the test's status rather than a secondary artifact error.
+    set +e
     if [[ "$tab_held" == true ]]; then
         xdotool keyup Tab >/dev/null 2>&1 || true
         tab_held=false
     fi
-    if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
-        kill "$app_pid" 2>/dev/null || true
+    if [[ -n "$app_pid" ]]; then
+        if kill -0 "$app_pid" 2>/dev/null; then kill "$app_pid" 2>/dev/null || true; fi
         wait "$app_pid" 2>/dev/null || true
     fi
-    if [[ -n "$xvfb_pid" ]] && kill -0 "$xvfb_pid" 2>/dev/null; then
-        kill "$xvfb_pid" 2>/dev/null || true
+    if [[ -n "$xvfb_pid" ]]; then
+        if kill -0 "$xvfb_pid" 2>/dev/null; then kill "$xvfb_pid" 2>/dev/null || true; fi
         wait "$xvfb_pid" 2>/dev/null || true
     fi
+    if (( status != 0 )); then
+        (preserve_candidates) || echo "round-summary-progress: warning: candidate preservation failed" >&2
+    fi
+    exit "$status"
 }
 trap cleanup EXIT
 

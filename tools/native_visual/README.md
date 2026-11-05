@@ -70,7 +70,7 @@ cycles, unknown macros and oversized expansion fail. Example inactive setup:
 
 Actions: `key` (one keysym), `click` (`point:[x,y]`), `text` (literal), `wait`
 (`seconds`), `await` (`state`, timeout at most 10s), `capture`, `record`
-(`clip`, `seconds`), `stop_record` (`clip`), `exit_wait`. Each key/click has an
+(`clip`, `seconds`, optional `frames`), `stop_record` (`clip`), `exit_wait`. Each key/click has an
 explicit positive `hold` up to 2s (default .08); release is attempted on errors.
 The bound includes native delivery and release acknowledgements, not just a
 sleep. A separate release guard runs even if a delivered press's response stalls.
@@ -116,8 +116,16 @@ or its bounded duration; mux drain and final size must still pass. No crop,
 resize, trimming, composition, re-encoding or silent frame downsampling is used.
 `stop_record` requests a stop without a synchronous ffprobe roundtrip. Encoder
 drain, hashing and offline probes are deferred until outside the input schedule.
-Future recording receipts distinguish requested duration/nominal rate (no frame
-cap) from actual encoder results. Stop observations record the request time,
+Omitting `frames` preserves the duration-only default exactly. For an explicitly
+count-bounded acquisition, e.g. `{"action":"record","client":"guest","clip":"apn","seconds":90,"frames":1350}`,
+`frames` must be a positive integer <=9000 and equal `seconds *15`; explicit null
+is invalid. The recorder adds `-frames:v N` as an acquisition stop, retaining `-t`,
+the80MB threshold, wall deadline and bounded drain. It does not drop/resample or
+duplicate already recorded frames, rewrite timestamps, or guarantee coverage if
+another limit stops acquisition first. Strict offline qualification remains
+required. Receipts distinguish planned `frame_limit` (N or null when omitted)
+and duration/nominal rate from actual encoder results. Historical receipts are
+unchanged. Stop observations record the request time,
 polled return code and whether SIGINT was requested. `stop_reason` is the first
 SIGINT request reason, or null; it is not a claim about the actual termination
 cause. A late request after encoder exit does not relabel its completion.
@@ -216,7 +224,11 @@ campaign or conformance assessment is authorized merely by running these tests.
 
 For permitted developer browser checks, `tests/NativeVisualViewerFixture.py`
 serves clearly synthetic good/missing/hash/decode/gap/slow-delivery and
-nonqualifying `inspection-gap` cases. Use only an approved task-owned reachable
+nonqualifying `inspection-gap` cases. The genuine VFR `inspection-gap` now has
+recoverable source lifetimes; separate `inspection-unknown` uses an explicitly
+synthetic additional timecode track outside the supported timing shape. Its
+UNKNOWN assessment is generated from that file, not faked in the recoverable
+file's receipt. Use only an approved task-owned reachable
 origin and stop its runtime after inspection. A Docker daemon host's loopback
 is not necessarily OpenCode's loopback. Offline schema/static viewer tests do
 not prove browser behavior or the actual assessor's access/UX acceptance.

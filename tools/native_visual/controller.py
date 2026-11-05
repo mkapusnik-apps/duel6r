@@ -14,7 +14,7 @@ import time
 
 from .common import record, require, verify_runtime
 from .recognition import Canvas, STATES, recognize
-from .recording import Recording
+from .recording import Recording, validate_frame_limit
 from .input_guard import hold_input
 
 # Reuse the repository's existing process owner, without altering its contract.
@@ -187,7 +187,10 @@ class Scheduler:
                     "invalid/duplicate original clip ID")
             seconds = step["seconds"]
             require(math.isfinite(seconds) and 0 < seconds <= self.remaining(), "recording exceeds budget")
-            self.recordings[clip] = Recording(client, self.output / (clip + ".mp4"), seconds)
+            if "frames" in step:
+                validate_frame_limit(seconds, step["frames"])
+            self.recordings[clip] = Recording(client, self.output / (clip + ".mp4"), seconds,
+                                             **({"frames": step["frames"]} if "frames" in step else {}))
             require(self.recordings[clip].ready.wait(min(5, self.remaining())),
                     "recorder produced no first frame before readiness deadline")
             require(self.recordings[clip].process.poll() is None,
@@ -400,6 +403,9 @@ def main():
     require(not args.output.resolve().is_relative_to(root), "output must be outside immutable runtime")
     steps = expand(recipe["steps"], recipe.get("macros"))
     require(len(steps) > 0, "empty recipe")
+    for step in steps:
+        if step.get("action") == "record" and "frames" in step:
+            validate_frame_limit(step["seconds"], step["frames"])
     args.output.mkdir(parents=True, exist_ok=False)
     budget = recipe["budget_seconds"]
     require(math.isfinite(budget) and 0 < budget <= 600, "invalid recipe budget")

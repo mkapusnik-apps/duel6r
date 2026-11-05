@@ -17,6 +17,7 @@ from tools.native_visual.common import digest
 from tools.native_visual.media import validate, index, inspect
 from tools.native_visual.mp4_timing import recover
 from tools.native_visual.recording import Recording
+from tools.native_visual.controller import Scheduler
 from NativeVisualToolsTests import native_window
 from NativeVisualViewerFixture import create_vfr_b_frames
 
@@ -420,12 +421,81 @@ class ExportBudgetTests(unittest.TestCase):
 
 
 class RecordingTests(unittest.TestCase):
+    def test_invalid_explicit_caps_fail_before_geometry_or_encoder_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"absent.mp4"
+            for cap in (None,True,False,0,-1,6.0,"6",9001,5,7):
+                with self.subTest(cap=cap),mock.patch("tools.native_visual.recording.subprocess.Popen") as launch:
+                    client=mock.Mock()
+                    with self.assertRaisesRegex(ValueError,"recording frames"):
+                        Recording(client,path,.4,frames=cap)
+                    client.verify_geometry.assert_not_called();launch.assert_not_called()
+                    self.assertFalse(path.exists())
+            client=mock.Mock();client.verify_geometry.side_effect=RuntimeError("test stop before launch")
+            with self.assertRaisesRegex(RuntimeError,"test stop before launch"):
+                Recording(client,path,600,frames=9000)
+
+    def test_recipe_forwards_cap_only_when_explicit_and_cli_rejects_invalid_before_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            for number,extra in enumerate(({},dict(frames=6))):
+                output=root/str(number);output.mkdir()
+                with mock.patch("tools.native_visual.controller.Recording") as encoder:
+                    encoder.return_value.ready.wait.return_value=True
+                    encoder.return_value.process.poll.return_value=None
+                    client=object()
+                    Scheduler({"g":client},output,2).run([dict(client="g",action="record",clip="sample",seconds=.4,**extra)])
+                    encoder.assert_called_once_with(client,output/"sample.mp4",.4,**extra)
+                    encoder.return_value.stop.assert_called_once_with()
+            from tools.native_visual.controller import main
+            identity=root/"identity.json";identity.write_text('{}')
+            recipe=root/"recipe.json";recipe.write_text(json.dumps(dict(steps=[dict(action="record",seconds=.4,frames=None)])))
+            output=root/"cli-output"
+            runtime=root/"runtime"
+            with mock.patch.object(sys,"argv",["controller","--runtime",str(runtime),"--identity",str(identity),
+                   "--recipe",str(recipe),"--output",str(output)]),mock.patch("tools.native_visual.controller.verify_runtime",return_value=runtime),\
+                   mock.patch("tools.native_visual.controller.run_owned") as launch:
+                with self.assertRaisesRegex(ValueError,"recording frames"):main()
+                launch.assert_not_called();self.assertFalse(output.exists())
+
+    def test_actual_x11_frame_cap_stops_at_requested_sample_without_timestamp_resampling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with native_window(root) as client:
+                original=root/"capped.mp4"
+                with mock.patch("tools.native_visual.recording.subprocess.Popen",wraps=subprocess.Popen) as launch:
+                    recorder=Recording(client,original,.4,frames=6)
+                try:
+                    self.assertTrue(recorder.ready.wait(5))
+                    self.assertEqual(0,recorder.process.wait(timeout=5))
+                finally:recorder.stop()
+                args=next(call.args[0] for call in launch.call_args_list if call.args[0][0]=="ffmpeg")
+                self.assertEqual("6",args[args.index("-frames:v")+1])
+                self.assertEqual("0.4",args[args.index("-t")+1])
+                self.assertEqual("passthrough",args[args.index("-fps_mode")+1])
+                self.assertEqual("1/1000000",args[args.index("-enc_time_base")+1])
+                self.assertNotIn("-r",args);self.assertNotIn("-vf",args)
+                probe=json.loads(subprocess.check_output(["ffprobe","-v","error","-select_streams","v",
+                    "-show_frames","-show_entries","frame=pts,width,height","-of","json",str(original)],timeout=10))
+                frames=probe["frames"];self.assertEqual(6,len(frames))
+                self.assertTrue(all((f["width"],f["height"])==(850,700) for f in frames))
+                self.assertTrue(all(b["pts"]>a["pts"] for a,b in zip(frames,frames[1:])))
+                receipt=json.loads(original.with_suffix(".recording.json").read_text())
+                self.assertEqual(6,receipt["requested_contract"]["frame_limit"])
+                self.assertEqual(.4,receipt["requested_contract"]["duration_limit_seconds"])
+                self.assertEqual(6,receipt["encoder_progress"]["frame"])
+                self.assertIsNone(receipt["stop_reason"]);self.assertFalse(receipt["forced_stop"])
+
     def test_actual_recorder_readiness_drain_and_immutable_finalization(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             with native_window(root) as client:
                 original=root/"original.mp4"
-                recorder=Recording(client,original,.4)
+                with mock.patch("tools.native_visual.recording.subprocess.Popen",wraps=subprocess.Popen) as launch:
+                    recorder=Recording(client,original,.4)
+                args=next(call.args[0] for call in launch.call_args_list if call.args[0][0]=="ffmpeg")
+                self.assertNotIn("-frames:v",args)
+                self.assertEqual("0.4",args[args.index("-t")+1])
                 try:
                     self.assertTrue(recorder.ready.wait(5),"no first encoded frame")
                     self.assertEqual(0,recorder.process.wait(timeout=5))
@@ -494,7 +564,7 @@ class RecordingTests(unittest.TestCase):
                     "pathlib.Path(sys.argv[-1]).write_bytes(b'test-only partial output')\n"
                     "print('frame=1',flush=True)\nwhile True: time.sleep(1)\n")
                 fake.chmod(0o755); client.env["PATH"]=str(root)+":"+client.env["PATH"]
-                original=root/"forced.mp4"; recorder=Recording(client,original,30)
+                original=root/"forced.mp4"; recorder=Recording(client,original,30,frames=450)
                 self.assertTrue(recorder.ready.wait(3))
                 started=time.monotonic()
                 with self.assertRaisesRegex(ValueError,"drain deadline"): recorder.stop()
@@ -502,6 +572,7 @@ class RecordingTests(unittest.TestCase):
                 self.assertIsNotNone(recorder.process.returncode)
                 receipt=json.loads(original.with_suffix(".recording.json").read_text())
                 self.assertTrue(receipt["forced_stop"])
+                self.assertEqual(450,receipt["requested_contract"]["frame_limit"])
                 self.assertEqual("finalization",receipt["stop_reason"])
                 self.assertIsNone(receipt["stop_requests"][0]["process_returncode_at_request"])
                 self.assertTrue(receipt["stop_requests"][0]["sigint_requested"])
