@@ -32,6 +32,25 @@ def glyph_similarity(data, text, left, top, dark=False):
     return 2 * sum(a and b for a, b in zip(expected, observed)) / total if total else 0
 
 
+def _score_title_candidates(data, tops):
+    """Fresh per-call ink for the union of the existing overlapping title windows."""
+    if not tops:
+        return []
+    expected = glyph_mask("---SCORE---")
+    expected_count = sum(expected)
+    left, width = WIDTH // 2 - 88, 176
+    first = tops[0]
+    ink = [min(rgb) >= 205 for rgb in region_pixels(data, left, first, left + width, tops[-1] + 32)]
+    scores = []
+    for top in tops:
+        offset = (top - first) * width
+        observed = ink[offset:offset + width * 32]
+        total = expected_count + sum(observed)
+        similarity = 2 * sum(a and b for a, b in zip(expected, observed)) / total if total else 0
+        scores.append((top, similarity))
+    return scores
+
+
 def score_team_row(data, left, width, top):
     # Renderer contract: a complete32px backing, black unindented team glyphs;
     # children use indented yellow/red glyphs. Arena color alone is not identity.
@@ -367,9 +386,10 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
         first_y, height = geometry[2:]
         # Locate the real title glyph, including the renderer's final-panel
         # bounds adjustment, rather than deriving origin from arena-color bands.
-        title_top = max(range(max(0, first_y - 144), min(HEIGHT - 32, first_y - 16)),
-                        key=lambda y: glyph_similarity(data, "---SCORE---", WIDTH // 2 - 88, y))
-        if glyph_similarity(data, "---SCORE---", WIDTH // 2 - 88, title_top) < .42:
+        title_scores = _score_title_candidates(
+            data, range(max(0, first_y - 144), min(HEIGHT - 32, first_y - 16)))
+        title_top, title_similarity = max(title_scores, key=lambda item: item[1])
+        if title_similarity < .42:
             fail(f"{label}: SCORE title glyphs missing")
         header_y = title_top + 16
         # The title's best raster-mask origin is not a quad/row origin (GL

@@ -3,6 +3,7 @@
 import copy
 import ctypes
 from contextlib import contextmanager
+import io
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest, record, verify_runtime
@@ -264,6 +265,68 @@ class IdentityTests(unittest.TestCase):
             self.assertEqual(before,path.read_bytes())
 
 
+def retain_cli_failure(output):
+    """Emit only existing bounded sinks before this CLI fixture's TempDir is removed."""
+    for name, limit in (("display-startup.jsonl", 12288), ("fixture.log", 2048), ("completion.json", 2048)):
+        try:
+            with (output / name).open("rb") as stream:
+                stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, stream.tell() - limit))
+                text = stream.read(limit).decode(errors="replace")
+            text = "".join(character if character.isprintable() or character in "\n\t" else "?"
+                           for character in text)
+            print(f"native-cli failure log {name} (tail <= {limit} bytes):\n{text}",
+                  file=sys.stderr, flush=True)
+        except BaseException:
+            try:
+                print(f"native-cli failure log unavailable: {name}", file=sys.stderr, flush=True)
+            except BaseException:
+                pass
+
+
+class CLIFailureRetentionTests(unittest.TestCase):
+    def test_retains_only_allowlisted_bounded_safe_text_before_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            (output / "display-startup.jsonl").write_text("discarded-prefix\n" + "x" * 12288 + "tail-marker")
+            (output / "fixture.log").write_text("Xvfb error\x1b[31m\n")
+            (output / "completion.json").write_text('{"normal_cleanup": false}')
+            (output / "operator").mkdir()
+            (output / "operator/ready.json").write_text("test-only-private-context")
+            captured = io.StringIO()
+            with patch("sys.stderr", captured): retain_cli_failure(output)
+            text = captured.getvalue()
+            self.assertIn("tail-marker", text)
+            self.assertNotIn("discarded-prefix", text)
+            self.assertNotIn("test-only-private-context", text)
+            self.assertNotIn("\x1b", text)
+            self.assertIn('"normal_cleanup": false', text)
+            self.assertLess(len(text), 17000)
+        self.assertFalse(output.exists())
+
+    def test_missing_read_and_print_failures_preserve_primary_assertion_and_cleanup(self):
+        for mode in ("missing", "read", "print"):
+            primary = AssertionError("test-only primary assertion")
+            with self.subTest(mode=mode), self.assertRaises(AssertionError) as raised:
+                with tempfile.TemporaryDirectory() as tmp:
+                    output = Path(tmp)
+                    if mode != "missing": (output / "fixture.log").write_text("test-only Xvfb log")
+                    sink = Mock()
+                    if mode == "print": sink.write.side_effect = OSError("test-only stderr failure")
+                    try:
+                        raise primary
+                    except BaseException:
+                        with patch("sys.stderr", sink):
+                            if mode == "read":
+                                with patch.object(Path, "open", side_effect=PermissionError("test-only read failure")):
+                                    retain_cli_failure(output)
+                            else:
+                                retain_cli_failure(output)
+                        raise
+            self.assertIs(primary, raised.exception)
+            self.assertFalse(output.exists())
+
+
 class ControllerCLITests(unittest.TestCase):
     def test_geometry_probe_success_is_single_and_strict(self):
         env={"DISPLAY":":23"}
@@ -315,20 +378,24 @@ class ControllerCLITests(unittest.TestCase):
                     "steps":[{"action":"await","client":"fixture","state":"fixture"},
                              {"action":"key","client":"fixture","key":"Escape"},
                              {"action":"exit_wait","client":"fixture"}]}))
-                result=subprocess.run([sys.executable,"-B","-m","tools.native_visual.controller",
-                    "--runtime",str(runtime),"--identity",str(root/"identity.json"),
-                    "--recipe",str(root/"recipe.json"),"--output",str(root/"output")],
-                    cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=30)
-                completion=json.loads((root/"output/completion.json").read_text())
-                self.assertEqual(not leaking,result.returncode==0,(result.stdout,result.stderr))
-                self.assertEqual(not leaking,completion["normal_cleanup"])
-                self.assertTrue(completion["ownership"]["cleanup"])
-                if not leaking:
-                    actions=json.loads((root/"output/actions.json").read_text())["events"]
-                    self.assertEqual("exit_wait",actions[-1]["action"])
-                    self.assertIn("finished",actions[-1])
-                    self.assertIn("down",(root/"output/fixture.log").read_text())
-                verify_runtime(runtime,identity)
+                try:
+                    result=subprocess.run([sys.executable,"-B","-m","tools.native_visual.controller",
+                        "--runtime",str(runtime),"--identity",str(root/"identity.json"),
+                        "--recipe",str(root/"recipe.json"),"--output",str(root/"output")],
+                        cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=30)
+                    completion=json.loads((root/"output/completion.json").read_text())
+                    self.assertEqual(not leaking,result.returncode==0,(result.stdout,result.stderr))
+                    self.assertEqual(not leaking,completion["normal_cleanup"])
+                    self.assertTrue(completion["ownership"]["cleanup"])
+                    if not leaking:
+                        actions=json.loads((root/"output/actions.json").read_text())["events"]
+                        self.assertEqual("exit_wait",actions[-1]["action"])
+                        self.assertIn("finished",actions[-1])
+                        self.assertIn("down",(root/"output/fixture.log").read_text())
+                    verify_runtime(runtime,identity)
+                except BaseException:
+                    retain_cli_failure(root/"output")
+                    raise
 
 
 @contextmanager

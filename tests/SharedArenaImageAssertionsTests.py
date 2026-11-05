@@ -250,6 +250,58 @@ class ScoreClosureTests(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError,"separator"):
                     images.assert_score_overlay(frame,kind,15,4)
 
+    @staticmethod
+    def legacy_title_scores(data, tops):
+        # Pinned3825bed: glyph_similarity itself is unchanged by the title-only optimization.
+        return [(top, images.glyph_similarity(data, "---SCORE---", images.WIDTH // 2 - 88, top))
+                for top in tops]
+
+    def test_title_scores_match_3825_reference_with_one_union_read(self):
+        frame, _, _, _, _ = self.uneven_four_team_frame()
+        first_y = images.score_geometry(15, 4)[2]
+        tops = range(max(0, first_y - 144), min(images.HEIGHT - 32, first_y - 16))
+        expected = self.legacy_title_scores(frame, tops)
+        with patch.object(images, "region_pixels", wraps=images.region_pixels) as reads:
+            actual = images._score_title_candidates(frame, tops)
+        self.assertEqual(expected, actual)  # Every candidate score and its order, not only the winner.
+        reads.assert_called_once_with(frame, 552, tops[0], 728, tops[-1] + 32)
+        self.assertEqual(128, len(actual))
+        self.assertEqual(27984, (tops[-1] + 32 - tops[0]) * 176)
+        progress("title-mask-work", old_threshold_pixels=len(tops) * 176 * 32,
+                 union_threshold_pixels=(tops[-1] + 32 - tops[0]) * 176)
+
+    def test_title_mask_is_fresh_on_mutation_and_ties_keep_first_position(self):
+        frame = self.frame((204, 255, 255))
+        tops = range(10, 18)
+        before = images._score_title_candidates(frame, tops)
+        self.assertEqual(self.legacy_title_scores(frame, tops), before)
+        self.assertTrue(all(score == 0 for _, score in before))
+        self.assertEqual(tops[0], max(before, key=lambda item: item[1])[0])
+        self.paint_box(frame, 552, tops[0], 176, tops[-1] + 32 - tops[0], (205, 205, 205))
+        after = images._score_title_candidates(frame, tops)
+        self.assertEqual(self.legacy_title_scores(frame, tops), after)
+        self.assertTrue(all(score == after[0][1] > 0 for _, score in after))
+        self.assertEqual(tops[0], max(after, key=lambda item: item[1])[0])
+        self.paint_box(frame, 552, tops[0], 176, tops[-1] + 32 - tops[0], (255, 204, 255))
+        self.assertEqual(before, images._score_title_candidates(frame, tops))
+
+    def test_title_mask_keeps_edge_empty_and_truncated_buffer_behavior(self):
+        frame = self.frame((205, 205, 205))
+        for tops in (range(0, 3), range(images.HEIGHT - 35, images.HEIGHT - 32)):
+            with self.subTest(first=tops[0]):
+                self.assertEqual(self.legacy_title_scores(frame, tops), images._score_title_candidates(frame, tops))
+        empty = images._score_title_candidates(b"", range(0))
+        self.assertEqual([], empty)
+        with self.assertRaises(ValueError) as legacy_error:
+            max(range(0), key=lambda top: images.glyph_similarity(b"", "---SCORE---", 552, top))
+        with self.assertRaises(ValueError) as current_error:
+            max(empty, key=lambda item: item[1])
+        self.assertEqual(legacy_error.exception.args, current_error.exception.args)
+        truncated = frame[:(33 * images.WIDTH + 728) * 3 - 1]
+        for score in (self.legacy_title_scores, images._score_title_candidates):
+            with self.assertRaises(IndexError):
+                score(truncated, range(0, 3))
+
 
 if __name__ == "__main__":
     unittest.main(testRunner=ProgressRunner, verbosity=2)
