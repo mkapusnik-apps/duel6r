@@ -145,7 +145,7 @@ class Scheduler:
         self.sleep(seconds)
         self.remaining()
 
-    def run(self, steps):
+    def run(self, steps, *, observe=None):
         try:
             for ordinal, step in enumerate(steps):
                 self.remaining()
@@ -162,8 +162,18 @@ class Scheduler:
                          "started": self.clock() - self.started}
                 self.events.append(event)
                 client = self.clients[step["client"]]
-                self.action(client, step, ordinal)
-                event["finished"] = self.clock() - self.started
+                try:
+                    self.action(client, step, ordinal)
+                    event["finished"] = self.clock() - self.started
+                finally:
+                    if observe is not None:
+                        active_error = sys.exc_info()[0] is not None
+                        try:
+                            observe(step, event)
+                        except Exception:
+                            if not active_error:
+                                raise
+                            print("operator observation failed during action abort", file=sys.stderr)
         finally:
             active_error = sys.exc_info()[0] is not None
             errors = {}
@@ -299,7 +309,7 @@ def probe_display_geometry(display, xvfb_pid, canvas, env):
     raise ValueError("unexpected display geometry: " + json.dumps(details, sort_keys=True)) from error
 
 
-def execute(runtime, identity, recipe, output):
+def execute(runtime, identity, recipe, output, *, operator=False):
     """Worker runs under OwnedProcessRunner; all processes are its descendants."""
     runtime = verify_runtime(runtime, identity)
     clients, processes = {}, []
@@ -358,8 +368,14 @@ def execute(runtime, identity, recipe, output):
                 clients[name] = client
             finally:
                 log.close()
-        Scheduler(clients, output, recipe["budget_seconds"], recipe.get("states")).run(
-            expand(recipe["steps"], recipe.get("macros")))
+        schedule = Scheduler(clients, output, recipe["budget_seconds"], recipe.get("states"))
+        steps = expand(recipe["steps"], recipe.get("macros"))
+        if operator:
+            from .operator import OperatorChannel
+            with OperatorChannel(schedule, runtime, identity, recipe) as channel:
+                schedule.run(channel.steps(steps), observe=channel.observe)
+        else:
+            schedule.run(steps)
     finally:
         # Recipes must exit normally themselves; fallback is independently reaped.
         normal = (len(processes) == len(recipe["clients"]) * 2
@@ -393,16 +409,17 @@ def main():
     parser.add_argument("--identity", type=Path, required=True)
     parser.add_argument("--recipe", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--operator", action="store_true", help="accept finite operator batches in output/operator")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     identity, recipe = json.loads(args.identity.read_text()), json.loads(args.recipe.read_text())
     if args.worker:
-        execute(args.runtime, identity, recipe, args.output.resolve())
+        execute(args.runtime, identity, recipe, args.output.resolve(), operator=args.operator)
         return
     root = verify_runtime(args.runtime, identity)
     require(not args.output.resolve().is_relative_to(root), "output must be outside immutable runtime")
     steps = expand(recipe["steps"], recipe.get("macros"))
-    require(len(steps) > 0, "empty recipe")
+    require(args.operator or len(steps) > 0, "empty recipe")
     for step in steps:
         if step.get("action") == "record" and "frames" in step:
             validate_frame_limit(step["seconds"], step["frames"])
@@ -412,6 +429,8 @@ def main():
     command = [sys.executable, "-m", "tools.native_visual.controller", "--runtime", str(args.runtime.resolve()),
                "--identity", str(args.identity.resolve()), "--recipe", str(args.recipe.resolve()),
                "--output", str(args.output.resolve()), "--worker"]
+    if args.operator:
+        command.append("--operator")
     result = run_owned(command, budget + 90, args.output / "process.jsonl")
     verify_runtime(args.runtime, identity)
     normal = (result["cleanup"] and result["phase"] == "exited" and result["exit"] == 0

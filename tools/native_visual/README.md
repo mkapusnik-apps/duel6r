@@ -134,6 +134,96 @@ Normal recipes must end their own applications; forced cleanup is reported as
 failure, not a normal-exit pass. The outer existing process owner reaps all owned
 descendants even after a worker exception or timeout. Preserve failed outputs.
 
+## Optional operator continuation
+
+`controller --operator` keeps the **same owned clients and one Scheduler.run**
+alive after the initial recipe's `steps` (which may be empty). Default invocation
+without this flag is unchanged. This is an explicit finite-input mailbox, not a
+gameplay agent: only the operator chooses subsequent steps after inspecting the
+real full-client PNG. It neither recognizes RNG outcomes nor invents a winning
+route. There is no network service, process attachment, shell/signal action or
+application-state API.
+
+In an already approved private Docker worker, start the ordinary controller with
+the additional `--operator` flag. Keep its runtime/identity/recipe and backend
+configuration fixed. The existing outer process owner still supervises startup,
+the single session and final cleanup. **The common <=600s scheduler deadline
+continues while the operator is absent; all expanded batches together, including
+initial steps, have at most500 actions.** `at` remains relative to that original
+start. Recordings remain live between batches and finalize once on overall exit.
+
+`/work/acquisition/operator/ready.json` gives the context hash, actual owned
+PID/window/display/geometry and absolute monotonic deadline. Use the same UID as
+the controller; the mailbox directory is0700, outside the immutable flat runtime.
+From separate authorized `docker exec` calls, invoke the data-only submitter:
+
+```sh
+# batch-1.json contains only the envelope below, not a context or executable code:
+# {"steps":[{"client":"guest","action":"key","key":"Right","hold":0.12},
+#           {"client":"guest","action":"capture"}]}
+docker exec --user 1000:989 --workdir /workspace "$CAPTURE" \
+  python3 -B -m tools.native_visual.operator /work/acquisition/operator \
+  --context "$CONTEXT_FROM_READY" --batch 1 --request /work/batch-1.json
+```
+
+The submitter atomically publishes one new numbered JSON file without overwrite.
+Wait for its receipt, inspect `operator/events.jsonl` and export the referenced
+original PNG using Docker copy. Choose the next finite batch explicitly, using
+batch2,3,…; recipe macros and state anchors remain the preselected ones. Every
+expanded action is validated before any action in that batch is dispatched;
+unknown fields/actions/clients, stale context, invalid macros, changed immutable
+runtime or exceeding the global action cap abort the session, not a partial pass.
+Requests are bounded to256KiB. Truncated/empty JSON at EOF is a failure. Waiting
+for the next atomically complete file uses bounded sleeps, never a busy loop.
+
+Action events are flushed/fsynced promptly with global ordinals and actual
+timing, input-release observations and PNG paths. Batch receipts include current
+encoder progress, not ffprobe or video hashing. Literal `text` is redacted from
+the event journal; do not put credentials in recipes or request files. These are
+private input files, not a secret-storage mechanism. A successful batch explicitly
+does **not** claim overall normal cleanup. `--wait` bounds only the submitter's
+receipt wait (default10s), never extends the worker deadline; if it expires, inspect
+the existing receipts rather than automatically retrying or resubmitting.
+
+End all clients through ordinary `key`/`exit_wait` steps, then submit the next
+request containing only `{"finish":true}`. Finish is rejected unless every owned
+client has completed a successful `exit_wait` and exited0. Only the later normal
+`completion.json` can establish overall cleanup. `{"cancel":true}` aborts at the
+next batch boundary; absence/deadline, invalid input and unexpected exit also
+retain failure receipts and invoke existing owned teardown. A new invocation
+creates new clients/context; it cannot resume this capture. If backend or capture
+configuration changes, end the session instead of continuing under its context.
+
+### Exact opaque relay integration
+
+`transport_relay.py` is the DevOps-supplied infrastructure module, integrated
+unchanged with SHA-256 `8327e98d429de5f8705fb9d7b447600626504251cb7a44d516111a46fecf9112`.
+Its supplied smoke evidence covers bounded encrypted-byte forwarding, not an
+actual application degraded/recovery state. Start it only under the separately
+approved owned supervisor in the same private network-none namespace:
+
+```sh
+python3 -B -m tools.native_visual.transport_relay \
+  --listen-port 28202 --target-port 28201 --delay-ms 25 --defer-delay --lifetime 600
+```
+
+Guest uses ordinary Direct Join127.0.0.1:28202; the real Host listens on28201.
+For frozen8b, leave added delay at zero through normal admission **and the first
+healthy in-world canonical presentation/clock calibration**, not merely the
+connected/lobby label. The frozen `HeadlessServer.cpp` connection path classifies
+the loopback target as SameMachine; `StateReplicationProtocol.cpp` defers the
+initial snapshot until its bounded clock probe. The first calibration must
+fit20ms, sustained degradation uses3s,
+and the later probe deadline is250ms. After the operator confirms the ordinary
+healthy world, the separate supervisor may explicitly SIGUSR1 **this owned relay**
+once to activate25ms per direction. No payload detector or automatic activation
+is present. Actual persistent degradation and complete updates still need proof.
+Any separately approved bounded SIGSTOP/SIGCONT recovery condition targets only
+that relay, never game/renderer processes or clocks. The module handles one TCP
+connection, opaque bytes, bounded queues/lifetime and natural half-close drain;
+it does not support automatic reconnect. Signals/deadlines are forced relay exits,
+not successful application recovery. Its signals are not operator action types.
+
 ## Additive offline index and viewer
 
 ```sh

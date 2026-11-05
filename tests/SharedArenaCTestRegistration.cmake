@@ -65,6 +65,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND ${D6R_SHARED_ARENA_python3} -B ${CMAKE_SOURCE_DIR}/tests/NativeVisualToolsTests.py)
     set_tests_properties(native-visual-tools PROPERTIES LABELS "tools;regression;sanity-unit"
         RUN_SERIAL TRUE TIMEOUT 60)
+    add_test(NAME native-visual-operator
+        COMMAND ${D6R_SHARED_ARENA_python3} -B ${CMAKE_SOURCE_DIR}/tests/NativeVisualOperatorTests.py)
+    set_tests_properties(native-visual-operator PROPERTIES LABELS "tools;regression;sanity-unit"
+        RUN_SERIAL TRUE TIMEOUT 60)
     # FFmpeg is a capture-tool prerequisite, not a new application dependency.
     find_program(D6R_NATIVE_VISUAL_FFMPEG ffmpeg)
     find_program(D6R_NATIVE_VISUAL_FFPROBE ffprobe)
