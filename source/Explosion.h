@@ -62,7 +62,9 @@ namespace Duel6 {
         void clear() { explosions.clear(); }
         const std::list<Explosion> &values() const noexcept { return explosions; }
 
+#ifndef D6R_HEADLESS_CORE
         void render(Renderer &renderer) const;
+#endif
 
         void add(const Vector &centre, Float32 startSize, Float32 maxSize, const Color &color);
         unsigned bloodOffset();
