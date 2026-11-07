@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import json
 import ctypes
+import errno
+import io
 import os
 from pathlib import Path
 import signal
@@ -9,6 +11,8 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import nullcontext, redirect_stderr
+from unittest.mock import patch
 from OwnedProcessRunner import reap, signal_tree
 
 RUNNER = Path(__file__).with_name("OwnedProcessRunner.py")
@@ -151,7 +155,45 @@ except OSError as caught:
 finally:
     (root / "injected.json").write_text(json.dumps(injected))
 ''', str(RUNNER.parent), str(root), str(log), mode.removeprefix("stat-"),
-                           sys.executable, "-c", FIXTURE, str(root), "normal"]
+                            sys.executable, "-c", FIXTURE, str(root), "normal"]
+            if mode == "pidfd-error":
+                command = [sys.executable, "-c", r'''
+import errno, json, os, signal, sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+from OwnedProcessRunner import run_owned
+root, log = Path(sys.argv[2]), Path(sys.argv[3])
+original_open, original_send = os.pidfd_open, signal.pidfd_send_signal
+failure = OSError(errno.EINVAL, "injected unanchorable owned target")
+injected, signalled, anchored = [], [], {}
+def open_pidfd(pid, flags=0):
+    target = int((root / "ready").read_text())
+    if pid == target:
+        injected.append(pid)
+        raise failure
+    fd = original_open(pid, flags)
+    anchored[fd] = pid
+    return fd
+def send_pidfd(fd, sig):
+    assert fd in anchored, "unanchored signal"
+    signalled.append(anchored[fd])
+    return original_send(fd, sig)
+reported = False
+with patch("os.pidfd_open", open_pidfd), patch("signal.pidfd_send_signal", send_pidfd):
+    try:
+        run_owned(sys.argv[4:], 2, log)
+    except OSError as caught:
+        assert caught is failure, "original pidfd failure was replaced"
+        reported = True
+    else:
+        raise AssertionError("unclassified pidfd error became success")
+records = [json.loads(line) for line in log.read_text().splitlines()]
+result = records[-1]
+result.update(reported=reported, injected=injected, signalled=signalled)
+(root / "verification.json").write_text(json.dumps(result))
+sys.exit(1)  # The error remains a failing outcome even when every child is reaped.
+''', str(RUNNER.parent), str(root), str(log), sys.executable, "-c", FIXTURE, str(root), "normal"]
             decoy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"])
             try:
                 with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as runner:
@@ -167,9 +209,18 @@ finally:
                         if runner.poll() is None:
                             runner.kill()
                             runner.wait(timeout=3)
-                if mode.startswith("diagnostic-"):
+                if mode.startswith("diagnostic-") or mode == "pidfd-error":
                     result = json.loads((root / "verification.json").read_text())
-                    self.assertGreaterEqual(len(result["injected"]), 2 if event == "cleanup-begin" else 1)
+                    if mode.startswith("diagnostic-"):
+                        self.assertGreaterEqual(len(result["injected"]), 2 if event == "cleanup-begin" else 1)
+                    else:
+                        self.assertTrue(result["reported"])
+                        self.assertTrue(result["injected"])
+                        self.assertTrue(result["cleanup"], "pidfd error aborted the remaining owned-tree cleanup")
+                        self.assertEqual([{"target_pid": int((root / "ready").read_text()), "errno": errno.EINVAL}],
+                                         result["cleanup_errors"])
+                        for name in ("child", "grandchild"):
+                            self.assertIn(int((root / name).read_text()), result["signalled"])
                 else:
                     records = [json.loads(line) for line in log.read_text().splitlines()]
                     result = records[-1]
@@ -183,7 +234,7 @@ finally:
                         self.assertIn("injected", err)
                 self.assertTrue(result["cleanup"], (out, err))
                 self.assertEqual([], result["remaining"])
-                expected_phase = ("exited" if mode.startswith("stat-") else
+                expected_phase = ("exited" if mode.startswith("stat-") or mode == "pidfd-error" else
                                   "diagnostic-failure" if mode.startswith("diagnostic-") else
                                   {"normal": "exited", "timeout": "timeout", "cancel": "cancelled",
                                    "exception": "exception"}[mode])
@@ -219,6 +270,59 @@ finally:
     def test_exited_process_stat_still_reaps_full_tree(self): self.scenario("stat-gone")
     def test_stat_permission_failure_propagates_after_cleanup(self): self.scenario("stat-denied")
     def test_stat_io_failure_propagates_after_cleanup(self): self.scenario("stat-io")
+    def test_pidfd_error_still_reaps_other_anchored_descendants(self): self.scenario("pidfd-error")
+
+
+class PidfdDiagnosticTests(unittest.TestCase):
+    def observe_failure(self, *, reads_fail=False, ancestry_fails=False, output_fails=False):
+        target = os.getpid()
+        failure = OSError(errno.EINVAL, "injected pidfd failure")
+        output = io.StringIO()
+        ownership = [{target}, PermissionError(errno.EACCES, "injected ancestry failure")] if ancestry_fails else None
+        reads = patch.object(Path, "read_text", side_effect=PermissionError(errno.EACCES, "injected identity failure")) if reads_fail else nullcontext()
+        writes = patch("builtins.print", side_effect=BrokenPipeError(errno.EPIPE, "injected output failure")) if output_fails else nullcontext()
+        with patch("OwnedProcessRunner.descendants", side_effect=ownership, return_value={target}), \
+                patch("os.pidfd_open", side_effect=failure) as opened, \
+                patch("signal.pidfd_send_signal") as sent, redirect_stderr(output):
+            with reads, writes, self.assertRaises(OSError) as caught:
+                signal_tree(signal.SIGTERM)
+            self.assertIs(caught.exception, failure)
+            opened.assert_called_once_with(target, 0)
+            sent.assert_not_called()
+        return output.getvalue(), target
+
+    def test_pidfd_failure_format_and_original_exception(self):
+        output, target = self.observe_failure()
+        record = json.loads(output)
+        self.assertEqual("pidfd-open-failure", record["event"])
+        self.assertEqual((target, 0, errno.EINVAL), (record["target_pid"], record["flags"], record["errno"]))
+        self.assertTrue(record["owned_at_census"] and record["owned_at_recheck"])
+        self.assertFalse(record["anchored"])
+        self.assertEqual(target, record["identity"]["status"]["Tgid"])
+        self.assertGreater(record["identity"]["stat"]["start_ticks"], 0)
+        self.assertNotIn("Name", record["identity"]["status"])
+
+    def test_unavailable_identity_does_not_replace_original_error(self):
+        output, _ = self.observe_failure(reads_fail=True)
+        record = json.loads(output)
+        self.assertEqual({}, record["identity"])
+        self.assertEqual({"status", "stat"}, {item["source"] for item in record["observation_errors"]})
+
+    def test_unavailable_ancestry_is_not_reported_as_verified(self):
+        output, _ = self.observe_failure(ancestry_fails=True)
+        self.assertIsNone(json.loads(output)["owned_at_recheck"])
+
+    def test_broken_diagnostic_output_preserves_original_error(self):
+        output, _ = self.observe_failure(output_fails=True)
+        self.assertEqual("", output)
+
+    def test_already_gone_target_keeps_existing_nonfailure_path(self):
+        with patch("OwnedProcessRunner.descendants", return_value={os.getpid()}), \
+                patch("os.pidfd_open", side_effect=ProcessLookupError(errno.ESRCH, "gone")), \
+                patch("signal.pidfd_send_signal") as sent, redirect_stderr(io.StringIO()) as output:
+            signal_tree(signal.SIGTERM)
+            self.assertEqual("", output.getvalue())
+            sent.assert_not_called()
 
 
 if __name__ == "__main__":

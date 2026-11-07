@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import time
 
 
@@ -40,13 +41,51 @@ def descendants(pid):
     return found
 
 
-def signal_tree(sig):
+def pidfd_failure_context(pid, flags, error, owned_at_census):
+    """Best-effort post-syscall observations, never permission to signal a PID."""
+    try:
+        record = {"event": "pidfd-open-failure", "target_pid": pid, "flags": flags,
+                  "errno": error.errno, "owned_at_census": owned_at_census,
+                  "anchored": False, "observation": "after-failed-syscall",
+                  "owned_at_recheck": None, "identity": {}, "observation_errors": []}
+        try:
+            record["owned_at_recheck"] = pid in descendants(os.getpid())
+        except OSError as observation_error:
+            record["observation_errors"].append({"source": "ancestry", "errno": observation_error.errno})
+        for source in ("status", "stat"):
+            try:
+                text = Path(f"/proc/{pid}/{source}").read_text()
+                if source == "status":
+                    fields = dict(line.split(":", 1) for line in text.splitlines() if ":" in line)
+                    record["identity"][source] = {key: int(fields[key]) for key in ("Pid", "Tgid", "PPid")}
+                    record["identity"][source]["state"] = fields["State"].split()[0]
+                else:
+                    fields = text.rsplit(")", 1)[1].split()
+                    record["identity"][source] = {"pid": int(text.split(" ", 1)[0]),
+                        "state": fields[0], "ppid": int(fields[1]), "start_ticks": int(fields[19])}
+            except (OSError, ValueError, IndexError, KeyError) as observation_error:
+                record["observation_errors"].append({"source": source, "errno": getattr(observation_error, "errno", None)})
+        print(json.dumps(record, sort_keys=True), file=sys.stderr, flush=True)
+    except BaseException:
+        pass  # Diagnostic collection/output must never replace the original error.
+
+
+def signal_tree(sig, errors=None):
     # Open the handle first, then reconfirm ancestry. PID reuse after that point
     # cannot redirect the signal to a new, unrelated process.
-    for pid in descendants(os.getpid()):
+    failures = [] if errors is None else errors
+    owned = descendants(os.getpid())
+    for pid in owned:
         try:
-            fd = os.pidfd_open(pid)
+            fd = os.pidfd_open(pid, 0)
         except ProcessLookupError:
+            continue
+        except OSError as error:
+            # One unanchorable target must not prevent signalling/reaping the
+            # other owned descendants. Retain the failure, never signal by PID.
+            if not any(target == pid and failure.errno == error.errno for target, failure in failures):
+                pidfd_failure_context(pid, 0, error, pid in owned)
+                failures.append((pid, error))
             continue
         try:
             if pid in descendants(os.getpid()):
@@ -55,6 +94,8 @@ def signal_tree(sig):
             pass
         finally:
             os.close(fd)
+    if errors is None and failures:
+        raise failures[0][1]
 
 
 def reap():
@@ -84,6 +125,7 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
     result = {"phase": "launch", "exit": None, "cleanup": False, "reaped": {}}
     log = Path(log)
     diagnostic_errors = []
+    cleanup_errors = []
 
     def record(event):
         record = dict(result, event=event, elapsed=round(time.monotonic() - started, 3),
@@ -139,7 +181,7 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
                 for sig, grace in ((signal.SIGTERM, 1.0), (signal.SIGKILL, 3.0)):
                     deadline = time.monotonic() + grace
                     while True:
-                        signal_tree(sig)
+                        signal_tree(sig, cleanup_errors)
                         complete, statuses = reap()
                         result["reaped"].update(statuses)
                         if complete:
@@ -154,10 +196,15 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
                 if process is not None and process.pid in result["reaped"]:
                     process.returncode = result["reaped"][process.pid]
                 result["remaining"] = sorted(descendants(os.getpid()))
+                if cleanup_errors:
+                    result["cleanup_errors"] = [{"target_pid": pid, "errno": error.errno}
+                                                for pid, error in cleanup_errors]
                 record("end")
         finally:
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
+    if cleanup_errors:
+        raise cleanup_errors[0][1]  # Even eventual ECHILD cannot make the run pass.
     if diagnostic_errors:
         raise RuntimeError(f"test supervisor diagnostics failed after cleanup={result['cleanup']}: "
                            + "; ".join(diagnostic_errors))
