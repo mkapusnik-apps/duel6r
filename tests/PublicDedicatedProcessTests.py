@@ -287,11 +287,12 @@ class ChannelPeer:
         def lose_backend_write(stage, code=0):
             self.record(connection_id, stage, "client-to-backend", code)
             write_open[backend] = False
-            read_open[client] = False  # No destination for subsequent input.
             outgoing[backend].clear()
             queued[backend] = 0
             begin_close()
-            # Backend receive and queued client output remain available.
+            # Backend receive and queued client output remain available. Drain
+            # subsequent client input without forwarding it: closing with unread
+            # TCP input would reset the client and race the final record's read.
 
         def lose_client_write(stage, code=0):
             self.record(connection_id, stage, "backend-to-client", code)
@@ -315,6 +316,18 @@ class ChannelPeer:
                     write_open[backend] = False
                 except OSError as error:
                     lose_backend_write("half-close-error", error.errno or 0)
+                begin_close()
+            if not read_open[backend] and not outgoing[client] and write_open[client]:
+                # Publish EOF only after the accepted backend FIFO. Keep the
+                # reverse read half alive until client EOF or the SAME 2s close
+                # deadline, so ordinary in-flight client writes cannot turn this
+                # relay's orderly backend EOF into a reset before End is read.
+                try:
+                    client.shutdown(socket.SHUT_WR)
+                    write_open[client] = False
+                    self.record(connection_id, "client-half-close", "backend-to-client")
+                except OSError as error:
+                    lose_client_write("half-close-error", error.errno or 0)
                 begin_close()
             if not any(read_open.values()) and not any(outgoing.values()):
                 return
@@ -374,6 +387,8 @@ class ChannelPeer:
                     continue
                 if source is client:
                     self.application_bytes += len(data)
+                if not write_open[destination]:
+                    continue  # Bounded close drain, never application forwarding.
                 if getattr(self, "opaque_inner", False):
                     # Common PAKE records remain opaque to this TCP fault relay.
                     # Never decode credentials or bypass the maintained channel.
@@ -457,6 +472,64 @@ class ChannelPeer:
         for worker in self.workers:
             worker.join(3)
             assert not worker.is_alive(), "TLS fixture worker leaked"
+
+
+def opaque_relay_half_close_regression():
+    """Real TCP close contract only; opaque bytes do not establish host End."""
+    with contextlib.ExitStack() as sockets:
+        def pair():
+            with socket.socket() as listener:
+                listener.bind(("127.0.0.1", 0))
+                listener.listen()
+                sender = sockets.enter_context(socket.create_connection(listener.getsockname(), timeout=2))
+                receiver, _ = listener.accept()
+                sockets.enter_context(receiver)
+                return sender, receiver
+
+        client, relay_client = pair()
+        backend, relay_backend = pair()
+        peer = ChannelPeer.__new__(ChannelPeer)
+        peer.stop = threading.Event()
+        peer.control_root = None
+        peer.opaque_inner = True
+        peer.application_bytes = 0
+        peer.evidence_lock = threading.Lock()
+        peer.events = deque(maxlen=64)
+        peer.frames = deque(maxlen=64)
+        # Both directions are readable before the relay starts. Its first
+        # backend EOF must not discard the final output or reset a client with
+        # unread reverse traffic. The old close path reproducibly raised RST.
+        final = b"opaque-final-record"
+        client.sendall(b"ordinary-reverse-traffic" * 8192)
+        backend.sendall(final)
+        backend.shutdown(socket.SHUT_WR)
+        errors = []
+        def relay():
+            try:
+                with relay_client, relay_backend:
+                    peer.relay_streams(relay_client, relay_backend, 1)
+            except Exception as error:
+                errors.append(error)
+        worker = threading.Thread(target=relay)
+        worker.start()
+        received = bytearray()
+        try:
+            while True:
+                data = client.recv(65536)
+                if not data:
+                    break
+                received.extend(data)
+            assert received == final, "opaque relay lost or reordered final bytes"
+        finally:
+            client.close()
+            worker.join(3)
+            peer.stop.set()
+            if worker.is_alive():
+                relay_client.close(); relay_backend.close()
+                worker.join(3)
+        assert not worker.is_alive() and not errors, "opaque relay close worker failed"
+        assert any(event[2] == "client-half-close" for event in peer.events), "missing orderly client EOF"
+    print("PASS opaque relay preserves final FIFO and orderly EOF with unread reverse traffic", flush=True)
 
 
 @contextlib.contextmanager
@@ -703,6 +776,7 @@ def main():
         cases = ["flow-reuse"]
     end_eof_regressions = cases == ["--end-eof-regressions"]
     if end_eof_regressions:
+        opaque_relay_half_close_regression()
         # One synchronized forwarding race, distinct unconfirmed loss, then the
         # existing real flow journeys. Original arena, inputs/deadlines remain.
         cases = ["flow-race", "flow-fatal-before-end", "notice-eof-match"] + ["flow"] * 4

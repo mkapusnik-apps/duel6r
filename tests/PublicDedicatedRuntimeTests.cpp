@@ -38,10 +38,15 @@ public:
     bool pressed = false;
     bool isPressed() const override { return pressed; }
 };
+struct JumpObservation {
+    std::uint64_t owner;
+    std::int64_t before, minimum, maximum, last;
+};
 static void failureContext(const std::filesystem::path &root, const char *event,
                            Client::NetworkSessionRuntime &first,
                            Client::NetworkSessionRuntime &second,
-                           Client::NetworkSessionRuntime &observer) noexcept {
+                           Client::NetworkSessionRuntime &observer,
+                           const JumpObservation *jump = nullptr) noexcept {
     try {
         std::ofstream file(root / "client-failure-context");
         std::ostringstream receipt;
@@ -57,7 +62,10 @@ static void failureContext(const std::filesystem::path &root, const char *event,
                  << " peer-End-forwarded-2-present=" << std::filesystem::exists(root / "end-forwarded-2")
                  << " summary-write-failed-present=" << std::filesystem::exists(root / "summary-write-failed")
                 << " peer-End-received-3-present=" << std::filesystem::exists(root / "peer-End-received-3")
-                << " peer-End-forwarded-3-present=" << std::filesystem::exists(root / "end-forwarded-3") << '\n';
+                 << " peer-End-forwarded-3-present=" << std::filesystem::exists(root / "end-forwarded-3") << '\n';
+        if (jump) receipt << "client-receipt version=1 event=jump-predicate before-y=" << jump->before
+                          << " minimum-y=" << jump->minimum << " maximum-y=" << jump->maximum
+                          << " last-observed-y=" << jump->last << '\n';
         const auto describe = [&](const char *alias, Client::NetworkSessionRuntime &runtime) {
             std::lock_guard<std::mutex> lock(runtime.mutex);
             const auto &state = runtime.current;
@@ -72,8 +80,27 @@ static void failureContext(const std::filesystem::path &root, const char *event,
                     << " replica-connection=" << connection << " failure-present=" << !state.failure.empty()
                     << " security-failure=" << state.securityFailure << " cancelled=" << runtime.guestCancelled.load()
                     << " guest-commands=" << runtime.pendingGuestCommands.size()
-                    << " host-commands=" << runtime.pendingHostCommands.size()
-                    << " host-end-pending=" << runtime.pendingHostEnd << '\n';
+                     << " host-commands=" << runtime.pendingHostCommands.size()
+                     << " host-end-pending=" << runtime.pendingHostEnd << '\n';
+            receipt << "runtime alias=" << alias << " canonical-present=" << bool(state.canonical)
+                    << " participants=" << (state.canonical ? state.canonical->participants.size() : 0)
+                    << " players=" << (state.canonical ? state.canonical->players.size() : 0)
+                    << " tick=" << (state.canonical ? state.canonical->phaseTime : 0)
+                    << " canonical-current=" << state.presentation.canonicalStateCurrent
+                    << " version-available=" << bool(runtime.hostPresentation)
+                    << " version=" << (runtime.hostPresentation ? runtime.hostPresentation->replicatedState().version() : 0)
+                    << " admission-pending=" << runtime.confirmedAdmissionPending
+                    << " retry-block=" << static_cast<int>(state.retryBlockReason) << '\n';
+            if (jump && state.canonical) {
+                const auto actor = std::find_if(state.canonical->players.begin(), state.canonical->players.end(),
+                    [&](const auto &player) { return player.ownerParticipantId == jump->owner; });
+                receipt << "runtime alias=" << alias << " controller-player-present=" << (actor != state.canonical->players.end());
+                if (actor != state.canonical->players.end())
+                    receipt << " current-y=" << actor->positionY << " vertical-velocity=" << actor->velocityY
+                            << " action-mask=" << actor->actionMask << " life=" << actor->life
+                            << " life-state=" << static_cast<int>(actor->lifeState);
+                receipt << '\n';
+            }
         };
         describe("controller", first); describe("guest", second); describe("observer", observer);
         file << receipt.str(); file.flush();
@@ -363,8 +390,10 @@ int main(int argc, char **argv) {
             const auto session = first.snapshot().canonical->sessionId;
             const auto controller = first.snapshot().localParticipantId;
             require(second.join(endpoint, argv[2], {{"Guest"}}, password(), {}, true), "review guest start");
-            require(pump([&] { return second.snapshot().journey == J::Lobby
-                && first.snapshot().canonical->participants.size() == 2; }, 12s), "review guest admission");
+            const bool admitted = pump([&] { return second.snapshot().journey == J::Lobby
+                && first.snapshot().canonical->participants.size() == 2; }, 12s);
+            if (!admitted) failureContext(std::filesystem::path(argv[2]), "review-guest-admission", first, second, observer);
+            require(admitted, "review guest admission");
             const bool match = scenario.find("-match") != std::string::npos;
             const bool orderedSummary = scenario == "summary-return-ordered";
             const bool summaryReturn = scenario == "summary-return" || orderedSummary;
@@ -600,8 +629,16 @@ int main(int argc, char **argv) {
             };
             pump([] { return false; }, 500ms);
             const auto beforeJump = controllerY();
+            JumpObservation jumpObservation{controller, beforeJump, beforeJump, beforeJump, beforeJump};
             jump->pressed = true;
-            require(pump([&] { return controllerY() > beforeJump; }, 3s), "sampled controller jump not replicated over TLS");
+            const bool jumped = pump([&] {
+                jumpObservation.last = controllerY();
+                jumpObservation.minimum = std::min(jumpObservation.minimum, jumpObservation.last);
+                jumpObservation.maximum = std::max(jumpObservation.maximum, jumpObservation.last);
+                return jumpObservation.last > beforeJump;
+            }, 3s);
+            if (!jumped) failureContext(std::filesystem::path(argv[2]), "sampled-controller-jump", first, second, observer, &jumpObservation);
+            require(jumped, "sampled controller jump not replicated over TLS");
             jump->pressed = false;
             if (scenario == "flow-reuse")
                 std::cout << "PASS actual Start, advancing authoritative gameplay and sampled input replication\n";

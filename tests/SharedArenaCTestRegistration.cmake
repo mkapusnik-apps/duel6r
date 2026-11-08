@@ -78,9 +78,14 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set_tests_properties(native-visual-media PROPERTIES LABELS "tools;regression;sanity-unit" TIMEOUT 120)
     endif ()
 endif ()
+# This budget covers the whole Python suite, not each case. The unchanged
+# 21-case suite measured 11.01s in Ubuntu 24.04/Python 3.12/ImageMagick 6.9
+# with a one-CPU quota, but shared CI exhausted 30s near its end (#183).
+# Allow 90s: about 8x that complete measurement and 3x the exhausted CI budget
+# for observed runtime variation, while still bounding a stalled process.
 set_tests_properties(shared-arena-image-assertions PROPERTIES
     LABELS "application;regression;shared-arena"
-    TIMEOUT 30
+    TIMEOUT 90
 )
 
 foreach(scenario deathmatch-2 predator-3 team2-ff-off-4 team2-ff-on-4
