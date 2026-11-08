@@ -7,6 +7,7 @@ ECHILD, not merely a dead leader, zombies, or an elapsed grace period.
 """
 import argparse
 import ctypes
+import errno
 import json
 import os
 from pathlib import Path
@@ -41,12 +42,23 @@ def descendants(pid):
     return found
 
 
-def pidfd_failure_context(pid, flags, error, owned_at_census):
-    """Best-effort post-syscall observations, never permission to signal a PID."""
+def observed_disappearance(record):
+    """Evidence of absence, not proof of the syscall's kernel path or cleanup."""
+    return (record is not None and record["errno"] == errno.EINVAL
+            and record["target_pid"] > 0 and record["flags"] == 0
+            and record["owned_at_census"] is True
+            and record["owned_at_recheck"] is False and record["identity"] == {}
+            and record["observation_errors"] == [
+                {"source": "status", "errno": errno.ENOENT},
+                {"source": "stat", "errno": errno.ENOENT}])
+
+
+def pidfd_failure_context(pid, flags, error, owned_at_census, *, observation="after-failed-syscall"):
+    """Collect fail-closed observations independently of best-effort emission."""
     try:
         record = {"event": "pidfd-open-failure", "target_pid": pid, "flags": flags,
                   "errno": error.errno, "owned_at_census": owned_at_census,
-                  "anchored": False, "observation": "after-failed-syscall",
+                  "anchored": False, "observation": observation,
                   "owned_at_recheck": None, "identity": {}, "observation_errors": []}
         try:
             record["owned_at_recheck"] = pid in descendants(os.getpid())
@@ -65,12 +77,22 @@ def pidfd_failure_context(pid, flags, error, owned_at_census):
                         "state": fields[0], "ppid": int(fields[1]), "start_ticks": int(fields[19])}
             except (OSError, ValueError, IndexError, KeyError) as observation_error:
                 record["observation_errors"].append({"source": source, "errno": getattr(observation_error, "errno", None)})
+        record["classification"] = "provisional-disappearance" if observed_disappearance(record) else "unclassified"
+    except BaseException:
+        return None  # Collection uncertainty cannot authorize a disappearance.
+    try:
         print(json.dumps(record, sort_keys=True), file=sys.stderr, flush=True)
     except BaseException:
-        pass  # Diagnostic collection/output must never replace the original error.
+        pass  # Output failure must not replace the original error or observations.
+    return record
 
 
-def signal_tree(sig, errors=None):
+def retain_pidfd_failure(failures, pid, error):
+    if not any(target == pid and failure.errno == error.errno for target, failure in failures):
+        failures.append((pid, error))
+
+
+def signal_tree(sig, errors=None, disappearances=None):
     # Open the handle first, then reconfirm ancestry. PID reuse after that point
     # cannot redirect the signal to a new, unrelated process.
     failures = [] if errors is None else errors
@@ -81,11 +103,14 @@ def signal_tree(sig, errors=None):
         except ProcessLookupError:
             continue
         except OSError as error:
-            # One unanchorable target must not prevent signalling/reaping the
-            # other owned descendants. Retain the failure, never signal by PID.
-            if not any(target == pid and failure.errno == error.errno for target, failure in failures):
-                pidfd_failure_context(pid, 0, error, pid in owned)
-                failures.append((pid, error))
+            # Observe EVERY failure before deduplication: a later absence must
+            # never erase an earlier live/unreadable error, or hide the reverse.
+            context = pidfd_failure_context(pid, 0, error, pid in owned)
+            if errors is not None and disappearances is not None and observed_disappearance(context):
+                retain_pidfd_failure(disappearances, pid, error)
+            else:
+                retain_pidfd_failure(failures, pid, error)
+            # No signal without a handle. Other descendants still get cleanup.
             continue
         try:
             if pid in descendants(os.getpid()):
@@ -126,6 +151,7 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
     log = Path(log)
     diagnostic_errors = []
     cleanup_errors = []
+    disappearances = []
 
     def record(event):
         record = dict(result, event=event, elapsed=round(time.monotonic() - started, 3),
@@ -181,7 +207,7 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
                 for sig, grace in ((signal.SIGTERM, 1.0), (signal.SIGKILL, 3.0)):
                     deadline = time.monotonic() + grace
                     while True:
-                        signal_tree(sig, cleanup_errors)
+                        signal_tree(sig, cleanup_errors, disappearances)
                         complete, statuses = reap()
                         result["reaped"].update(statuses)
                         if complete:
@@ -195,7 +221,24 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
                     result["forced"] = True
                 if process is not None and process.pid in result["reaped"]:
                     process.returncode = result["reaped"][process.pid]
-                result["remaining"] = sorted(descendants(os.getpid()))
+                try:
+                    result["remaining"] = sorted(descendants(os.getpid()))
+                except Exception as error:
+                    if not disappearances:
+                        raise
+                    result["remaining"] = None  # Unknown is not an empty tree.
+                    result["cleanup_observation_errors"] = [
+                        {"source": "final-ancestry", "errno": getattr(error, "errno", None)}]
+                result["cleanup"] = result["cleanup"] and result["remaining"] == []
+                if disappearances:
+                    result["pidfd_disappearances"] = []
+                    for pid, error in disappearances:
+                        context = pidfd_failure_context(pid, 0, error, True, observation="final-cleanup")
+                        verified = result["cleanup"] and observed_disappearance(context)
+                        result["pidfd_disappearances"].append({"target_pid": pid, "errno": error.errno,
+                            "classification": "verified-disappearance" if verified else "unverified-disappearance"})
+                        if not verified:
+                            retain_pidfd_failure(cleanup_errors, pid, error)
                 if cleanup_errors:
                     result["cleanup_errors"] = [{"target_pid": pid, "errno": error.errno}
                                                 for pid, error in cleanup_errors]
@@ -204,7 +247,7 @@ def run_owned(command, timeout, log, *, cwd=None, env=None, stdout=None, stderr=
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
     if cleanup_errors:
-        raise cleanup_errors[0][1]  # Even eventual ECHILD cannot make the run pass.
+        raise cleanup_errors[0][1]  # ECHILD alone cannot clear an unclassified failure.
     if diagnostic_errors:
         raise RuntimeError(f"test supervisor diagnostics failed after cleanup={result['cleanup']}: "
                            + "; ".join(diagnostic_errors))
