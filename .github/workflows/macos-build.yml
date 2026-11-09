@@ -24,9 +24,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Existing ARM64 image retires on 2026-11-02.
           - arch: arm64
-            runner: macos-14
+            runner: macos-15
             metadata: build-info.json
           - arch: x86_64
             runner: macos-15-intel
