@@ -39,6 +39,7 @@ extern "C" int __wrap_close(int socket) {
 }
 #endif
 #include "source/server/CanonicalMatchRuntime.h"
+#include "source/server/AuthoritativePlayerInput.h"
 #include "tests/RuntimeObservationReceipt.h"
 #include "source/network/AdmissionProtocol.h"
 #include "source/network/CompatibilityManifest.h"
@@ -1906,6 +1907,159 @@ D6R_TEST_CASE("AC-002 REP-008 REP-038 production admission gates success and val
                            + std::string(Network::InvalidHostAdmissionMessageCopy) + "\n", output.str());
             D6R_REQUIRE_EQ(0u, presentations.load());
         }
+    }
+}
+
+// Exercise the production guest loop with ordered, calibrated snapshots. Only
+// transport and time are synthetic; admission, input gating and sequencing run
+// unchanged. Each step specifies the cumulative number of commands it permits.
+static std::vector<Network::Input::Command> sampleGuestInputSnapshots(
+        std::vector<std::pair<Network::Replication::CanonicalState, std::size_t>> steps) {
+    namespace R = Network::Replication;
+    for (const auto &step : steps) D6R_REQUIRE(R::validateCanonicalState(step.first));
+    const auto hostedManifest = manifest({
+            {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+    const Network::AdmissionIdentitySet identities{10, {11, 12}};
+    auto fixture = std::make_shared<RuntimeFixture>();
+    auto client = std::make_shared<FakeClientState>();
+    client->connection = std::make_shared<FakeAdmissionConnection>(fixture->now);
+    auto &connection = *client->connection;
+    connection.queue(Network::serializeAdmissionOffer(identities), fixture->now);
+    Network::Trust::ReconnectCredential credential;
+    credential.bytes.fill(1);
+    connection.queue(Network::Lifecycle::serializeReconnectGrant(
+            {100, identities.participantId, 1, credential}), fixture->now);
+    std::size_t step = 0;
+    const auto queueSnapshot = [&] {
+        auto state = steps[step].first;
+        state.messages.status = "input-step-" + std::to_string(step);
+        D6R_REQUIRE(R::validateCanonicalState(state));
+        R::FullSnapshot snapshot{step + 1, std::move(state)};
+        snapshot.authoritativeProducedAt = 100 + static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(fixture->now.time_since_epoch()).count());
+        connection.queue(R::serializeReplicationSnapshot(snapshot), fixture->now);
+    };
+    queueSnapshot();
+    connection.queue(Network::serializeAdmissionConfirmation(identities), fixture->now);
+    std::vector<Network::Input::Command> commands;
+    connection.onSend = [&](const auto &payload) {
+        if (const auto frame = Network::Input::deserializeFrame(payload); frame && frame->command)
+            commands.push_back(*frame->command);
+        if (const auto frame = R::deserializeReplicationFrame(payload); frame && frame->qualitySequence)
+            connection.queue(R::serializeQualityResponse(*frame->qualitySequence, 100), fixture->now);
+    };
+    unsigned waits = 0;
+    std::ostringstream output;
+    auto dependencies = guestRuntimeDependencies(fixture, client, hostedManifest);
+    dependencies.wait = [&](auto duration) {
+        fixture->now += duration;
+        if (++waits == 100) fixture->cancelled = true;
+    };
+    dependencies.localPlayerActions = [&](std::uint64_t) {
+        D6R_REQUIRE(output.str().find("admitted\n") == 0);
+        return Network::Input::MoveRight | Network::Input::Jump;
+    };
+    dependencies.guestPresentation = [&](const auto &state, const auto &presentation, const auto &, const auto &) {
+        if (!presentation.canonicalStateCurrent || state.messages.status != "input-step-" + std::to_string(step)
+            || commands.size() != steps[step].second) return;
+        if (++step == steps.size()) fixture->cancelled = true;
+        else { fixture->now += 1ms; queueSnapshot(); }
+    };
+    Server::HeadlessServer guest(runtimeGuestConfig(), std::move(dependencies));
+    guest.runtimeDependencies.productionReplicationProtocol = true;
+    D6R_REQUIRE_EQ(2, guest.run(output));
+    D6R_REQUIRE_EQ(steps.size(), step);
+    D6R_REQUIRE_EQ("admitted\nparticipant-id=10 player-ids=11,12\n", output.str());
+    return commands;
+}
+
+D6R_TEST_CASE("NIN guest lookahead survives delayed catchup without widening authoritative tick boundaries") {
+    namespace A = Server::Authoritative;
+    namespace I = Network::Input;
+    auto active = admissionActiveRound(admissionLobby({11, 12}));
+    active.phaseTime = 10;
+    const auto commands = sampleGuestInputSnapshots({{active, 2}});
+    D6R_REQUIRE_EQ(std::size_t{2}, commands.size());
+    // Receipt at T through T+3 remains eligible; T+4 is still stale. In
+    // particular, a delayed loop plus its immediate catch-up can reach T+3
+    // before the reply to the T snapshot is validated.
+    for (const A::Tick elapsed : {3u, 0u, 1u, 2u, 4u}) {
+        unsigned applied = 0;
+        A::MatchRuntimeDependencies runtime;
+        runtime.worldInput = [&](auto, auto actions) { if (actions) ++applied; return true; };
+        A::AuthoritativeMatch match(runtime);
+        A::MatchConfig config;
+        config.seed = 1234; config.hostParticipantId = 1;
+        config.fixedLevel = "levels/a.json"; config.playableLevels = {"levels/a.json"};
+        config.enabledWeapons = {"pistol"};
+        const std::vector<A::PlayerDefinition> roster{
+                {1, 2, "Host", 0}, {10, 11, "Guest one", 1}, {10, 12, "Guest two", 2}};
+        const auto content = manifest({
+                {"data/blocks.json", 1}, {"data/config.script", 2}, {"levels/a.json", 3}});
+        D6R_REQUIRE_EQ(A::OutcomeCode::None, match.start(config, roster, content).code);
+        A::AuthoritativePlayerInput input(1);
+        D6R_REQUIRE(input.beginMatch(match, roster));
+        for (A::Tick tick = 0; tick < 10 + elapsed; ++tick) D6R_REQUIRE(input.processTick());
+        std::vector<I::Outcome> outcomes;
+        D6R_REQUIRE(input.restore(10, [&](auto payload) {
+            const auto frame = I::deserializeFrame(payload);
+            D6R_REQUIRE(frame && frame->outcome);
+            outcomes.push_back(*frame->outcome);
+            return Network::SendResult::Accepted;
+        }));
+        for (const auto &command : commands) {
+            D6R_REQUIRE_EQ(UINT64_C(1), command.sequence);
+            const auto result = input.receive(10, command);
+            D6R_REQUIRE(result.category == (elapsed <= 3 ? I::OutcomeCategory::Pending : I::OutcomeCategory::Stale));
+            D6R_REQUIRE_EQ(UINT64_C(11), command.targetTick);
+        }
+        D6R_REQUIRE_EQ(0u, applied);
+        D6R_REQUIRE_EQ(std::size_t{2}, outcomes.size()); // No early Applied acknowledgment.
+        D6R_REQUIRE(input.processTick());
+        if (elapsed == 0) {
+            D6R_REQUIRE_EQ(0u, applied); // N+1 must wait for that tick, not apply at N.
+            D6R_REQUIRE_EQ(std::size_t{2}, outcomes.size());
+            D6R_REQUIRE(input.processTick());
+        }
+        D6R_REQUIRE_EQ(elapsed <= 3 ? 2u : 0u, applied);
+        D6R_REQUIRE_EQ(elapsed <= 3 ? std::size_t{4} : std::size_t{2}, outcomes.size());
+        if (elapsed <= 3) for (std::size_t index = 2; index < outcomes.size(); ++index) {
+            D6R_REQUIRE(outcomes[index].category == I::OutcomeCategory::Applied);
+            D6R_REQUIRE_EQ(std::max(A::Tick{11}, A::Tick{10} + elapsed), outcomes[index].effectiveTick);
+            D6R_REQUIRE_EQ(commands[index - 2].playerId, outcomes[index].playerId);
+            D6R_REQUIRE_EQ(commands[index - 2].sequence, outcomes[index].sequence);
+        }
+    }
+}
+
+D6R_TEST_CASE("NIN guest lookahead keeps canonical sampling round sequencing and overflow bounds") {
+    auto lobby = admissionLobby({11, 12});
+    auto active = admissionActiveRound(lobby);
+    auto nextRound = active;
+    nextRound.phaseTime = 4;
+    nextRound.currentRoundNumber = 2; nextRound.completedRounds = 1;
+    nextRound.round->roundId = 301; nextRound.round->roundNumber = 2;
+    nextRound.entities.front().entityId = 401;
+    const auto commands = sampleGuestInputSnapshots({
+            {lobby, 0}, {active, 2}, {active, 2}, {nextRound, 4}});
+    D6R_REQUIRE_EQ(std::size_t{4}, commands.size());
+    for (std::size_t index = 0; index < commands.size(); ++index) {
+        D6R_REQUIRE_EQ(UINT64_C(11) + index % 2, commands[index].playerId);
+        D6R_REQUIRE_EQ(UINT64_C(1) + index / 2, commands[index].sequence);
+        D6R_REQUIRE_EQ(index < 2 ? UINT64_C(2) : UINT64_C(5), commands[index].targetTick);
+    }
+    active.phaseTime = 0;
+    for (const auto &command : sampleGuestInputSnapshots({{lobby, 0}, {active, 2}})) {
+        D6R_REQUIRE_EQ(UINT64_C(1), command.targetTick);
+        D6R_REQUIRE_EQ(UINT64_C(1), command.sequence);
+    }
+    active.phaseTime = UINT64_MAX - 1;
+    auto lastTick = active; lastTick.phaseTime = UINT64_MAX;
+    const auto overflow = sampleGuestInputSnapshots({{active, 2}, {lastTick, 4}, {lastTick, 4}});
+    D6R_REQUIRE_EQ(std::size_t{4}, overflow.size());
+    for (std::size_t index = 0; index < overflow.size(); ++index) {
+        D6R_REQUIRE_EQ(UINT64_MAX, overflow[index].targetTick);
+        D6R_REQUIRE_EQ(UINT64_C(1) + index / 2, overflow[index].sequence);
     }
 }
 

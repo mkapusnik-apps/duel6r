@@ -996,13 +996,18 @@ namespace {
                 && Duel6::Network::Replication::acceptsGameplayInput(*canonical)
                 && (!submittedInputTick || *submittedInputTick != canonical->phaseTime)) {
                 submittedInputTick = canonical->phaseTime;
+                // Leave one tick for the snapshot/input round trip and bounded
+                // host catch-up. This never requests beyond N+1 for a current
+                // canonical tick; the host still rejects genuinely stale input.
+                const auto targetTick = canonical->phaseTime == UINT64_MAX
+                        ? canonical->phaseTime : canonical->phaseTime + 1;
                 for (const auto &participant: canonical->participants) {
                     if (participant.participantId != acceptedOffer->participantId) continue;
                     for (const auto playerId: participant.ownedPlayerIds) {
                         std::uint32_t actions = 0;
                         try { actions = runtimeDependencies.localPlayerActions(playerId); }
                         catch (...) { actions = Duel6::Network::Input::AllActions + 1u; }
-                        const auto command = playerInput->submit(playerId, canonical->phaseTime, actions);
+                        const auto command = playerInput->submit(playerId, targetTick, actions);
                         if (!command) {
                             if (runtimeDependencies.observations) runtimeDependencies.observations->firstTerminal(ObservedTerminal::InputRejected);
                             try { connection->requestClose(); } catch (...) {}

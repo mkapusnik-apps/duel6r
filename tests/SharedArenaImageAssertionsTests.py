@@ -252,6 +252,22 @@ class ScoreClosureTests(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError,"separator"):
                     images.assert_score_overlay(frame,kind,15,4)
 
+    def test_heading_scenery_is_not_an_inter_team_separator(self):
+        for ink_offset in (-1, 0, 1):
+            with self.subTest(title_ink_offset=ink_offset), observed_subcase(title_ink_offset=ink_offset):
+                frame = self.open_frame(8, 4)
+                left, width, first_row, _ = images.score_geometry(8, 4)
+                # The original ARM failure has a 3px white arena edge visible
+                # through the translucent column heading at y=250..252. Its
+                # blue-tinted pixels satisfy the rule-color predicate, but this
+                # heading is outside the team body and its separator gutters.
+                self.paint_box(frame, left, first_row - 28, width, 3, (175, 175, 255))
+                title_top = first_row - 80
+                self.paint_box(frame, 552, title_top - 1, 176, 34, (0, 0, 255))
+                self.paint_title(frame, 8, 4, ink_offset)
+                groups, _, _ = images.assert_score_overlay(frame, "heading-scenery", 8, 4)
+                self.assertEqual(list(images.TEAM_NAMES), groups)
+
     @staticmethod
     def legacy_title_scores(data, tops):
         # Pinned3825bed: glyph_similarity itself is unchanged by the title-only optimization.

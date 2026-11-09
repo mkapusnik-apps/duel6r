@@ -469,7 +469,10 @@ def assert_score_overlay(data, label, players, teams, team_separators=True):
             # Their centered2px lines anchor the unpainted8px gutters, whose
             # translucent arena background can otherwise resemble a team row.
             previous_rule_y = None
-            for y in range(search_top, search_bottom):
+            # The preceding column heading is translucent: a bright arena edge
+            # there is not an inter-team rule. Start at the first team row;
+            # glyph/quad raster offsets cannot hide a rule after a full group.
+            for y in range(title_top + 64, search_bottom):
                 if team_rule_fraction(data, left, width, y) >= 0.85:
                     if previous_rule_y != y - 1:
                         separators.append(y)
