@@ -1494,11 +1494,12 @@ void transientPickupRegression(bool weapon, bool consume) {
     D6R_REQUIRE_EQ(std::string("entity-spawned"), occurrences[1]);
     D6R_REQUIRE_EQ(std::string("entity-removed"), occurrences.back());
     if (consume) D6R_REQUIRE_EQ(std::string("bonus-picked"), occurrences[2]);
-    // Inspect the actual mapping without committing it. No event list is fabricated.
+    // Inspect the actual mapping on a copy through the public API: MSVC encodes
+    // access in member symbols. No controller state or event list is fabricated.
     auto mapping = fixture.controller.replication;
-    std::vector<R::PresentationEvent> mapped;
-    D6R_REQUIRE(mapping.updateFromMatch(*fixture.controller.match(), mapped, nullptr));
-    D6R_REQUIRE(R::validateCanonicalState(mapping.state));
+    D6R_REQUIRE(mapping.capture(*fixture.controller.match()));
+    const auto mapped = mapping.fullSnapshot();
+    D6R_REQUIRE(mapped && R::validateCanonicalState(mapped->state));
     const bool published = fixture.controller.observeMatchOutcome();
     if (!published) {
         D6R_REQUIRE_EQ(baselineBytes, R::serializeReplicationSnapshot(*fixture.controller.currentSnapshot()));
