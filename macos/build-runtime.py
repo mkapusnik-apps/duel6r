@@ -23,7 +23,7 @@ def fetch(packet, cache):
     if not archive.exists():
         partial = archive.with_suffix(".part")
         try:
-            checked("/usr/bin/curl", "--fail", "--location", "--retry", "3",
+            checked("/usr/bin/curl", "--fail", "--location", "--retry", "3", "--retry-all-errors",
                     "--connect-timeout", "10", "--max-time", "180", "--max-redirs", "5",
                     "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2",
                     packet["url"], "-o", partial)
