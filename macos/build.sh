@@ -34,7 +34,7 @@ lua_version=5.3.6
 lua_sha256=fc5fd69bb8736323f026672b1b7235da613d7177e72558893a0bdcd320466d60
 archive="$deps/lua-$lua_version.tar.gz"
 if [[ ! -f "$archive" ]]; then
-  curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
+  curl --fail --location --retry 3 --retry-all-errors --proto '=https' --tlsv1.2 \
     "https://www.lua.org/ftp/lua-$lua_version.tar.gz" -o "$archive.part"
   mv "$archive.part" "$archive"
 fi
