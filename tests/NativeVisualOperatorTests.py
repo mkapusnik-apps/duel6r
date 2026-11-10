@@ -8,12 +8,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest, verify_runtime
+from tools.native_visual import controller
 from tools.native_visual.controller import Scheduler, display_diagnostic, execute
 from tools.native_visual.operator import OperatorChannel, load_request
 from tools.native_visual.transport_relay import finite_number, private_port, Flow
@@ -40,6 +42,95 @@ def failure_logs(root):
                 print(f"native-operator failure log unavailable: {relative}", file=sys.stderr, flush=True)
             except BaseException:
                 pass
+
+
+class DisplayAcknowledgementTests(unittest.TestCase):
+    def test_real_pipe_keeps_reader_open_until_fragmented_writer_finishes(self):
+        reader, writer = os.pipe()
+        first_read = threading.Event()
+        errors = []
+        original_read = os.read
+        def observed_read(fd, count):
+            data = original_read(fd, count)
+            first_read.set()
+            return data
+        def acknowledge():
+            try:
+                os.write(writer, b"123")
+                if not first_read.wait(2): raise TimeoutError("test-only first read deadline")
+                os.write(writer, b"\n")
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                os.close(writer)
+        thread = threading.Thread(target=acknowledge)
+        thread.start()
+        try:
+            with patch("tools.native_visual.controller.os.read", side_effect=observed_read):
+                self.assertEqual("123", controller.read_display_number(reader))
+        finally:
+            os.close(reader)
+            thread.join(timeout=3)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual([], errors)
+
+    def test_complete_and_fragmented_acknowledgements_include_the_newline(self):
+        for chunks, number in (([b"0\n"], "0"), ([b"12", b"3", b"\n"], "123"),
+                               ([b"0", b"\n"], "0")):
+            with self.subTest(chunks=chunks), patch(
+                    "tools.native_visual.controller.select.select", return_value=([7], [], [])), patch(
+                    "tools.native_visual.controller.os.read", side_effect=chunks) as read:
+                self.assertEqual(number, controller.read_display_number(7))
+                self.assertEqual(len(chunks), read.call_count)
+                self.assertEqual([32 - sum(map(len, chunks[:index])) for index in range(len(chunks))],
+                                 [call.args[1] for call in read.call_args_list])
+
+    def test_incomplete_invalid_and_oversized_acknowledgements_fail_closed(self):
+        for chunks in ([b""], [b"0", b""], [b"0\nextra"], [b"\n"], [b" 0\n"],
+                       [b"0\r\n"], [b"-1\n"], [b"\xff\n"], [b"1" * 32]):
+            with self.subTest(chunks=chunks), patch(
+                    "tools.native_visual.controller.select.select", return_value=([7], [], [])), patch(
+                    "tools.native_visual.controller.os.read", side_effect=chunks), self.assertRaisesRegex(
+                    ValueError, "private display startup failed"):
+                controller.read_display_number(7)
+
+    def test_fragments_share_one_five_second_deadline(self):
+        with patch("tools.native_visual.controller.time.monotonic", side_effect=[10, 10, 13]), patch(
+                "tools.native_visual.controller.select.select", side_effect=[([7], [], []), ([], [], [])]) as select, patch(
+                "tools.native_visual.controller.os.read", return_value=b"0") as read, self.assertRaisesRegex(
+                ValueError, "private display startup deadline"):
+            controller.read_display_number(7)
+        self.assertEqual([5, 2], [call.args[3] for call in select.call_args_list])
+        read.assert_called_once_with(7, 32)
+
+    def test_expired_deadline_does_not_read_again_even_if_data_is_ready(self):
+        with patch("tools.native_visual.controller.time.monotonic", side_effect=[10, 10, 15]), patch(
+                "tools.native_visual.controller.select.select", return_value=([7], [], [])) as select, patch(
+                "tools.native_visual.controller.os.read", return_value=b"0") as read, self.assertRaisesRegex(
+                ValueError, "private display startup deadline"):
+            controller.read_display_number(7)
+        select.assert_called_once(); read.assert_called_once()
+
+    def test_acknowledgement_failure_never_starts_probe_or_app_and_reaps_owned_display(self):
+        for chunks in ([b"0", b""], [b"invalid\n"], [b"0\n"]):
+            with self.subTest(chunks=chunks), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp); runtime = root / "runtime"; runtime.mkdir()
+                identity = baseline.IdentityTests().runtime(runtime)
+                output = root / "output"; output.mkdir()
+                xvfb = Mock(pid=123); xvfb.poll.return_value = 1 if chunks == [b"0\n"] else None
+                with patch("tools.native_visual.controller.subprocess.Popen", return_value=xvfb) as launch, patch(
+                        "tools.native_visual.controller.select.select", return_value=([7], [], [])), patch(
+                        "tools.native_visual.controller.os.read", side_effect=chunks), patch(
+                        "tools.native_visual.controller.subprocess.run") as probe, patch(
+                        "tools.native_visual.controller.os.close", wraps=os.close) as close, self.assertRaisesRegex(
+                        ValueError, "private display startup failed"):
+                    execute(runtime, identity, dict(clients=[dict(id="fixture", geometry=[850,700],
+                        names=["Test-only"])], budget_seconds=3, steps=[]), output, operator=True)
+                launch.assert_called_once(); probe.assert_not_called()
+                self.assertEqual(2, close.call_count)  # Both pipe ends close on startup failure.
+                if chunks != [b"0\n"]: xvfb.terminate.assert_called_once()
+                xvfb.wait.assert_called_once_with(timeout=2)
+                self.assertFalse(json.loads((output / "controller.json").read_text())["normal_application_exit"])
 
 
 class DisplayDiagnosticTests(unittest.TestCase):
@@ -93,12 +184,13 @@ class DisplayDiagnosticTests(unittest.TestCase):
             with patch.object(Path, "open", fail_journal), patch("sys.stderr"), \
                     patch("tools.native_visual.controller.subprocess.Popen", return_value=xvfb) as launch, \
                     patch("tools.native_visual.controller.select.select", return_value=([1], [], [])), \
-                    patch("tools.native_visual.controller.os.read", return_value=b"0\n"), \
+                    patch("tools.native_visual.controller.os.read", side_effect=[b"0", b"\n"]) as read, \
                     patch("tools.native_visual.controller.subprocess.run", return_value=failed) as probe, \
                     self.assertRaisesRegex(ValueError, "unexpected display geometry"):
                 execute(runtime, identity, dict(clients=[dict(id="fixture", geometry=[850,700],
                     names=["Test-only"])], budget_seconds=3, steps=[]), output, operator=True)
             launch.assert_called_once()  # No client starts after the failed geometry probe.
+            self.assertEqual(2, read.call_count)  # Geometry waits for the complete acknowledgement.
             probe.assert_called_once()
             self.assertEqual(":0", probe.call_args.kwargs["env"]["DISPLAY"])
             xvfb.terminate.assert_called_once(); xvfb.wait.assert_called_once_with(timeout=2)
