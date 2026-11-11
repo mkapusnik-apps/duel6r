@@ -65,8 +65,8 @@ Issue #38 implements graphical consumption and accessibility for the issue #35 h
 The accepted issue #38 implementation includes graphical presentation, focus, controls, disabled reasons, screenshots, and visual conformance for these states.
 Parent issue #27 remains open. Issues #40 and #41 still own supported packaging and complete release-candidate validation. This implementation status does not claim a complete playable network release.
 First-release network setup selects persons and controls without profile selectors.
-First-release network match and retained arena contexts use deterministic built-in default network visuals.
-Selected-profile appearance parity is deferred to issue #84.
+Network match and retained arena contexts use built-in visuals with synchronized selected-person colors, hair, and headband under NET-VIS-018–024.
+Broader profile parity in issue #84 does not authorize file/asset/script transfer or new profile-selection UI; the [network-play contract](../network-play-first-release.md#selected-person-appearance-ownership-and-lifetime) owns this bounded appearance extension.
 Host startup and guest Connect finalize each participant's displayed local-player count for admission.
 An admitted participant may edit person and control values only on existing owned slots.
 `NET-04` provides no individual add, remove, or transfer action.

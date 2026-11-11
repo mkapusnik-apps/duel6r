@@ -32,8 +32,8 @@ An unintentional guest disconnect from `NET-04`, `NET-05`, or `NET-06` enters th
 - Break an endpoint at a character boundary only when it cannot fit on one line.
 - Grow the panel downward for representative copy and use an internal body scroll only when the available client height cannot contain it.
 - Keep the last confirmed context visible around the panel without presenting that context as current.
-- A retained arena context must keep the default network visuals from the last complete accepted state.
-- A retained arena context must not switch any player to a selected-profile appearance.
+- A retained arena context must keep accepted player appearance and visual gameplay state from the last complete accepted state under NET-VIS-022–024.
+- Retention/reconnect must not reread local profiles, rerandomize appearance, or restart/expire a retained effect using disconnected time. Restoration uses the current accepted snapshot.
 
 ## Navigation and significant variants
 

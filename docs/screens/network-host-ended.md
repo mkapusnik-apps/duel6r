@@ -26,8 +26,8 @@ A valid intentional host End session notice accepted through the current establi
 - Keep the heading and Return to Network action visible.
 - Wrap the fixed explanatory copy at word boundaries.
 - Keep the panel content inside the client without clipping at every supported desktop viewport.
-- A retained arena context must keep the default network visuals from the last complete accepted state.
-- A retained arena context must not switch any player to a selected-profile appearance.
+- A retained arena context must keep accepted player appearance and visual gameplay state from the last complete accepted state under NET-VIS-022–024.
+- The blocked context must not reread local profiles, rerandomize appearance, or advance retained effects.
 
 ## Significant variants
 

@@ -1,5 +1,7 @@
 # Implementation screenshot manifest
 
+The [selected-person appearance matrix](../design/screenshots/README.md#selected-person-network-appearance) owns current skin-specific evidence. Its accepted colors/hair/headband expectations supersede historical default-only/profile-exclusion expectations below; old artifacts retain only their original producer and unaffected scope. No image or previous assessment is relabeled as evidence of the new appearance behavior.
+
 ## Current network presentation coverage
 
 The [network presentation matrix](../design/screenshots/README.md#network-presentation-current-capture-matrix) is the sole current coverage and conformance source for the NET-01 through NET-10 visual unification. All 16 affected wireframes require new implementation evidence. Prior network assessments in this file remain historical for this change; their hashes identify the earlier presentation only. Existing legacy image destinations remain unchanged. Unaffected Local Play entries retain their status unless their presentation source changes.

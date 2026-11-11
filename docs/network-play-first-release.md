@@ -115,7 +115,7 @@ The [host directory contract](network-host-directory.md) owns listing and browsi
 | Degraded match | One remaining roster player continues under hosted solo-round rules | Replacing an established outcome because of departure |
 | Admission | Lobby, active rounds, and non-final round-end delays; immediate first-round spawn only strictly before its outcome, otherwise next eligible round | New admission during final round-end delay or final summary; spectators |
 | Compatibility | Exact network release ID and canonical gameplay content | Cross-release or cross-content compatibility |
-| Player visuals | Deterministic built-in default network visuals | Selected-profile appearance and remote profile appearance parity |
+| Player visuals | Built-in visuals with synchronized selected-person colors, hair, and headband | Peer profile files, custom artwork/animations, scripts, and a separate profile selector |
 | Results | Session-only network results retained until a new match starts or the session ends | Local statistics or Elo writes |
 
 Lobby invariants are `1 <= admitted participants <= roster players <= 15`. Match start invariants are `1 <= connected participants <= roster players <= 15`, with every participant owning at least one player and every participant connected, valid, and ready. A started match continues with one remaining roster player under NET-SOLO-001 through NET-SOLO-006; that reduction alone is not an interruption.
@@ -280,18 +280,20 @@ Issue #30 owns canonical serialization, content digest choice, exchange, compari
 
 ## Default network visuals
 
-The **default network visual set** is the built-in player skin, animation mapping, entity-resource mapping, and background-selection behavior for first-release network play.
+The **default network visual set** is the built-in player artwork, animation mapping, entity-resource mapping, and background-selection behavior for network play. Player artwork uses the accepted selected-person appearance below; it is not a single monochrome palette.
+
+The **base appearance** is the selected person's resolved colors, hair style, and headband setting before Team or temporary gameplay overrides. The initiating participant's client resolves its own selected persons using `PER-006`–`PER-010` in [features.md](features.md). Receiving clients do not resolve those persons against their own profiles.
 
 The **eligible background list** is the stable ordered list of locally available built-in backgrounds that can satisfy the existing fallback behavior in `LIF-009`.
 
 - **NET-VIS-001** First-release network setup must let each participant select local persons and controls.
-- **NET-VIS-002** First-release network setup must not offer profile selection for a network player.
+- **NET-VIS-002** Network setup must keep existing person and control selection without a separate profile selector, editor, preview, or profile column.
 - **NET-VIS-003** Each client must use the default network visual set for every player in a network match.
 - **NET-VIS-004** A client must derive each player animation and entity visual from replicated canonical state and the default network visual set.
 - **NET-VIS-005** A client must not run a second gameplay simulation to derive network presentation.
 - **NET-VIS-006** The same supported release and replicated canonical state must select the same player animation and entity visual on each client.
-- **NET-VIS-007** A local or remote profile must not change a network player's skin, animation, or visual resource.
-- **NET-VIS-008** The default network visual set must apply authoritative Team colors, Predator opacity, invisibility, and other replicated visual gameplay states.
+- **NET-VIS-007** Every client must render each player's accepted base appearance using the built-in artwork. A receiver's local profiles must not replace that appearance or select different artwork or animations.
+- **NET-VIS-008** The default network visual set must apply authoritative Team colors, Predator opacity, invisibility, and other replicated visual gameplay states. The `shit thrower` temporary effect must use the existing local brown appearance while active and restore the applicable base/Team appearance when it ends or resets. Its duration, slowdown, and opacity behavior must remain unchanged.
 - **NET-VIS-009** A missing, changed, or additional profile or cosmetic asset must not block admission.
 - **NET-VIS-010** A client must not load a peer-selected profile, file, or script as a network-visual fallback.
 - **NET-VIS-011** If a client cannot load a required default network visual resource, the client must not start network play and must retain the existing required-resource failure behavior.
@@ -302,7 +304,17 @@ The **eligible background list** is the stable ordered list of locally available
 - **NET-VIS-016** The mapping must give each background in an eligible background list a selection opportunity as the identity inputs change.
 - **NET-VIS-017** The fallback selection must remain presentation-only and must not use the authoritative gameplay seed, change canonical state, require a replicated background field, or load peer content.
 
-Selected-profile appearance parity between network participants is outside first-release scope.
+### Selected-person appearance ownership and lifetime
+
+- **NET-VIS-018** The initiating client must resolve a base appearance once when it configures a selected local player: use the person's exactly matched local profile, or the existing randomized skin when no profile matches. It must retain that resolved value through retries of the unchanged configuration. Missing or malformed required local profile files retain the existing local resource-failure behavior; this extension adds no profile repair flow.
+- **NET-VIS-019** Only the participant that owns a player slot may supply its base appearance, together with that slot's person selection. The service must validate and retain exactly one accepted base appearance per admitted player identity. Host roster composition must preserve each owner's supplied appearance; a host or dedicated service must not resolve remote names against its own profiles or replace another owner's appearance.
+- **NET-VIS-020** Appearance values must be limited to the ten existing configurable body-part RGB colors (hair top/bottom, body inner/outer, hand inner/outer, trousers, shoes, face, and headband), the existing Normal/None/Short hair choice, and a boolean headband setting. Each RGB channel must be an integer from 0 through 255; base colors must be opaque. Headband outline/shading must follow the unchanged local rules. Appearance data must not contain a profile/resource identity, path, filename, script, custom asset, or participant-selected opacity, geometry, or animation.
+- **NET-VIS-021** A permitted `NET-04` person replacement must resolve a new base appearance and apply the person and appearance atomically, preserving player identity and owner and clearing readiness under the existing rules. A no-op selection, control-only edit, host roster reorder, match-setting change, or local profile-file change must not reroll or replace an accepted base appearance. There is no independent post-admission appearance-edit action.
+- **NET-VIS-022** The service must keep accepted base appearances through rounds, waiting admission and eligible spawn, disconnect reservations, reconnect, resynchronization, summaries, and same-session Return to lobby/new match until an accepted person replacement or player removal. Waiting appearance is retained without creating a body. Team overrides follow `MOD-TM-003`–`MOD-TM-004` after base selection; authoritative mode/team changes do not overwrite the stored base. Transient effects reset under existing round rules. Removal/session end discards the service's appearance state; it must not write local profiles or saves.
+- **NET-VIS-023** Missing, incomplete, out-of-range, or otherwise invalid appearance data must not be committed, clamped, independently randomized, or silently replaced by a default. An invalid initial proposal uses the existing `malformed-request` outcome before allocation; invalid or unauthorized post-admission proposals follow existing connection-policy handling without applying the proposed edit. Invalid replicated appearance follows `REP-065`–`REP-067`, retaining the last complete accepted state. A valid absent-profile randomized appearance is not invalid data or a cosmetic compatibility mismatch.
+- **NET-VIS-024** Full snapshots and equivalent incremental state must retain the same accepted appearance for every current player slot, including waiting slots, and restore the same current gameplay appearance after recovery. Clients must not upload a newly resolved appearance on reconnect or use receiver profiles as fallback. Appearance selection and presentation must not consume authoritative gameplay randomness, alter simulation/results, enable optional scripts, or change sound/background policy.
+
+This extension covers only the bounded appearance values in `NET-VIS-018`–`NET-VIS-024`. It overlaps the colors/hair/headband consistency goal in issue #84; custom assets, profile transfer, new selection UI, accounts, and scripts remain outside scope. Wire encoding, schema/version constants, and release-ID publication remain implementation-owned under the [compatibility contract](network-compatibility-and-admission.md#admission-version-and-release-contract).
 
 ## Timing, failures, and precedence
 
@@ -476,7 +488,7 @@ Local independence does not require a separate renderer appearance or final-scre
 - A guest-observable unexpected player-host termination signal. Dedicated terminal notices follow HSL-PUB; transport loss alone remains ambiguous in both modes.
 - Cross-release or cross-content compatibility.
 - Compatibility checks for presentation-only assets, local persistence, local controls, or documentation.
-- Selected-profile appearance in a network match or remote profile appearance parity.
+- Profile files, custom skin/animation assets, profile scripts, and a separate network profile selector; appearance values are limited to NET-VIS-018–024.
 - Changes to existing local-only Play behavior.
 
 ## Acceptance criteria
@@ -507,15 +519,17 @@ Local independence does not require a separate renderer appearance or final-scre
 - **NET-AC-016 — Cancellation and leave:** Host startup Cancel, guest connection Cancel, guest lobby/match/summary Leave, reconnect Leave session, host End session, and their confirmations retain or discard data and reach exactly the specified destinations.
 - **NET-AC-017 — Truthful and non-disclosing UX:** Role, Connected/Reconnecting, readiness, pending, retryable ambiguity, terminal rejection, disabled Retry, expiry, host-local service failure, consequence, and host-ended states use fixed visible copy, disclose no untrusted peer value, and never claim guest-observed host end, player removal, or unexpected termination from isolation alone.
 - **NET-AC-018 — Session-only results:** Result state, match outcome, last completed-round outcome, and cumulative rankings are distinct. Completed match outcome equals the final round outcome. Interrupted match outcome is `No winner`. Cumulative rankings include only completed rounds and define no champion. Completed results appear in `NET-06`. Completed and interrupted results remain through the following lobby with departed labels. A new match clears the retained result. Intentional host end, host-local service failure, or application shutdown discards it. An isolated guest expiry does not claim a server-side result transition. Results never persist locally or to Elo.
-- **NET-AC-019 — Explicit boundaries:** UI, packaging, and release claims omit every non-goal. Gameplay compatibility excludes presentation, cosmetic, profile, local persistence, local control, and documentation material. First-release network play does not claim selected-profile appearance parity.
-- **NET-VIS-AC-001 — Setup:** Network setup provides person and control selection without profile selection.
-- **NET-VIS-AC-002 — Deterministic presentation:** Each client presents the same replicated canonical state with the same default player skin, player animation, and entity visual selection without a second gameplay simulation.
-- **NET-VIS-AC-003 — Gameplay states:** Default network visuals preserve each authoritative Team color, Predator opacity, invisibility state, and other replicated visual gameplay state.
-- **NET-VIS-AC-004 — Profile exclusion:** Local and remote profiles do not change network visuals, do not affect admission, and do not provide a presentation fallback.
+- **NET-AC-019 — Explicit boundaries:** UI, packaging, and release claims omit every non-goal. Gameplay compatibility excludes presentation, cosmetic, profile, local persistence, local control, and documentation material. Selected-person appearance is limited to NET-VIS-018–024.
+- **NET-VIS-AC-001 — Setup:** Network setup provides person and control selection without separate profile UI. Each initiating client resolves its selected persons under NET-VIS-018.
+- **NET-VIS-AC-002 — Deterministic presentation:** Each client presents the same accepted base appearance, player animation, and entity visual selection for equivalent replicated state without a second gameplay simulation or receiver-profile lookup.
+- **NET-VIS-AC-003 — Gameplay states:** Network visuals preserve authoritative Team overrides, Predator body opacity, Invisibility on body and held weapon, and other visual gameplay states, including the temporary brown appearance and restoration in NET-VIS-008.
+- **NET-VIS-AC-004 — Cosmetic boundary:** Owner-selected profile values affect only the bounded base appearance. Installed profile/asset differences do not affect compatibility; no profile file, custom asset, or script is transferred or selected by a peer, and receivers do not use their own profiles as fallback.
 - **NET-VIS-AC-005 — Required-resource failure:** A client with an unavailable required default network visual resource does not start network play and does not load peer content as a fallback.
 - **NET-VIS-AC-006 — Named background precedence:** Every client uses a locally usable named level background before it considers fallback selection.
 - **NET-VIS-AC-007 — Deterministic background fallback:** For a level without a locally usable named background, two clients of the supported release select the same fallback when their replicated session, match, round, and level logical identities and their eligible background lists are equal. A full snapshot, equivalent incremental state, reconnect, and resynchronization produce that same selection. Controlled varied identity inputs demonstrate that every item in an eligible background list can be selected.
 - **NET-VIS-AC-008 — Presentation-only background:** Fallback background selection uses no authoritative gameplay seed, canonical background field, second gameplay simulation, profile fallback, or peer content. It does not change canonical state or match outcomes.
+- **NET-VIS-AC-009 — Configuration lifetime:** Matched-profile and unmatched-person appearances remain equal on all clients through retries, control edits, roster reorders, consecutive rounds, waiting spawn, recovery, summary, and same-session new match. An accepted person replacement changes only that slot's person/base appearance, preserves identity/owner, and clears readiness. Changed receiver profiles or reconnect do not replace accepted values.
+- **NET-VIS-AC-010 — Bounded validation:** All supported color/hair/headband values follow NET-VIS-020; incomplete/invalid initial, lobby, and replicated values follow NET-VIS-023 atomically. Another participant cannot edit a slot's appearance. No cosmetic difference becomes gameplay-content mismatch or resource transfer.
 - **NET-OWN-AC-001 — Pre-admission player count:** A host or guest can add or remove local player slots only before its admission process begins.
 - **NET-OWN-AC-002 — Immutable admitted ownership:** Admission fixes each participant's exact player identities and ownership until that participant leaves, expires, or the session ends.
 - **NET-OWN-AC-003 — Lobby edits:** In `NET-04`, a participant can change the person or control for an existing owned slot. The change clears all readiness and preserves the slot's identity and owner.
@@ -558,7 +572,7 @@ Issue #28 approves this target but does not satisfy parent issue #27's implement
 - Product review traces each downstream issue to the exact criteria above and confirms non-goals remain excluded.
 - UX review traces `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` to applicable criteria and assesses one representative wireframe per affected screen.
 - Issue #38 must supply one implementation screenshot for each of the 11 planned entries in [`docs/screenshots/README.md`](screenshots/README.md): `SS-002`, `SS-013`, and `SS-015`–`SS-023`. These entries remain planned, and no current screenshot is valid for the changed target UI.
-- Issue #38 evidence must show default network visuals without profile selection or selected-profile appearance parity.
+- Graphical evidence must show synchronized selected-person appearance through built-in artwork without separate profile selection or peer files/assets/scripts; use the [scoped appearance matrix](design/screenshots/README.md#selected-person-network-appearance).
 - Issue #38 evidence must show named-background precedence and deterministic fallback convergence for equal eligible background lists.
 - Reviewer evidence checks lifecycle cardinality, initial admission order, full-deadline ambiguity for every unexpected host failure, intentional-end-only `NET-09`, host-local-only supervision, reconnect precedence, lifecycle-specific removal, exact compatibility fixtures/copy, destinations, and local-only preservation.
 - Tester evidence independently verifies at downstream implementation SHAs that every guest-observed host crash, machine/listener loss, silence, reset, refusal, timeout, and no-response case stays `NET-07` through the fixed deadline; that only an accepted intentional End notice enters guest `NET-09`; and that host-local supervision routes only the host to `NET-08`. Issue #28 itself is documentation-only and requires no automated test implementation.

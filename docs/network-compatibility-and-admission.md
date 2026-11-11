@@ -41,6 +41,8 @@ The network release ID is the only build-compatibility value. The admission requ
 
 Developer owns the necessary release-ID transition and must record its exact value in the distribution/protocol reference. A version or release change must not enable cross-release admission, a legacy schema adapter, or a second secure-channel profile.
 
+The selected-person appearance extension in NET-VIS-018–024 requires coordinated matching client/service packages with a new exact network release ID. Every selected-player configuration must supply a complete valid bounded appearance before admission commit. Missing legacy appearance data must fail closed, not select a monochrome/default adapter. Developer owns the necessary admission, lobby, and replication schema/version transitions and exact constants; no new compatibility range, alternate channel, or negotiation fallback is authorized.
+
 All supported client and service artifacts in a matching package set must use the same network release ID. The value must be non-empty.
 
 Network release ID equality must be exact and case-sensitive. Whitespace is content and must not be trimmed or normalized.
@@ -133,11 +135,11 @@ The manifest must exclude:
 - local control assignments and controller presets;
 - documentation.
 
-Participant profile data must not affect compatibility. The network session must not load or execute a participant profile script.
+Installed participant profile data must not affect compatibility. Only the owner-resolved bounded appearance values in [NET-VIS-018–024](network-play-first-release.md#selected-person-appearance-ownership-and-lifetime) enter player configuration; profile files remain excluded. The network session must not load or execute a participant profile script.
 
 - **CMP-VIS-001** Admission must not compare a profile, skin, animation resource, visual resource, or other cosmetic asset.
 - **CMP-VIS-002** A missing, changed, or additional profile or cosmetic asset must not cause an admission rejection.
-- **CMP-VIS-003** A supported client must use the built-in default network visual set after admission.
+- **CMP-VIS-003** A supported client must use the built-in network visual set with the accepted selected-person appearance after admission, under NET-VIS-018–024.
 - **CMP-VIS-004** A client must not obtain a profile or cosmetic fallback from a peer.
 
 First-release network matches must not enable or execute an optional gameplay script. The authoritative policy is in [`network-authoritative-headless-match.md`](network-authoritative-headless-match.md).
@@ -230,6 +232,8 @@ A guest admission request must contain at least one local player. Before commit,
 - **ADM-OWN-004** An authoritative roster-order change must not change a committed player identity or ownership.
 - **ADM-OWN-005** Participant Leave, reservation expiry, or session end may remove committed player slots.
 - **ADM-OWN-006** The service must not reuse an identity from a removed player slot during the session.
+
+Admission must validate and commit each ordered selected player's base appearance with its person and owned identity under NET-VIS-019–023. This applies equally to host-local and guest admission in either hosting kind. Invalid or incomplete appearance uses the existing `malformed-request` result before allocation, not a profile/content mismatch or a silent cosmetic fallback. Installed profile/asset differences remain irrelevant to compatibility. The initial full snapshot must include the committed appearances for all current slots, including waiting slots.
 
 The guest must check Cancel before parsing every offer, rejection, or confirmation, immediately before acceptance enqueue, and immediately before publishing rejection, invalid-host, or success. One admission-attempt gate serializes Cancel, acceptance enqueue, and terminal publication. The concrete acceptance enqueue holds that gate through the outbound queue insertion and checks Cancel plus the injected monotonic clock at the insertion point. Cancel wins when it linearizes first; no `D6RK` is queued in that case. A strictly pre-deadline enqueue that linearizes first remains accepted and cannot be retroactively removed by a later Cancel; that later Cancel may still win against a not-yet-published final confirmation. The guest must never enqueue acceptance at or after the original Connect-start deadline. Runtime fakes expose the same conditional-enqueue operation so a test can change Cancel or time immediately before insertion. The host independently retains its transport-acceptance-time plus 10-second hard bound and rejects acceptance at or after that boundary. This client check prevents avoidable late asymmetric commit; only acceptance already sent before the guest deadline followed by confirmation loss retains the documented post-commit issue #36 handoff.
 
@@ -455,5 +459,5 @@ These commands provide process-level protocol evidence only. Successful output r
 - **AC-023:** New admission follows NET-AC-007 and NET-ADM-AC-003: the first outcome changes spawn eligibility, not non-final admission availability; equal-time outcomes and starts precede admission; final outcome rejects uncommitted offers. Waiting ownership, exact-once eligible spawn, reconnect, removal, and lobby retention follow NET-ADM-013 through NET-ADM-016.
 - **AC-024:** Local Play must start and complete without starting or requiring a network service.
 - **AC-025:** Completion of issue #30 alone must not justify a claim that network play is available or ready for release.
-- **CMP-VIS-AC-001:** Admission ignores profile, skin, animation-resource, visual-resource, and cosmetic-asset differences. After admission, each supported client uses the built-in default network visual set without loading peer content as a fallback.
+- **CMP-VIS-AC-001:** Admission ignores installed profile, skin, animation-resource, visual-resource, and cosmetic-asset differences. Valid owner-resolved appearance is retained at commit and presented identically through built-in resources without loading peer content. Missing/invalid appearance fails under NET-VIS-023, and legacy/incompatible packages fail closed under the exact release/schema contract, without a default-appearance adapter.
 - **ADM-OWN-AC-001:** Admission confirms one immutable set of ordered player identities and ownership for each participant. Lobby person, control, and roster-order changes preserve that set. Participant removal removes all owned slots, and the service does not reuse their identities during the session.
