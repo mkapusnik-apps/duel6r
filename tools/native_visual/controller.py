@@ -51,6 +51,20 @@ def seed_startup_fixtures(root, item, recipe):
         destination.mkdir()  # Never replace a profile supplied by the artifact.
         (destination / "skin.json").write_text(json.dumps(skin, indent=2) + "\n", encoding="utf-8")
         shutil.copyfile(root / "profiles/sample/sounds.json", destination / "sounds.json")
+    if "enabled_weapon_ids" in recipe:
+        require("enable_gun16" not in recipe, "weapon pool and enable_gun16 are mutually exclusive")
+        weapons = recipe["enabled_weapon_ids"]
+        require(type(weapons) is list and 1 <= len(weapons) <= 17, "expected 1-17 enabled weapon IDs")
+        require(all(type(weapon) is int and 0 <= weapon < 17 for weapon in weapons)
+                and len(set(weapons)) == len(weapons), "weapon IDs must be unique integers in 0-16")
+        path = root / "data/config.script"
+        content = path.read_text(encoding="utf-8")
+        content = "".join(line for line in content.splitlines(keepends=True)
+                          if not re.match(r"^[ \t]*gun(?:[ \t]|$)", line))
+        settings = "".join(f"gun {weapon} {'true' if weapon in weapons else 'false'}\n"
+                           for weapon in range(17))
+        path.write_text(content.rstrip("\n") + "\n\n" + settings, encoding="utf-8")
+        return
     enabled = recipe.get("enable_gun16", False)
     require(type(enabled) is bool, "enable_gun16 must be boolean")
     if enabled:

@@ -52,6 +52,17 @@ An optional recipe `enable_gun16: true` changes the one existing `gun 16 false`
 setting to `gun 16 true` in each mutable client copy before application startup.
 It never appends a duplicate setting. The default is unchanged.
 
+An optional recipe `enabled_weapon_ids` sets the ordinary pre-start weapon pool.
+It must be a nonempty list of unique integer IDs 0-16; booleans and out-of-range
+values reject. It cannot coexist with `enable_gun16`. The controller replaces only
+the mutable copy's existing `gun` directives with one explicit true/false directive
+for each of the 17 supported IDs, preserving other configuration. `[16]` enables
+only the shit thrower in every client copy, so both network installations retain
+matching gameplay configuration. Ammunition, effects, timers and projectiles are
+not changed or injected. The existing `enable_gun16` behavior remains unchanged
+when this option is absent. Producer input/inventory verification is unchanged;
+preserve the disclosed recipe and resulting configuration identity with evidence.
+
 The complete input runtime is still verified before copying, each copy is verified
 before these disclosed data changes, and the immutable input remains verified
 through operator batches and completion. No inventory entry or check is removed.
