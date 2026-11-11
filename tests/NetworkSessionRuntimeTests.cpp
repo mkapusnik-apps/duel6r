@@ -36,6 +36,8 @@
 #include "tests/AppearanceFixtures.h"
 #include "source/client/HostServiceSupervisor.h"
 #include "source/DataException.h"
+#include "source/IoException.h"
+#include "source/json/JsonException.h"
 #define private public
 #include "source/Font.h"
 #undef private
@@ -5066,9 +5068,9 @@ D6R_TEST_CASE("NET-VIS initiating menu resolves only actual person changes and r
     const auto profiles = root / "profiles";
     D6R_REQUIRE(PlayerSkinColors::resolveLocalAppearance("CLI owner", profiles.string()).valid());
     std::filesystem::create_directories(profiles / "Matched");
-    D6R_REQUIRE_THROW(PlayerSkinColors::resolveLocalAppearance("Matched", profiles.string()), std::exception);
+    D6R_REQUIRE_THROW(PlayerSkinColors::resolveLocalAppearance("Matched", profiles.string()), IoException);
     { std::ofstream invalid(profiles / "Matched" / "skin.json"); invalid << "not JSON"; }
-    D6R_REQUIRE_THROW(PlayerSkinColors::resolveLocalAppearance("Matched", profiles.string()), std::exception);
+    D6R_REQUIRE_THROW(PlayerSkinColors::resolveLocalAppearance("Matched", profiles.string()), JsonException);
 }
 
 D6R_TEST_CASE("Shared arena texture-free default body timing matches every shipped semantic clip") {
