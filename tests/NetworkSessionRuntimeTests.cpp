@@ -756,6 +756,25 @@ namespace {
                     && f.width == thickness && f.color == Color::BLACK;
             });
         }
+        bool raisedBevel(int x, int y, int width, int height) const {
+            const auto line = [&](Vector start, Vector end, Color color) {
+                return std::any_of(recorder.lines.begin(), recorder.lines.end(), [&](const auto &value) {
+                    return value.start.x == start.x && value.start.y == start.y
+                        && value.end.x == end.x && value.end.y == end.y
+                        && value.width == 1 && value.color == color;
+                });
+            };
+            for (int offset = 0; offset < 2; ++offset) {
+                if (!line(Vector(x + offset, y + offset), Vector(x + offset, y + height - 1), Color(235))
+                    || !line(Vector(x + offset, y + height - 1 - offset),
+                             Vector(x + width - 1, y + height - 1 - offset), Color(235))
+                    || !line(Vector(x + width - 1 - offset, y),
+                             Vector(x + width - 1 - offset, y + height - 1 - offset), Color::BLACK)
+                    || !line(Vector(x + offset, y + offset), Vector(x + width - 1, y + offset), Color::BLACK))
+                    return false;
+            }
+            return true;
+        }
         void key(SDL_Keycode key) { menu.keyEvent(KeyPressEvent(key, SysEvent::ButtonState::PRESSED, 0)); }
         void click(int x, int y, bool down = true) {
             menu.mouseButtonEvent(MouseButtonEvent(x, y, SysEvent::MouseButton::LEFT,
@@ -1202,7 +1221,8 @@ D6R_TEST_CASE("NET-10 single-page pagination is absent from drawing pointer and 
         D6R_REQUIRE(!menu.browserFocusEnabled(4) && !menu.browserFocusEnabled(5));
     };
     noPaging();
-    f.click(100, 80); f.click(600, 80); D6R_REQUIRE_EQ(0, menu.focus);
+    f.click(100, 80); f.click(100, 80, false);
+    f.click(600, 80); f.click(600, 80, false); D6R_REQUIRE_EQ(0, menu.focus);
     D6R_REQUIRE(!menu.browser.loading()); D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
     for (int expected: {1, 3, 6, 2, 0}) { f.key(SDLK_TAB); D6R_REQUIRE_EQ(expected, menu.focus); }
     for (int expected: {2, 6, 3, 1, 0}) {
@@ -1213,7 +1233,7 @@ D6R_TEST_CASE("NET-10 single-page pagination is absent from drawing pointer and 
     controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); D6R_REQUIRE_EQ(1, menu.focus);
     f.deliver({true, {f.row}, "next-page"}); menu.focus = 0; f.draw();
     D6R_REQUIRE(f.text("Page 1") && f.text("Previous page") && f.text("Next page"));
-    D6R_REQUIRE(f.frame(28, 68, 252, 24, 1) && f.frame(560, 68, 256, 24, 1));
+    D6R_REQUIRE(f.frame(28, 68, 252, 24, 1) && f.raisedBevel(560, 68, 256, 24));
     D6R_REQUIRE(!menu.browserFocusEnabled(4) && menu.browserFocusEnabled(5));
     f.key(SDLK_TAB); D6R_REQUIRE_EQ(5, menu.focus);
     // Actual navigation updates the bounded cursor stack; promise responses avoid a live backend.
@@ -1244,7 +1264,7 @@ D6R_TEST_CASE("NET-10 lowered paging has complete scaled targets and preserves b
             menu.selectedListing = f.row.id; menu.focus = 0; menu.pointerHeld = false;
         };
         reset(); f.draw();
-        D6R_REQUIRE(f.frame(28, 68, 252, 24, 1) && f.frame(560, 68, 256, 24, 1));
+        D6R_REQUIRE(f.raisedBevel(28, 68, 252, 24) && f.raisedBevel(560, 68, 256, 24));
         D6R_REQUIRE(!f.frame(28, 108, 252, 24, 1) && !f.frame(560, 108, 256, 24, 1));
         D6R_REQUIRE(f.text("Page 2"));
         for (const auto &quad: f.recorder.quads) for (const auto &entry: f.font.fontCache.entryList)
@@ -3130,12 +3150,13 @@ D6R_TEST_CASE("UX-NET browser captions stay unchanged when join refresh and pagi
     };
     captions(); // Empty/unavailable: joining and paging are disabled.
     D6R_REQUIRE(!menu.browserFocusEnabled(1));
-    D6R_REQUIRE(f.frame(28, 68, 252, 32, 1));
-    D6R_REQUIRE(!f.frame(28, 108, 252, 24, 1));
-    D6R_REQUIRE(!f.frame(560, 108, 256, 24, 1));
-    menu.focus = 1; f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(100, 76);
+    D6R_REQUIRE(f.frame(28, 28, 252, 32, 1));
+    D6R_REQUIRE(!f.frame(28, 68, 252, 24, 1));
+    D6R_REQUIRE(!f.frame(560, 68, 256, 24, 1));
+    menu.focus = 1; f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(100, 36);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser);
     D6R_REQUIRE(!menu.browserSelection);
+    f.click(100, 36, false); // Release before observing enabled, unpressed bevels.
 
     Client::DirectoryListing row;
     row.id = row.sessionId = std::string(32, 'a'); row.endpoint = {"127.0.0.1", 26660};
@@ -3145,14 +3166,19 @@ D6R_TEST_CASE("UX-NET browser captions stay unchanged when join refresh and pagi
     menu.browser.page = {true, {row}, "next-page"};
     menu.browser.received = std::chrono::steady_clock::now(); menu.selectedListing = row.id;
     captions(); D6R_REQUIRE(menu.browserFocusEnabled(1)); D6R_REQUIRE(menu.browserFocusEnabled(5));
-    D6R_REQUIRE(!f.frame(28, 68, 252, 32, 1));
-    D6R_REQUIRE(!f.frame(560, 108, 256, 24, 1));
+    D6R_REQUIRE(!f.frame(28, 28, 252, 32, 1));
+    D6R_REQUIRE(f.raisedBevel(28, 28, 252, 32));
+    D6R_REQUIRE(f.frame(28, 68, 252, 24, 1));
+    D6R_REQUIRE(!f.frame(560, 68, 256, 24, 1));
+    D6R_REQUIRE(f.raisedBevel(560, 68, 256, 24));
 
     std::promise<Client::DirectoryPage> pending;
     menu.browser.pending = pending.get_future();
     captions(); // Loading also disables Refresh, even with retained rows.
     D6R_REQUIRE(!menu.browserFocusEnabled(1)); D6R_REQUIRE(!menu.browserFocusEnabled(2));
     D6R_REQUIRE(!menu.browserFocusEnabled(5)); D6R_REQUIRE(f.frame(710, 518, 112, 24, 1));
+    D6R_REQUIRE(f.frame(28, 28, 252, 32, 1));
+    D6R_REQUIRE(f.frame(28, 68, 252, 24, 1) && f.frame(560, 68, 256, 24, 1));
     menu.focus = 2; f.key(SDLK_RETURN); f.click(766, 530);
     D6R_REQUIRE(menu.browser.loading()); D6R_REQUIRE(!menu.browserSelection);
 }
@@ -3436,7 +3462,7 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
         for (int index = 0; index < 25; ++index)
             menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
         D6R_REQUIRE_EQ(rows.back().id, menu.selectedListing);
-        D6R_REQUIRE(menu.browserScroll > 0);
+        D6R_REQUIRE_EQ(15, menu.browserScroll); // Twenty-five listings with ten visible rows.
     };
     const auto requestRefresh = [&](bool automatic) {
         if (automatic) {
@@ -3506,7 +3532,7 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
         menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
     }
     // The new pointer regions use the same scaled layout as rendering.
-    menu.mouseButtonEvent(MouseButtonEvent(tx + int(600 * scale), ty + int(120 * scale),
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(600 * scale), ty + int(80 * scale),
         SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
     menu.update(0);
     D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE(menu.selectedListing.empty());
@@ -3528,7 +3554,7 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
         D6R_REQUIRE_EQ(expected, menu.focus); // stale Next and Join stay excluded
     }
-    menu.mouseButtonEvent(MouseButtonEvent(tx + int(100 * scale), ty + int(120 * scale),
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(100 * scale), ty + int(80 * scale),
         SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
     menu.update(0);
     deliver({true, rows, {}});
@@ -3557,12 +3583,12 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     D6R_REQUIRE(rendered.find("A listing does not guarantee reachability.") == std::string::npos);
     // Refresh left this page unselected, so paging clears the table without selected details.
     D6R_REQUIRE(menu.selectedListing.empty());
-    D6R_REQUIRE(textBounds("Page 1").second < textBounds("  127.0.0.1:25007").first);
-    // Composed UX-NET-10-008 centers the captions in the same y=68, h=32 footer row.
+    D6R_REQUIRE(textBounds("Page 1").second < textBounds("  127.0.0.1:25009").first);
+    // Composed UX-NET-10-008 centers the captions in the same y=28, h=32 footer row.
     for (const auto *caption: {"Join selected", "Direct connect", "Back"}) {
         const auto bounds = textBounds(caption);
-        D6R_REQUIRE_EQ(76.0f, bounds.first);
-        D6R_REQUIRE_EQ(92.0f, bounds.second);
+        D6R_REQUIRE_EQ(36.0f, bounds.first);
+        D6R_REQUIRE_EQ(52.0f, bounds.second);
     }
 }
 
