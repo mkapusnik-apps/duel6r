@@ -16,6 +16,7 @@ The person-action alignment requirements define an approved change to the earlie
 The person-list space and menu-button refinement requirements define an approved change to the merged PR #60 baseline at commit `f2de2ac008ac6282a98acd6c44dc7543e5bfd73c`.
 The shared final game-summary requirements define an approved change to the earlier implementation baseline.
 The Quick Liquid round-start requirements define an approved change to the earlier implementation baseline.
+The non-final round-summary parity requirements use Local Play as the content reference for network round summaries.
 
 The word **person** means a persistent named record. The word **player** means a person in the active match roster.
 
@@ -390,6 +391,11 @@ The **shared arena view** is one gameplay view that shows the whole level to all
 - **UI-RND-008** When the next round starts, the shared arena view must show its top-edge round progress again.
 - **UI-RND-009** The final game summary and the active-round Tab score summary must not show the round-progress row from UI-RND-001.
 - **UI-RND-010** The round summary panel must right-align the round-progress label in the panel's top-right corner.
+- **UI-RND-011** Non-final Local Play and network round summaries must show player names and the columns `K`, `A`, `D`, `K/D`, and `PTS`, in that order, with the same meanings as Local Play. Team summaries must show those values for each team and its nested players. Team K, A, D, and PTS must total the participating player values; team K/D must use the team's total kills and deaths, not a sum of player ratios. K/D must retain the existing Local Play display convention, including its zero-death case.
+- **UI-RND-012** These columns must retain their existing cumulative scope, not become statistics for the just-ended round alone. Local Play must retain its person statistics and resume behavior. Network summaries must use authoritative session-only completed-round statistics and retain authoritative ranking order, identity, departure, reconnect, and waiting-participation rules. A waiting player must not acquire fabricated participation statistics.
+- **UI-RND-013** Round-summary parity must not change outcomes, scoring, persistence, Elo, round timing, or advance/leave permissions and inputs. Network outcome and phase/countdown information must remain available alongside the common score table. Active-round Tab summaries, the final-round delay, and final game summaries are outside this change.
+
+The [NET-05-R presentation contract](design/screens/NET-05.md#non-final-round-summary-parity) owns appearance parity with the unchanged Local Play [OVER-02](screens/overlay-round-over.md).
 
 ### Final game summary
 
@@ -580,6 +586,7 @@ Each weapon definition in `source/weapon/impl` is the maintainable source for it
 - **AC-050** A change to `Num. of Team` updates roster team colors according to SET-020 and SET-021.
 - **AC-051** Each Team setting combination starts Team deathmatch with its selected team count and Friendly Fire value.
 - **AC-052** After each non-final round in a limited match, the round summary panel shows `Rounds: <played>|<total>`. The label is in a separate top row above the `SCORE` heading strip. The panel right-aligns the label in the panel's top-right corner. The label does not overlap or replace the heading strip. `<played>` includes the completed round. `<total>` equals the configured round limit. While the panel is visible, the top edge of the arena does not show duplicate round progress. The top-edge progress returns when the next round starts. An unlimited-match summary does not show the panel label. The final game summary and the active-round Tab score summary do not show this panel label.
+- **AC-RND-001** After a non-final network round, Host and Guest see the Local Play score columns and meanings from UI-RND-011, including Team aggregates and nested player rows. Values use the cumulative scope and participation rules in UI-RND-012. The actual round outcome remains distinct from cumulative ranking, and network countdown, supported ranking navigation, role-specific actions, and automatic progression remain available. Local Play, active-round score access, final-round delay, and final game results retain their existing behavior.
 - **AC-053** The main menu has one person list instead of separate `ELO Scoreboard` and `Persons` lists.
 - **AC-054** The person list shows each saved person once. It includes roster members and persons with zero Elo games.
 - **AC-055** Ranked rows show rank, name, Elo, and Elo trend in descending Elo order. Unranked rows follow them without an Elo rank.

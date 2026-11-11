@@ -1,4 +1,5 @@
 #include "NetworkMenu.h"
+#include "NetworkRoundSummary.h"
 
 #include <SDL2/SDL.h>
 #include <algorithm>
@@ -534,6 +535,12 @@ namespace Duel6 {
 
         std::size_t rankingMaximumScroll(
                 const Network::Replication::CanonicalState &state, Int32 width, Int32 height, bool roundSummary) {
+            if (roundSummary && NetworkRoundSummary::applies(state)) {
+                return NetworkRoundSummary::layout(NetworkRoundSummary::rows(state),
+                        "Rounds: " + std::to_string(state.currentRoundNumber) + "|"
+                            + std::to_string(state.settings.roundLimit),
+                        "Round outcome: " + outcome(state, state.score.winner), width, height).maximumFirst;
+            }
             const auto count = rankingLines(state).size();
             std::size_t visible = static_cast<std::size_t>(std::max<Int32>(1, (height - 160) / 16));
             if (roundSummary) {
@@ -2322,6 +2329,59 @@ namespace Duel6 {
     void NetworkMenu::drawRoundSummary(
             const Client::NetworkRuntimeSnapshot &snap, Int32 width, Int32 height) const {
         const auto &state = *snap.canonical;
+        if (NetworkRoundSummary::applies(state)) {
+            namespace S = NetworkRoundSummary;
+            const auto rows = S::rows(state);
+            const std::string progress = "Rounds: " + std::to_string(state.currentRoundNumber) + "|"
+                    + std::to_string(state.settings.roundLimit);
+            const auto layout = S::layout(rows, progress, "Round outcome: " + outcome(state, state.score.winner),
+                                          width, height, static_cast<std::size_t>(rankingScroll));
+            renderer.setBlendFunc(BlendFunc::SrcAlpha);
+            renderer.quadXY(Vector(layout.left, layout.bottom), Vector(layout.width, layout.height),
+                            Color(255, 255, 255, 80));
+            renderer.quadXY(Vector(layout.left + 2, layout.bottom + 2), Vector(layout.width - 4, layout.height - 4),
+                            Color(0, 0, 255, 80));
+            renderer.quadXY(Vector(layout.left - 5, layout.scoreY), Vector(layout.width + 10, 36), Color::BLUE);
+            font.print(layout.left + (layout.width - font.getTextWidth("---SCORE---", S::TextHeight)) / 2,
+                       layout.scoreY, 0, Color::WHITE, "---SCORE---", S::TextHeight);
+            font.print(layout.left + layout.width - 16 - font.getTextWidth(progress, S::TextHeight),
+                       layout.scoreY + 32, 0, Color::WHITE, progress, S::TextHeight);
+            const int numericX = layout.tableLeft + layout.nameWidth;
+            const auto headings = S::headings(layout);
+            font.print(layout.tableLeft + layout.tableWidth - font.getTextWidth(headings, S::TextHeight),
+                       layout.scoreY - 32, 0, Color::WHITE, headings, S::TextHeight);
+            int rowY = layout.firstRowY;
+            const int rankingFocus = snap.host ? 2 : 1;
+            drawFocusKeyline(layout.tableLeft - 2, layout.bottom + 60, layout.tableWidth + 4,
+                             layout.scoreY - 32 - (layout.bottom + 60), focus == rankingFocus);
+            for (auto index = layout.first; index < layout.first + layout.count; ++index) {
+                const auto &row = rows[index];
+                if (index > layout.first && row.separatorBefore) {
+                    rowY -= S::SeparatorHeight;
+                    renderer.setBlendFunc(BlendFunc::SrcAlpha);
+                    renderer.quadXY(Vector(layout.tableLeft, rowY + S::TextHeight + 4),
+                                    Vector(layout.tableWidth, 2), Color(255, 255, 255, 178));
+                }
+                renderer.setBlendFunc(BlendFunc::SrcAlpha);
+                renderer.quadXY(Vector(layout.tableLeft, rowY + 1), Vector(layout.tableWidth, S::TextHeight), row.background);
+                const int padding = row.team ? 0 : 5;
+                font.print(layout.tableLeft + padding, rowY, 0, row.nameColor,
+                           S::rowLabel(row, layout.nameWidth - padding), S::TextHeight);
+                font.print(numericX, rowY, 0, row.team ? Color::BLACK : Color::YELLOW,
+                           S::numericText(row, layout), S::TextHeight);
+                rowY -= S::TextHeight;
+            }
+            if (layout.maximumFirst != 0)
+                drawText(layout.tableLeft, layout.bottom + 24, "Ranking " + std::to_string(layout.first + 1) + "–"
+                         + std::to_string(layout.first + layout.count) + "/" + std::to_string(rows.size()));
+            for (std::size_t row = 0; row < layout.outcomeRows.size(); ++row)
+                drawText(layout.left, layout.outcomeY + static_cast<int>(layout.outcomeRows.size() - row - 1) * 18,
+                         layout.outcomeRows[row], Color::WHITE);
+            const auto seconds = (state.roundEndCountdown + 59) / 60;
+            drawText(layout.left, layout.phaseY, state.roundEndCountdown > 300 ? "World active • 1s"
+                     : "Round frozen • Next round in " + std::to_string(seconds) + "s", Color::WHITE);
+            return;
+        }
         const auto lines = rankingLines(state);
         const auto layout = roundPanelLayout(state, width, height);
         const Int32 panelWidth = layout.width;

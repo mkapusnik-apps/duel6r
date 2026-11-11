@@ -154,6 +154,8 @@ The following values come from renderer and GUI source.
 - Final summary allocation, counter, completion notice, containment, and overflow must follow [Shared final presentation](#shared-final-presentation).
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
 
+For non-final network round results, [NET-05-R](design/screens/NET-05.md#non-final-round-summary-parity) applies the Local Play OVER-02 score-panel appearance and content instead of the earlier grey network panel and points-only ranking. This bounded exception to unified network panel styling does not change active-round score access, the final-round delay, final results, or network action styling.
+
 ## Imagery and assets
 
 - The menu must use the animated stack at `resources/textures/menu/` as its banner source.

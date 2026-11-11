@@ -57,6 +57,7 @@
 #undef private
 #include "tests/RecordingRenderer.h"
 #include "source/ArenaPresentation.h"
+#include "source/NetworkRoundSummary.h"
 #include "source/ArenaScene.h"
 #include "tests/CanonicalMotionTrace.h"
 #include "tests/SecondJumpObservation.h"
@@ -2354,6 +2355,70 @@ D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Re
     }
     f.menu.selectedListing.clear(); f.menu.focus = 0; f.draw();
     D6R_REQUIRE(!f.text(confirmation));
+}
+
+D6R_TEST_CASE("Non-final rendered score table retains role actions countdown fixed headings and real ranking input") {
+    ReviewMenuFixture f;
+    namespace S = NetworkRoundSummary;
+    namespace R = Network::Replication;
+    for (bool host: {true, false}) for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}}) {
+        f.lobby(host);
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.menu.runtime.current.journey = Client::NetworkJourney::Match;
+        auto &state = *f.menu.runtime.current.canonical;
+        state.phase = R::Phase::RoundSummary; state.currentRoundNumber = 1; state.settings.roundLimit = 2;
+        state.score.winner.noWinner = true;
+        state.players.clear(); state.score = {}; state.score.winner.noWinner = true;
+        state.settings.mode = "Team deathmatch"; state.settings.teamCount = 4;
+        state.score.teamRanking = {3, 1, 4, 2};
+        for (unsigned index = 0; index < 15; ++index) {
+            R::PlayerState player;
+            player.playerId = 101 + index; player.ownerParticipantId = 1 + index % 2;
+            player.displayName = "Long player name " + std::to_string(index) + std::string(24, 'W');
+            player.team = 1 + index % 4;
+            state.players.push_back(player); state.score.ranking.push_back(player.playerId);
+            R::ScoreRowState score; score.playerId = player.playerId;
+            score.kills = 4; score.assists = 3; score.deaths = 2; score.cumulativePoints = 8;
+            state.score.players.push_back(score);
+        }
+        for (const auto countdown: {360u, 240u}) {
+            state.roundEndCountdown = countdown; f.menu.rankingScroll = 0;
+            const auto rows = S::rows(state);
+            const auto layout = S::layout(rows, "Rounds: 1|2", "Round outcome: No winner", size.first, size.second);
+            f.draw();
+            D6R_REQUIRE(f.text(" K    A   D  K/D  PTS  "));
+            D6R_REQUIRE(f.text("|  4|  3|  2| 2.00|   8"));
+            D6R_REQUIRE(f.text("Round outcome: No winner"));
+            D6R_REQUIRE(f.text(countdown > 300 ? "World active • 1s" : "Round frozen • Next round in 4s"));
+            D6R_REQUIRE(f.text(host ? "End session" : "Leave session"));
+            D6R_REQUIRE_EQ(host, f.text("Advance round"));
+            D6R_REQUIRE_EQ(host, f.frame(size.first - 370, 82, 172, 38, 2));
+            // Texture quads prove the production renderer retains 32px text,
+            // numeric containment, and fixed headings rather than merely a model.
+            for (const auto &quad: f.recorder.quads) {
+                const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                    [&](const auto &e) { return e.texture == quad.material.getTexture(); });
+                if (entry == f.font.fontCache.entryList.end()) continue;
+                if (entry->text == "Rounds: 1|2" || entry->text == "---SCORE---" || entry->text.front() == '|') {
+                    D6R_REQUIRE_EQ(32.0f, quad.vertices[2].y - quad.vertices[0].y);
+                    D6R_REQUIRE(quad.vertices[0].x >= layout.tableLeft - 16);
+                    D6R_REQUIRE(quad.vertices[2].x <= layout.left + layout.width - 16);
+                }
+            }
+            f.menu.focus = host ? 2 : 1;
+            for (std::size_t index = 0; index < layout.maximumFirst; ++index) f.key(SDLK_PAGEDOWN);
+            D6R_REQUIRE_EQ(int(layout.maximumFirst), f.menu.rankingScroll);
+            f.draw(); D6R_REQUIRE(f.text("Ranking " + std::to_string(layout.maximumFirst + 1) + "–19/19"));
+            f.menu.mouseWheelEvent(MouseWheelEvent(200, 300, 0, 100));
+            D6R_REQUIRE_EQ(0, f.menu.rankingScroll);
+            D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty() && f.menu.runtime.pendingGuestCommands.empty());
+        }
+        // The final-round delay intentionally keeps the former compact surface.
+        state.currentRoundNumber = 2; f.draw();
+        D6R_REQUIRE(!f.text(" K    A   D  K/D  PTS  "));
+        state.phase = R::Phase::ActiveRound; f.draw();
+        D6R_REQUIRE(!f.text("---SCORE---"));
+    }
 }
 
 D6R_TEST_CASE("UX-NET round progress uses current authoritative round during active and frozen end delay") {
