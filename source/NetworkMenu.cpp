@@ -2246,6 +2246,11 @@ namespace Duel6 {
         worldPresenter.render(*snap.canonical, snap.presentation, snap.presentedPlayers, width, height);
         renderer.setViewMatrix(Matrix::IDENTITY);
         const auto &state = *snap.canonical;
+        if (NetworkRoundSummary::applies(state)) {
+            renderer.setBlendFunc(BlendFunc::SrcAlpha);
+            renderer.quadXY(Vector(0, 0), Vector(width, height), NetworkRoundSummary::curtainColor(state));
+            renderer.setBlendFunc(BlendFunc::None);
+        }
         if (state.phase != Network::Replication::Phase::RoundSummary) {
             const std::string progress = "Round " + std::to_string(state.currentRoundNumber) + "/"
                                          + std::to_string(state.settings.roundLimit) + " • " + state.messages.status;

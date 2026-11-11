@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <set>
+#include <limits>
+#include <sstream>
 #include "source/NetworkRoundSummary.h"
 #include "source/Person.h"
 #include "tests/TestHarness.h"
@@ -32,6 +34,92 @@ namespace {
     std::string trim(std::string value) {
         value.erase(0, value.find_first_not_of(' '));
         return value;
+    }
+}
+
+D6R_TEST_CASE("Non-final legal numeric extremes keep name lifecycle and every marked cell within bounded columns") {
+    for (unsigned teams: {0u, 4u}) {
+        auto state = summary(15, teams);
+        state.participants = {{1, true, R::ConnectionState::Reconnecting}, {2}};
+        for (auto &player: state.players) player.displayName = std::string(64, 'W');
+        state.players[1].lifeState = R::LifeState::Departed;
+        for (auto &score: state.score.players) {
+            score.kills = score.assists = score.deaths = std::numeric_limits<std::uint64_t>::max();
+            score.cumulativePoints = std::numeric_limits<std::int64_t>::min();
+        }
+        const auto rows = S::rows(state);
+        if (teams) {
+            // Four players on Alpha: sums must not wrap at UInt64 / Int64.
+            const auto alpha = std::find_if(rows.begin(), rows.end(), [](const auto &r) { return r.name == "Alpha"; });
+            D6R_REQUIRE(alpha != rows.end());
+            D6R_REQUIRE_EQ(std::string("73786976294838206460"), alpha->values[0]);
+            D6R_REQUIRE_EQ(std::string("73786976294838206460"), alpha->values[1]);
+            D6R_REQUIRE_EQ(std::string("73786976294838206460"), alpha->values[2]);
+            D6R_REQUIRE_EQ(std::string("1.00"), alpha->values[3]);
+            D6R_REQUIRE_EQ(std::string("-36893488147419103232"), alpha->values[4]);
+        }
+        for (int width: {850, 1280, 1920}) {
+            const auto layout = S::layout(rows, "Rounds: 2|3", "Round outcome: No winner", width, 700);
+            D6R_REQUIRE(layout.nameWidth >= 16 * 16 + 5); // … plus full Reconnecting cue, with player padding.
+            D6R_REQUIRE(layout.tableLeft >= 16);
+            for (const auto &row: rows) {
+                const int padding = row.team ? 0 : 5;
+                const auto label = S::rowLabel(row, layout.nameWidth - padding);
+                const auto glyphs = [](const std::string &s) {
+                    return int(std::count_if(s.begin(), s.end(), [](unsigned char c) { return (c & 0xc0) != 0x80; }));
+                };
+                D6R_REQUIRE(glyphs(label) * 16 + padding <= layout.nameWidth);
+                D6R_REQUIRE(!label.empty());
+                if (!row.lifecycle.empty()) D6R_REQUIRE(label.find(row.lifecycle) != std::string::npos);
+                const auto text = S::numericText(row, layout);
+                D6R_REQUIRE_EQ(layout.tableWidth - layout.nameWidth, glyphs(text) * 16);
+                std::istringstream cells(text.substr(1));
+                std::string cell;
+                for (std::size_t col = 0; col < row.values.size(); ++col) {
+                    D6R_REQUIRE(bool(std::getline(cells, cell, '|')));
+                    D6R_REQUIRE_EQ(layout.columnCharacters[col] - 1, glyphs(cell));
+                    const auto value = trim(cell);
+                    if (int(row.values[col].size()) < layout.columnCharacters[col]) D6R_REQUIRE_EQ(row.values[col], value);
+                    else D6R_REQUIRE_EQ(row.values[col].front() == '-' ? std::string("-…") : std::string("…"), value);
+                }
+            }
+        }
+    }
+    // Exact reviewer reproduction, and ordinary cells sharing its allocation.
+    auto state = summary();
+    state.score.players[0].kills = state.score.players[0].assists = state.score.players[0].deaths = 1000000000;
+    state.score.players[0].cumulativePoints = 2000000000;
+    const auto rows = S::rows(state);
+    for (int width: {850, 1280}) {
+        const auto layout = S::layout(rows, "Rounds: 2|3", "Round outcome: Player 0", width, 700);
+        D6R_REQUIRE(layout.nameWidth >= 21);
+        const auto text = S::numericText(rows[0], layout);
+        D6R_REQUIRE_EQ(width == 850, text.find("…") != std::string::npos);
+        D6R_REQUIRE(S::numericText(rows[1], layout).find("…") == std::string::npos);
+    }
+}
+
+D6R_TEST_CASE("Non-final team display totals retain mixed signed points and zero-death aggregate ratio") {
+    auto state = summary(2, 1);
+    state.score.players[0].cumulativePoints = std::numeric_limits<std::int64_t>::min();
+    state.score.players[1].cumulativePoints = std::numeric_limits<std::int64_t>::max();
+    state.score.players[0].deaths = state.score.players[1].deaths = 0;
+    const auto rows = S::rows(state);
+    D6R_REQUIRE_EQ(std::string("-1"), rows[0].values[4]);
+    D6R_REQUIRE_EQ(std::string("7.00"), rows[0].values[3]);
+}
+
+D6R_TEST_CASE("Non-final curtain follows Local Play countdown alpha and excludes live and final paths") {
+    auto state = summary();
+    for (const auto countdown: {360u, 300u, 240u, 180u, 60u, 0u}) {
+        state.roundEndCountdown = countdown;
+        const auto expected = static_cast<Uint8>(200 - 200 * ((float(countdown) / 60) / D6_GAME_OVER_WAIT));
+        D6R_REQUIRE_EQ(Color(128, 0, 0, expected), S::curtainColor(state));
+    }
+    state.settings.roundLimit = 2; D6R_REQUIRE_EQ(0, int(S::curtainColor(state).getAlpha()));
+    state.settings.roundLimit = 3;
+    for (auto phase: {R::Phase::ActiveRound, R::Phase::FinalSummary, R::Phase::Lobby}) {
+        state.phase = phase; D6R_REQUIRE_EQ(0, int(S::curtainColor(state).getAlpha()));
     }
 }
 

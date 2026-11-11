@@ -17,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <list>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -2355,6 +2356,99 @@ D6R_TEST_CASE("VA-SOLO-01 NET-10 ongoing and final details coexist with upper Re
     }
     f.menu.selectedListing.clear(); f.menu.focus = 0; f.draw();
     D6R_REQUIRE(!f.text(confirmation));
+}
+
+D6R_TEST_CASE("Non-final renderer paints full-client countdown curtain before readable score and status overlays only") {
+    ReviewMenuFixture f;
+    namespace R = Network::Replication;
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 900}}) {
+        f.lobby();
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.menu.runtime.current.journey = Client::NetworkJourney::Match;
+        auto &state = *f.menu.runtime.current.canonical;
+        state.phase = R::Phase::RoundSummary; state.currentRoundNumber = 1; state.settings.roundLimit = 2;
+        state.score.ranking = {101, 102}; state.score.players = {{101}, {102}};
+        state.round = R::RoundState{}; state.round->level = "levels/duel_01.json";
+        f.menu.worldPresenter.setCanonicalLevels({state.round->level});
+        for (auto countdown: {360u, 300u, 180u, 0u}) {
+            state.roundEndCountdown = countdown; f.draw();
+            const auto color = NetworkRoundSummary::curtainColor(state);
+            const auto curtain = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+                return quad.material.getTexture() == Texture{} && quad.material.getColor() == color;
+            });
+            D6R_REQUIRE(curtain != f.recorder.quads.end());
+            D6R_REQUIRE_EQ(0.0f, curtain->vertices[0].x); D6R_REQUIRE_EQ(0.0f, curtain->vertices[0].y);
+            D6R_REQUIRE_EQ(float(size.first), curtain->vertices[2].x);
+            D6R_REQUIRE_EQ(float(size.second), curtain->vertices[2].y);
+            D6R_REQUIRE_EQ(BlendFunc::SrcAlpha, curtain->blend);
+            const auto panel = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+                return quad.material.getTexture() == Texture{} && quad.material.getColor() == Color(255,255,255,80);
+            });
+            D6R_REQUIRE(panel != f.recorder.quads.end() && curtain < panel);
+            const auto status = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+                return quad.material.getTexture() == Texture{} && quad.material.getColor() == Color(0,0,255,179);
+            });
+            D6R_REQUIRE(status != f.recorder.quads.end() && panel < status);
+            D6R_REQUIRE(f.text("Rounds: 1|2") && f.text("Advance round") && f.text("End session"));
+            D6R_REQUIRE_EQ(countdown, state.roundEndCountdown);
+        }
+        const auto noRoundCurtain = [&] {
+            f.draw();
+            D6R_REQUIRE(std::none_of(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &quad) {
+                const auto c = quad.material.getColor();
+                return quad.material.getTexture() == Texture{} && c.getRed() == 128 && c.getGreen() == 0 && c.getBlue() == 0;
+            }));
+        };
+        state.currentRoundNumber = 2; noRoundCurtain(); // Excluded final-round delay.
+        state.phase = R::Phase::ActiveRound; state.currentRoundNumber = 1; noRoundCurtain();
+        f.menu.scoreOverlay = true; noRoundCurtain(); // Active Tab does not inherit the round curtain.
+    }
+}
+
+D6R_TEST_CASE("Non-final rendered maximum numeric cells and lifecycle labels stay inside their actual text quads") {
+    ReviewMenuFixture f;
+    namespace R = Network::Replication;
+    namespace S = NetworkRoundSummary;
+    for (bool team: {false, true}) for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+        f.lobby();
+        auto &state = *f.menu.runtime.current.canonical;
+        state.phase = R::Phase::RoundSummary; state.currentRoundNumber = 1; state.settings.roundLimit = 2;
+        state.participants.front().connection = R::ConnectionState::Reconnecting;
+        state.players[0].displayName = std::string(64, 'W');
+        state.players[1].displayName = std::string(64, 'M');
+        state.players[1].lifeState = R::LifeState::Departed;
+        state.score.players = {{101}, {102}}; state.score.ranking = {101, 102};
+        for (auto &score: state.score.players) {
+            score.kills = score.assists = score.deaths = std::numeric_limits<std::uint64_t>::max();
+            score.cumulativePoints = std::numeric_limits<std::int64_t>::min();
+        }
+        if (team) { state.players[0].team = state.players[1].team = 1; state.score.teamRanking = {1}; }
+        const auto rows = S::rows(state);
+        const auto layout = S::layout(rows, "Rounds: 1|2", "Round outcome: Pending", size.first, size.second);
+        f.recorder.quads.clear(); f.recorder.draws.clear();
+        f.menu.drawRoundSummary(f.menu.runtime.snapshot(), size.first, size.second);
+        bool marker = false, lifecycle = false;
+        for (const auto &quad: f.recorder.quads) {
+            const auto entry = std::find_if(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(),
+                [&](const auto &e) { return e.texture == quad.material.getTexture(); });
+            if (entry == f.font.fontCache.entryList.end()) continue;
+            const bool numeric = !entry->text.empty() && entry->text.front() == '|';
+            const bool label = entry->text.find("Reconnecting") != std::string::npos || entry->text.find("Departed") != std::string::npos;
+            if (!numeric && !label) continue;
+            D6R_REQUIRE_EQ(32.0f, quad.vertices[2].y - quad.vertices[0].y);
+            D6R_REQUIRE(quad.vertices[0].x >= layout.tableLeft);
+            D6R_REQUIRE(quad.vertices[2].x <= layout.tableLeft + layout.tableWidth);
+            if (numeric) {
+                D6R_REQUIRE_EQ(float(layout.tableLeft + layout.nameWidth), quad.vertices[0].x);
+                D6R_REQUIRE(entry->text.find("-…") != std::string::npos);
+                marker = true;
+            } else {
+                D6R_REQUIRE(quad.vertices[2].x <= layout.tableLeft + layout.nameWidth);
+                D6R_REQUIRE(entry->text.find("…") != std::string::npos); lifecycle = true;
+            }
+        }
+        D6R_REQUIRE(marker && lifecycle);
+    }
 }
 
 D6R_TEST_CASE("Non-final rendered score table retains role actions countdown fixed headings and real ranking input") {

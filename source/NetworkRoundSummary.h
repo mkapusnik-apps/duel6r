@@ -19,6 +19,7 @@ namespace Duel6::NetworkRoundSummary {
     // Read-only, authority-ordered cumulative rows. No awards, sorting, saved
     // persons, round-local deltas, or inferred waiting-player participation.
     bool applies(const Network::Replication::CanonicalState &state);
+    Color curtainColor(const Network::Replication::CanonicalState &state);
     std::vector<Row> rows(const Network::Replication::CanonicalState &state);
 
     struct Layout {

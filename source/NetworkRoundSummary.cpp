@@ -36,16 +36,81 @@ namespace Duel6::NetworkRoundSummary {
                     ? "Reconnecting" : "";
         }
 
-        std::array<std::string, 5> values(const R::ScoreRowState &score) {
+        std::string ratioText(float kills, float deaths) {
             // Preserve Person's float/truncated-hundredths convention, including
             // zero deaths, without narrowing replicated counters to Int32.
-            const float ratio = score.deaths ? float(score.kills) / float(score.deaths) : float(score.kills);
+            const float ratio = deaths ? kills / deaths : kills;
             const auto whole = std::floor(static_cast<long double>(ratio));
             std::ostringstream kd;
             kd << std::fixed << std::setprecision(0) << whole << '.' << std::setw(2) << std::setfill('0')
                << static_cast<int>((ratio - static_cast<float>(whole)) * 100);
+            return kd.str();
+        }
+
+        std::array<std::string, 5> values(const R::ScoreRowState &score) {
             return {std::to_string(score.kills), std::to_string(score.assists), std::to_string(score.deaths),
-                    kd.str(), std::to_string(score.cumulativePoints)};
+                    ratioText(float(score.kills), float(score.deaths)), std::to_string(score.cumulativePoints)};
+        }
+
+        // A validated replicated roster can contain several UInt64 counters.
+        // Keep display-only team sums exact even beyond one machine integer.
+        // Three base-1e9 limbs cover MaxReplicatedPlayers * UInt64::max().
+        struct Total {
+            static constexpr std::uint64_t Base = 1000000000;
+            std::array<std::uint32_t, 3> digits{};
+            void add(std::uint64_t value) {
+                for (auto &digit: digits) {
+                    const auto sum = digit + value % Base;
+                    value = value / Base + sum / Base;
+                    digit = static_cast<std::uint32_t>(sum % Base);
+                }
+            }
+            std::string text() const {
+                std::ostringstream out;
+                bool started = false;
+                for (auto index = digits.size(); index-- > 0;) {
+                    if (!started && digits[index] == 0 && index != 0) continue;
+                    if (started) out << std::setw(9) << std::setfill('0');
+                    out << digits[index]; started = true;
+                }
+                return out.str();
+            }
+            float asFloat() const {
+                long double value = 0;
+                for (auto index = digits.size(); index-- > 0;) value = value * Base + digits[index];
+                return static_cast<float>(value);
+            }
+        };
+        static_assert(R::MaxReplicatedPlayers <= 10000000, "Display aggregate capacity");
+
+        std::string difference(Total positive, Total negative) {
+            const bool below = std::lexicographical_compare(positive.digits.rbegin(), positive.digits.rend(),
+                                                            negative.digits.rbegin(), negative.digits.rend());
+            if (below) std::swap(positive, negative);
+            std::int64_t borrow = 0;
+            for (std::size_t index = 0; index < positive.digits.size(); ++index) {
+                auto digit = std::int64_t(positive.digits[index]) - negative.digits[index] - borrow;
+                borrow = digit < 0 ? 1 : 0;
+                if (borrow) digit += static_cast<std::int64_t>(Total::Base);
+                positive.digits[index] = static_cast<std::uint32_t>(digit);
+            }
+            return (below ? "-" : "") + positive.text();
+        }
+
+        std::array<std::string, 5> teamValues(const std::vector<Row> &rows, std::size_t header,
+                                             const R::CanonicalState &state) {
+            Total kills, assists, deaths, positive, negative;
+            for (auto index = header + 1; index < rows.size(); ++index) {
+                const auto score = std::find_if(state.score.players.begin(), state.score.players.end(), [&](const auto &s) {
+                    return s.playerId == rows[index].playerId;
+                });
+                if (score == state.score.players.end()) continue;
+                kills.add(score->kills); assists.add(score->assists); deaths.add(score->deaths);
+                if (score->cumulativePoints >= 0) positive.add(static_cast<std::uint64_t>(score->cumulativePoints));
+                else negative.add(static_cast<std::uint64_t>(-(score->cumulativePoints + 1)) + 1);
+            }
+            return {kills.text(), assists.text(), deaths.text(), ratioText(kills.asFloat(), deaths.asFloat()),
+                    difference(positive, negative)};
         }
 
         std::vector<std::string> wrap(std::string text, std::size_t columns) {
@@ -73,9 +138,15 @@ namespace Duel6::NetworkRoundSummary {
         return state.phase == R::Phase::RoundSummary && state.settings.roundLimit > state.currentRoundNumber;
     }
 
+    Color curtainColor(const R::CanonicalState &state) {
+        if (!applies(state)) return Color(128, 0, 0, 0);
+        const float remaining = static_cast<float>(std::min<std::uint64_t>(360, state.roundEndCountdown)) / 60.0f;
+        return Color(128, 0, 0, static_cast<Uint8>(200 - 200 * (remaining / D6_GAME_OVER_WAIT)));
+    }
+
     std::vector<Row> rows(const R::CanonicalState &state) {
         std::vector<Row> result;
-        const auto appendPlayers = [&](unsigned team, bool nested, R::ScoreRowState *total) {
+        const auto appendPlayers = [&](unsigned team, bool nested) {
             for (const auto id: state.score.ranking) {
                 const auto player = std::find_if(state.players.begin(), state.players.end(), [&](const auto &p) {
                     return p.playerId == id && (!nested || p.team == team);
@@ -92,15 +163,11 @@ namespace Duel6::NetworkRoundSummary {
                 row.background = Color(0, 0, 255, 178);
                 if (score != state.score.players.end()) {
                     row.values = values(*score);
-                    if (total) {
-                        total->kills += score->kills; total->assists += score->assists;
-                        total->deaths += score->deaths; total->cumulativePoints += score->cumulativePoints;
-                    }
                 }
                 result.push_back(std::move(row));
             }
         };
-        if (state.score.teamRanking.empty()) appendPlayers(0, false, nullptr);
+        if (state.score.teamRanking.empty()) appendPlayers(0, false);
         else {
             static const char *names[] = {"", "Alpha", "Bravo", "Charlie", "Delta"};
             static const Color colors[] = {Color::WHITE, Color::RED, Color::GREEN, Color::YELLOW, Color::MAGENTA};
@@ -111,9 +178,8 @@ namespace Duel6::NetworkRoundSummary {
                 row.nameColor = Color::BLACK; row.background = colors[team].withAlpha(178);
                 const auto header = result.size();
                 result.push_back(std::move(row));
-                R::ScoreRowState total;
-                appendPlayers(team, true, &total);
-                result[header].values = values(total);
+                appendPlayers(team, true);
+                result[header].values = teamValues(result, header, state);
                 for (auto index = header + 1; index < result.size(); ++index)
                     result[index].background = colors[team].withAlpha(178).scale(0.2f);
             }
@@ -125,18 +191,35 @@ namespace Duel6::NetworkRoundSummary {
                   int clientWidth, int clientHeight, std::size_t requestedFirst) {
         Layout result;
         result.columnCharacters = {4, 4, 4, 6, 5};
+        auto desiredColumns = result.columnCharacters;
         int nameCharacters = 0;
+        int minimumNameWidth = GlyphWidth + 5;
         for (const auto &row: rows) {
             nameCharacters = std::max(nameCharacters, int(length(row.name)
                     + (row.lifecycle.empty() ? 0 : length(row.lifecycle) + 3)));
+            minimumNameWidth = std::max(minimumNameWidth,
+                    (1 + int(row.lifecycle.empty() ? 0 : length(row.lifecycle) + 3)) * GlyphWidth + 5);
             for (std::size_t col = 0; col < row.values.size(); ++col)
-                result.columnCharacters[col] = std::max(result.columnCharacters[col], int(row.values[col].size()) + 1);
+                desiredColumns[col] = std::max(desiredColumns[col], int(length(row.values[col])) + 1);
+        }
+        int desiredNumericWidth = 0;
+        for (const auto count: desiredColumns) desiredNumericWidth += count * GlyphWidth;
+        // Local OVER-02: (maximum name + 26) glyphs, 16px outer padding,
+        // and the score strip's additional 5px overhang on either side.
+        result.tableWidth = std::min((nameCharacters + 3) * GlyphWidth + desiredNumericWidth, clientWidth - 74);
+        // First contain names, retaining an indication plus the full lifecycle
+        // suffix. Only then spend the remaining whole glyphs on numeric growth.
+        int extra = (result.tableWidth - minimumNameWidth) / GlyphWidth - 23;
+        bool expanded = true;
+        while (extra > 0 && expanded) {
+            expanded = false;
+            for (std::size_t col = 0; col < desiredColumns.size() && extra > 0; ++col) {
+                if (result.columnCharacters[col] >= desiredColumns[col]) continue;
+                ++result.columnCharacters[col]; --extra; expanded = true;
+            }
         }
         int numericWidth = 0;
         for (const auto count: result.columnCharacters) numericWidth += count * GlyphWidth;
-        // Local OVER-02: (maximum name + 26) glyphs, 16px outer padding,
-        // and the score strip's additional 5px overhang on either side.
-        result.tableWidth = std::min((nameCharacters + 3) * GlyphWidth + numericWidth, clientWidth - 74);
         result.nameWidth = result.tableWidth - numericWidth;
         result.width = std::max(result.tableWidth, int(length(progress)) * GlyphWidth) + 32;
         result.left = (clientWidth - result.width) / 2;
@@ -182,15 +265,20 @@ namespace Duel6::NetworkRoundSummary {
         const auto columns = std::size_t(std::max(0, availablePixels / GlyphWidth));
         const std::string suffix = row.lifecycle.empty() ? "" : " • " + row.lifecycle;
         const auto suffixLength = length(suffix);
+        if (columns <= suffixLength) return clip(suffix, columns);
         return clip(row.name, columns > suffixLength ? columns - suffixLength : 0) + suffix;
     }
 
     std::string numericText(const Row &row, const Layout &layout) {
         std::string text;
         for (std::size_t col = 0; col < row.values.size(); ++col) {
+            const int available = layout.columnCharacters[col] - 1;
+            const auto &value = row.values[col];
+            const std::string visible = int(length(value)) <= available ? value
+                    : !value.empty() && value.front() == '-' ? "-…" : "…";
             text += '|';
-            text.append(std::max(0, layout.columnCharacters[col] - 1 - int(row.values[col].size())), ' ');
-            text += row.values[col];
+            text.append(std::max(0, available - int(length(visible))), ' ');
+            text += visible;
         }
         return text;
     }
