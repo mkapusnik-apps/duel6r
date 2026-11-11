@@ -291,9 +291,16 @@ namespace Duel6::Client {
                     [](const auto &pending, const auto &accepted) {
                         return pending.name == accepted.name && pending.appearance == accepted.appearance;
                     });
-                // Readiness queued for an uncommitted selection is no longer
-                // meaningful. Otherwise retain existing ordered control/actions.
-                if (abandonedEdit) pendingGuestCommands.clear();
+                // Abandon person edits and votes based on that selection, but
+                // retain readiness invalidation for effective local controls.
+                // Filtering keeps those notifications in their original order.
+                if (abandonedEdit) {
+                    pendingGuestCommands.erase(std::remove_if(pendingGuestCommands.begin(), pendingGuestCommands.end(),
+                        [](const auto &payload) {
+                            const auto action = Network::Lifecycle::deserializeParticipantAction(payload);
+                            return !action || action->kind != Network::Lifecycle::ParticipantActionKind::ConfigurationChanged;
+                        }), pendingGuestCommands.end());
+                }
                 players = restored;
                 restoredLocalPlayers = std::move(restored);
                 restoringOwnedConfiguration = false;

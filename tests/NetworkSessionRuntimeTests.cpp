@@ -116,6 +116,8 @@ namespace {
     struct OwnedEditLoss {
         std::atomic<bool> armed{false}, enqueued{false}, release{false}, discarded{false};
         std::atomic<unsigned> clients{0};
+        std::mutex mutex;
+        std::vector<Network::Lifecycle::ParticipantActionKind> acceptedActions;
     };
 
     class LostOwnedEditConnection final : public Server::AdmissionRuntimeConnection {
@@ -137,7 +139,13 @@ namespace {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 return Network::SendResult::Accepted;
             }
-            return connection->send(std::move(payload));
+            const auto action = Network::Lifecycle::deserializeParticipantAction(payload);
+            const auto result = connection->send(std::move(payload));
+            if (result == Network::SendResult::Accepted && action) {
+                std::lock_guard<std::mutex> lock(loss->mutex);
+                loss->acceptedActions.push_back(action->kind);
+            }
+            return result;
         }
         Network::SendResult sendSensitive(std::vector<std::uint8_t> payload) override {
             return connection->sendSensitive(std::move(payload));
@@ -6941,7 +6949,8 @@ D6R_TEST_CASE("NET-VIS committed person recovery preserves ordered control and r
     D6R_REQUIRE(!runtime.restoringOwnedConfiguration && !runtime.takeRestoredLocalPlayers());
 }
 
-D6R_TEST_CASE("NET-VIS lost enqueued person edit restores accepted random appearance before other owned edits") {
+namespace {
+void verifyLostOwnedEditRecovery(bool changeControl) {
     using namespace std::chrono_literals;
     // Keep the real secure adapter owner alive through both admission/reconnect.
     Server::HeadlessServer adapterOwner(Server::ServerConfig{});
@@ -7007,7 +7016,26 @@ D6R_TEST_CASE("NET-VIS lost enqueued person edit restores accepted random appear
     D6R_REQUIRE_EQ(std::string("Unmatched B"), menu.localPlayers[0].name);
     D6R_REQUIRE_EQ(3u, resolutions);
     D6R_REQUIRE(pumpRuntimes(host, guest, observer, 3s, [&] { return loss->enqueued.load(); }));
+    if (changeControl) {
+        D6R_REQUIRE(application.service->getControlsManager().getNumAvailable() > 1);
+        menu.cycleControl(0, 1); // Effective controls survive even when the person edit does not.
+        D6R_REQUIRE(menu.localPlayers[0].controls != a.controls);
+        D6R_REQUIRE(menu.localPlayers[0].controlDescription != a.controlDescription);
+    }
+    const auto retainedControls = menu.localPlayers[0];
     guest.setReady(true); // Must not replay readiness based on the discarded edit.
+    {
+        std::lock_guard<std::mutex> lock(guest.mutex);
+        D6R_REQUIRE_EQ(changeControl ? 3u : 2u, guest.pendingGuestCommands.size());
+        const auto edit = Network::HostComposition::deserialize(guest.pendingGuestCommands.front());
+        D6R_REQUIRE(edit && edit->kind == Network::HostComposition::Kind::UpdateOwnedPersons);
+        if (changeControl) {
+            const auto changed = Network::Lifecycle::deserializeParticipantAction(guest.pendingGuestCommands[1]);
+            D6R_REQUIRE(changed && changed->kind == Network::Lifecycle::ParticipantActionKind::ConfigurationChanged);
+        }
+        const auto ready = Network::Lifecycle::deserializeParticipantAction(guest.pendingGuestCommands.back());
+        D6R_REQUIRE(ready && ready->kind == Network::Lifecycle::ParticipantActionKind::Ready);
+    }
     loss->release = true;
     // Deliberately do not call menu.update: reconnect may complete between UI
     // frames. The accepted configuration must still be delivered durably.
@@ -7028,20 +7056,47 @@ D6R_TEST_CASE("NET-VIS lost enqueued person edit restores accepted random appear
     D6R_REQUIRE(menu.localPlayers[0].appearance == a.appearance);
     D6R_REQUIRE_EQ(c.name, menu.localPlayers[1].name);
     D6R_REQUIRE(menu.localPlayers[1].appearance == c.appearance);
-    D6R_REQUIRE_EQ(a.controls, menu.localPlayers[0].controls);
-    D6R_REQUIRE_EQ(a.controlDescription, menu.localPlayers[0].controlDescription);
+    D6R_REQUIRE_EQ(retainedControls.controls, menu.localPlayers[0].controls);
+    D6R_REQUIRE_EQ(retainedControls.controlDescription, menu.localPlayers[0].controlDescription);
     D6R_REQUIRE_EQ(3u, resolutions);
     D6R_REQUIRE_EQ(std::vector<std::string>({a.name, c.name}), menu.hostSetup.localPlayerNames);
     D6R_REQUIRE_EQ(std::vector<PlayerAppearance>({a.appearance, c.appearance}), menu.hostSetup.localPlayerAppearances);
+    if (changeControl) {
+        D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+            return everyParticipantReady(host.snapshot(), false)
+                && everyParticipantReady(guest.snapshot(), false)
+                && everyParticipantReady(observer.snapshot(), false);
+        }));
+    }
     D6R_REQUIRE(!pumpRuntimes(host, guest, observer, 250ms, [] { return false; }));
     D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Lobby);
     D6R_REQUIRE(!participantReady(host.snapshot(), participant));
-    D6R_REQUIRE(participantReady(host.snapshot(), hostParticipant));
-    D6R_REQUIRE(participantReady(host.snapshot(), observerParticipant));
+    D6R_REQUIRE_EQ(!changeControl, participantReady(host.snapshot(), hostParticipant));
+    D6R_REQUIRE_EQ(!changeControl, participantReady(host.snapshot(), observerParticipant));
     {
         std::lock_guard<std::mutex> lock(guest.mutex);
         D6R_REQUIRE(guest.pendingGuestCommands.empty());
         D6R_REQUIRE(guest.players[0].appearance == a.appearance);
+        D6R_REQUIRE_EQ(retainedControls.controls, guest.players[0].controls);
+        D6R_REQUIRE_EQ(retainedControls.controlDescription, guest.players[0].controlDescription);
+    }
+    {
+        std::lock_guard<std::mutex> lock(loss->mutex);
+        const std::vector<Network::Lifecycle::ParticipantActionKind> expected = changeControl
+            ? std::vector{Network::Lifecycle::ParticipantActionKind::ConfigurationChanged}
+            : std::vector<Network::Lifecycle::ParticipantActionKind>{};
+        D6R_REQUIRE_EQ(expected, loss->acceptedActions);
+    }
+    if (changeControl) {
+        guest.setReady(true); // A new vote follows, never precedes, retained control invalidation.
+        D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+            return participantReady(host.snapshot(), participant)
+                && !participantReady(host.snapshot(), hostParticipant)
+                && !participantReady(host.snapshot(), observerParticipant);
+        }));
+        std::lock_guard<std::mutex> lock(loss->mutex);
+        D6R_REQUIRE_EQ(std::vector({Network::Lifecycle::ParticipantActionKind::ConfigurationChanged,
+                                   Network::Lifecycle::ParticipantActionKind::Ready}), loss->acceptedActions);
     }
 
     menu.availablePersons = {c.name, "Unmatched D"};
@@ -7069,6 +7124,15 @@ D6R_TEST_CASE("NET-VIS lost enqueued person edit restores accepted random appear
         return host.snapshot().journey == Client::NetworkJourney::Inactive
             && guest.snapshot().journey == Client::NetworkJourney::HostEnded;
     }));
+}
+}
+
+D6R_TEST_CASE("NET-VIS lost enqueued person edit restores accepted random appearance before other owned edits") {
+    verifyLostOwnedEditRecovery(false);
+}
+
+D6R_TEST_CASE("NET-VIS lost person edit retains actual control change readiness invalidation and command order") {
+    verifyLostOwnedEditRecovery(true);
 }
 
 D6R_TEST_CASE("NET-VIS real owned configuration retains no-op appearance and rejects independent edits without changing peers") {

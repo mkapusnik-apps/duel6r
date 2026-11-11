@@ -39,6 +39,27 @@ def seed_names(root, names):
     }, ensure_ascii=False), encoding="utf-8")
 
 
+def seed_startup_fixtures(root, item, recipe):
+    """Disclosed pre-start data affects only the verified per-client copy."""
+    profiles = item.get("profile_fixtures", {})
+    require(isinstance(profiles, dict), "invalid profile fixtures")
+    for name, skin in profiles.items():
+        require(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name),
+                "profile fixture name must be one safe path component")
+        require(isinstance(skin, dict), "profile fixture skin must be an object")
+        destination = root / "profiles" / name
+        destination.mkdir()  # Never replace a profile supplied by the artifact.
+        (destination / "skin.json").write_text(json.dumps(skin, indent=2) + "\n", encoding="utf-8")
+        shutil.copyfile(root / "profiles/sample/sounds.json", destination / "sounds.json")
+    enabled = recipe.get("enable_gun16", False)
+    require(type(enabled) is bool, "enable_gun16 must be boolean")
+    if enabled:
+        path = root / "data/config.script"
+        content = path.read_text(encoding="utf-8")
+        require(content.count("gun 16 false") == 1, "expected one existing disabled gun 16 setting")
+        path.write_text(content.replace("gun 16 false", "gun 16 true", 1), encoding="utf-8")
+
+
 def expand(steps, macros=None, stack=()):
     """User-supplied setup macros are finite data, never shell/code or gameplay policies."""
     macros = macros or {}
@@ -381,6 +402,7 @@ def execute(runtime, identity, recipe, output, *, operator=False):
             shutil.copytree(runtime, root)
             verify_runtime(root, identity)
             seed_names(root, item["names"])
+            seed_startup_fixtures(root, item, recipe)
             env = dict(PATH=os.environ["PATH"], LANG="C.UTF-8",
                        SDL_AUDIODRIVER="dummy", LIBGL_ALWAYS_SOFTWARE="1", HOME=str(output / (name + "-home")))
             Path(env["HOME"]).mkdir()
