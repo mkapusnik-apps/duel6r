@@ -615,9 +615,9 @@ D6R_TEST_CASE("UX-NET native frames preserve scaled press activation fields sele
         menu.textInputEvent(TextInputEvent("disposable"));
         clear(); menu.render();
         textPosition("**********_");
-        D6R_REQUIRE(fill(275, 82, 300, 32, Color(192))); // Disabled Start still has a surface and boundary.
+        D6R_REQUIRE(fill(117, 82, 300, 32, Color(192))); // Disabled Start still has a surface and boundary.
         D6R_REQUIRE(std::any_of(recorder.frames.begin(), recorder.frames.end(), [](const auto &frame) {
-            return frame.position.x == 275 && frame.position.y == 82 && frame.width == 1;
+            return frame.position.x == 117 && frame.position.y == 82 && frame.width == 1;
         }));
         menu.password.clear();
     }
@@ -1501,6 +1501,74 @@ D6R_TEST_CASE("NET-ENTRY common Direct return retains one endpoint and clears sc
     menu.focus = 3; f.key(SDLK_RETURN);
     D6R_REQUIRE(menu.address == "operator.example.test" && menu.port == "45678");
     D6R_REQUIRE(menu.password.empty());
+}
+
+D6R_TEST_CASE("NET-02 editable footer keeps one action row conditional feedback and matching input bounds") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    const int footer = menu.setupFields() + static_cast<int>(menu.localPlayers.size()) * 2;
+    const auto click = [&](int x, int y) {
+        const auto &screen = f.video.getScreen();
+        const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850,
+                                                   float(screen.getClientHeight()) / 700));
+        const int tx = (screen.getClientWidth() - int(850 * scale)) / 2;
+        const int ty = (screen.getClientHeight() - int(700 * scale)) / 2;
+        menu.mouseButtonEvent(MouseButtonEvent(tx + int(x * scale), ty + int(y * scale),
+            SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+    };
+    const auto omitted = [&] {
+        D6R_REQUIRE(!f.text("Listing does not guarantee reachability. Direct play remains available."));
+        D6R_REQUIRE(!f.text("Ready to start a player-hosted session."));
+    };
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720},
+                           std::pair{1280, 900}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 2;
+        menu.port = "26660"; menu.password = "masked"; menu.pointerHeld = false;
+        f.draw(); omitted();
+        D6R_REQUIRE(f.text("******_") && f.text("Password optional"));
+        D6R_REQUIRE(f.text("Local players: 1 • Lobby 1–15 • Match 1–15"));
+        D6R_REQUIRE(f.text("Start session") && f.text("Back"));
+        // Equal surfaces, a centered pair and a 16px gap; focus adds 2px outside.
+        for (int left: {117, 433})
+            D6R_REQUIRE(std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &q) {
+                return q.material.getTexture() == Texture{} && q.material.getColor() == Color(192)
+                    && q.vertices[0].x == left && q.vertices[0].y == 82
+                    && q.vertices[2].x == left + 300 && q.vertices[2].y == 114;
+            }));
+        D6R_REQUIRE_EQ(850, 117 + 433 + 300);
+        std::string reason = "stale";
+        D6R_REQUIRE(menu.setupValid(reason) && reason.empty());
+        menu.port.clear(); f.draw(); omitted();
+        D6R_REQUIRE(f.text("Enter a valid port (1–65535)."));
+        D6R_REQUIRE(f.frame(117, 82, 300, 32, 1)); // Flat disabled Start.
+        click(250, 96);
+        D6R_REQUIRE_EQ(2, menu.focus);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        menu.focus = 0; menu.enterText("26660"); f.draw(); omitted();
+        D6R_REQUIRE(!f.text("Enter a valid port (1–65535)."));
+        menu.passwordFeedback = "Use valid UTF-8, no control characters and at most 128 bytes.";
+        f.draw(); D6R_REQUIRE(f.text(menu.passwordFeedback)); omitted();
+        menu.passwordFeedback.clear();
+        // Start dispatch can be observed without launching a service: the disclosed
+        // invalid composition is rejected by the existing serializer before startup.
+        menu.hostSetup.mode = "invalid-test-mode"; menu.hostSetup.localPlayerNames.clear();
+        click(425, 96); click(425, 50); // New gap and retired Back target are inert.
+        D6R_REQUIRE_EQ(0, menu.focus);
+        D6R_REQUIRE(menu.hostSetup.localPlayerNames.empty());
+        click(250, 96);
+        D6R_REQUIRE_EQ(std::size_t(1), menu.hostSetup.localPlayerNames.size());
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        menu.focus = footer; f.key(SDLK_TAB); D6R_REQUIRE_EQ(footer + 1, menu.focus);
+        f.key(SDLK_RETURN); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 0;
+        click(600, 96); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+    }
+    // Join retains its original stacked actions and idle/status copy.
+    menu.setupScreen = NetworkMenu::SetupScreen::Join; menu.focus = 0;
+    menu.password.clear(); f.draw(); D6R_REQUIRE(f.text("Ready to connect."));
+    f.video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
+    click(425, 50); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
 }
 
 D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choices and exposes recovery") {

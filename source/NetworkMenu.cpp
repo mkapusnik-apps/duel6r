@@ -37,6 +37,11 @@ namespace Duel6 {
         constexpr std::size_t InterfaceVisibleRows = 3;
         constexpr Int32 LobbyReadyBottom = 164;
         constexpr Float32 CanvasMaximumScale = 1.35f;
+        struct SetupFooterBounds {
+            Int32 primaryX, primaryY, backX, backY;
+        };
+        constexpr SetupFooterBounds HostSetupFooter{117, 82, 433, 82};
+        constexpr SetupFooterBounds JoinSetupFooter{275, 82, 275, 38};
 #ifdef D6_MACOS_PLATFORM
         constexpr const char *SetupScope = "LAN-first • Session only • Optional scripts disabled";
 #else
@@ -764,7 +769,7 @@ namespace Duel6 {
         if (invalid != localPlayers.end()) {
             reason = "Assign a valid control to every local player."; return false;
         }
-        reason = setupScreen == SetupScreen::Host ? "Ready to start a player-hosted session."
+        reason = setupScreen == SetupScreen::Host ? ""
             : boundSelection() && !browserSelection->passwordRequired && password.empty()
                 ? "The host confirms availability when you connect." : "Ready to connect.";
         return true;
@@ -1042,11 +1047,12 @@ namespace Duel6 {
                 }
             }
             const int footer = playerBase + static_cast<int>(localPlayers.size()) * 2;
+            const auto &bounds = setupScreen == SetupScreen::Host ? HostSetupFooter : JoinSetupFooter;
             std::string reason;
-            if (setupValid(reason) && pointerInside(x, y, 275, 82, 300, 32)) {
+            if (setupValid(reason) && pointerInside(x, y, bounds.primaryX, bounds.primaryY, 300, 32)) {
                 focus = footer; activate(); return;
             }
-            if (pointerInside(x, y, 275, 38, 300, 32)) { focus = footer + 1; activate(); return; }
+            if (pointerInside(x, y, bounds.backX, bounds.backY, 300, 32)) { focus = footer + 1; activate(); return; }
         } else if (snap.journey == Client::NetworkJourney::Starting) {
             const Int32 cancelY = !snap.host && setupScreen == SetupScreen::Join ? 38 : 300;
             if (pointerInside(x, y, 275, cancelY, 300, 32)) { focus = 0; activate(); return; }
@@ -2874,7 +2880,8 @@ namespace Duel6 {
             drawText(50, 182, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 1–15");
             if (boundSelection() && !boundDedicated())
                 drawText(470, 182, "Session: " + browserSelection->sessionId);
-            drawText(50, 160, browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "first-round"
+            if (setupScreen == SetupScreen::Join)
+                drawText(50, 160, browserSelection && browserSelection->phase == "first-round"
                 ? "Round 1 in progress. You will play immediately if admitted."
                 : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "started"
                     ? "Match in progress. Your players join next round if admitted."
@@ -2890,8 +2897,10 @@ namespace Duel6 {
                     ? "Endpoint-only first contact does not authenticate host identity."
                     : "The host confirms availability when you connect.");
             const int footer = playerBase + static_cast<int>(localPlayers.size()) * 2;
-            drawAction(82, setupScreen == SetupScreen::Host ? "Start session" : "Connect", focus == footer, valid);
-            drawAction(38, "Back", focus == footer + 1);
+            const auto &bounds = setupScreen == SetupScreen::Host ? HostSetupFooter : JoinSetupFooter;
+            drawButton(bounds.primaryX, bounds.primaryY, 300, 32,
+                       setupScreen == SetupScreen::Host ? "Start session" : "Connect", focus == footer, valid);
+            drawButton(bounds.backX, bounds.backY, 300, 32, "Back", focus == footer + 1);
             if (setupScreen == SetupScreen::Host && hostAddressSelectorOpen) {
                 drawPanel(224, 202, 586, 252, "LISTENING INTERFACE");
                 const auto checkbox = [&](Int32 bottom, const std::string &label, bool checked, bool selected, bool enabled) {
