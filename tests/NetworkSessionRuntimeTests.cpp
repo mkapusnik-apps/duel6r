@@ -6915,6 +6915,32 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
     }
 }
 
+D6R_TEST_CASE("NET-VIS committed person recovery preserves ordered control and readiness commands") {
+    Client::NetworkSessionRuntime runtime;
+    runtime.current.localParticipantId = 17;
+    auto committed = player("Committed B"); committed.appearance = Test::appearance(4);
+    runtime.players = {committed}; runtime.ownedPlayerBindings = {{301, 0}};
+    auto state = canonical(91, Network::Replication::Phase::Lobby);
+    state.participants = {{17, false, Network::Replication::ConnectionState::Connected, false, {301}}};
+    Network::Replication::PlayerState slot;
+    slot.playerId = 301; slot.ownerParticipantId = 17;
+    slot.displayName = committed.name; slot.appearance = committed.appearance;
+    state.players = {slot};
+    runtime.current.canonical = state;
+    runtime.localConfigurationChanged(); runtime.setReady(true);
+    const auto pending = runtime.pendingGuestCommands;
+    runtime.current.journey = Client::NetworkJourney::Reconnecting;
+    runtime.restoringOwnedConfiguration = true;
+    runtime.applyCanonical(state);
+    D6R_REQUIRE_EQ(pending, runtime.pendingGuestCommands);
+    const auto restored = runtime.takeRestoredLocalPlayers();
+    D6R_REQUIRE(restored && restored->front().name == committed.name);
+    D6R_REQUIRE(restored->front().appearance == committed.appearance);
+    D6R_REQUIRE(!runtime.takeRestoredLocalPlayers());
+    runtime.reset();
+    D6R_REQUIRE(!runtime.restoringOwnedConfiguration && !runtime.takeRestoredLocalPlayers());
+}
+
 D6R_TEST_CASE("NET-VIS lost enqueued person edit restores accepted random appearance before other owned edits") {
     using namespace std::chrono_literals;
     // Keep the real secure adapter owner alive through both admission/reconnect.

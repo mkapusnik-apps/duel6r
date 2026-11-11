@@ -192,9 +192,8 @@ namespace Duel6::Client {
                 if (current.journey == NetworkJourney::Cancelling) return;
                 if (journey == Network::Lifecycle::GuestJourney::Reconnecting) {
                     if (!restoringOwnedConfiguration) {
-                        // Enqueue is not a service commit. Abandon commands from
-                        // the old binding, including readiness based on a lost edit.
-                        pendingGuestCommands.clear();
+                        // Resolve enqueue versus commit from the fresh recovery
+                        // snapshot before replaying commands on the next binding.
                         restoringOwnedConfiguration = true;
                     }
                     if (current.journey == NetworkJourney::Reconnecting
@@ -288,7 +287,13 @@ namespace Duel6::Client {
                 found[binding->second] = true;
             }
             if (complete && std::all_of(found.begin(), found.end(), [](bool value) { return value; })) {
-                pendingGuestCommands.clear();
+                const bool abandonedEdit = !std::equal(players.begin(), players.end(), restored.begin(),
+                    [](const auto &pending, const auto &accepted) {
+                        return pending.name == accepted.name && pending.appearance == accepted.appearance;
+                    });
+                // Readiness queued for an uncommitted selection is no longer
+                // meaningful. Otherwise retain existing ordered control/actions.
+                if (abandonedEdit) pendingGuestCommands.clear();
                 players = restored;
                 restoredLocalPlayers = std::move(restored);
                 restoringOwnedConfiguration = false;
