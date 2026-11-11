@@ -56,12 +56,12 @@ namespace Duel6 {
         // Shared visual/pointer bounds and cyclic traversal: Refresh, rows,
         // paging, footer, then Refresh (rows are the implicit first anchor).
         constexpr BrowserAction BrowserActions[] = {
-            {4, 28, 68, 252, 24, "Previous page"},
-            {5, 560, 68, 256, 24, "Next page"},
-            {1, 28, 28, 252, 32, "Join selected"},
-            {3, 296, 28, 252, 32, "Direct connect"},
-            {6, 564, 28, 252, 32, "Back"},
-            {2, 710, 518, 112, 24, "Refresh"}
+            {4, 32, 72, 250, 24, "Previous page"},
+            {5, 568, 72, 250, 24, "Next page"},
+            {1, 32, 32, 250, 32, "Join selected"},
+            {3, 300, 32, 250, 32, "Direct connect"},
+            {6, 568, 32, 250, 32, "Back"},
+            {2, 706, 518, 112, 24, "Refresh"}
         };
 
         Float32 canvasScale(Int32 width, Int32 height) {
@@ -994,7 +994,7 @@ namespace Duel6 {
         } else if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
             const auto &rows = browser.result().listings;
             for (int row = 0; browser.available() && row < BrowserVisibleRows && browserScroll + row < static_cast<int>(rows.size()); ++row)
-                if (pointerInside(x, y, 30, 466 - row * 22, 790, 22)) {
+                if (pointerInside(x, y, 34, 466 - row * 22, 782, 22)) {
                     selectedListing = rows[browserScroll + row].id;
                     selectedSessionIdentity = rows[browserScroll + row].sessionId; focus = 0; return;
                 }
@@ -2119,17 +2119,17 @@ namespace Duel6 {
         const auto &rows = browser.result().listings;
         const bool visibleRows = browser.available();
         const bool replacement = !browser.loading() && (!visibleRows || rows.empty());
-        if (browser.loading()) drawClippedText(30, 516,
-            visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 83);
-        else if (visibleRows && browser.stale()) drawClippedText(30, 516,
-            "Directory unavailable. Previous results may be out of date.", 83);
-        renderer.quadXY(Vector(28, 490), Vector(794, 20), Color(170));
-        drawText(30, 494, "Session / endpoint"); drawText(286, 494, "Hosting");
+        if (browser.loading()) drawClippedText(34, 516,
+            visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 82);
+        else if (visibleRows && browser.stale()) drawClippedText(34, 516,
+            "Directory unavailable. Previous results may be out of date.", 82);
+        renderer.quadXY(Vector(32, 490), Vector(786, 20), Color(170));
+        drawText(34, 494, "Session / endpoint"); drawText(286, 494, "Hosting");
         drawText(398, 494, "Players"); drawText(470, 494, "Phase");
         drawText(574, 494, "Access"); drawText(670, 494, "Admission");
-        drawField(28, 248, 794, 242);
+        drawField(32, 248, 786, 242);
         if (replacement) {
-            drawText(36, 470, !visibleRows
+            drawText(40, 470, !visibleRows
                 ? "Directory unavailable. Direct connection and local play are still available."
                 : browser.result().nextCursor.empty()
                     ? "No active sessions listed. You can host a session or connect directly."
@@ -2141,10 +2141,10 @@ namespace Duel6 {
         for (int index = browserScroll; visibleRows && index < static_cast<int>(rows.size()) && index < browserScroll + BrowserVisibleRows; ++index) {
             const auto &row = rows[index]; const Int32 y = 470 - (index - browserScroll) * 22;
             const bool selection = row.id == selectedListing;
-            if (selection) renderer.quadXY(Vector(30, y - 4), Vector(790, 22), Color(0, 0, 200));
+            if (selection) renderer.quadXY(Vector(34, y - 4), Vector(782, 22), Color(0, 0, 200));
             const Color rowColor = selection ? Color::WHITE : Color::BLACK;
-            drawClippedText(34, y, (selection ? "> " : "  ") + row.endpoint.host + ":" + std::to_string(row.endpoint.port)
-                , 31, rowColor);
+            drawClippedText(38, y, (selection ? "> " : "  ") + row.endpoint.host + ":" + std::to_string(row.endpoint.port)
+                , 30, rowColor);
             drawText(286, y, row.dedicated() ? "Dedicated" : "Player-hosted", rowColor);
             drawText(398, y, std::to_string(row.players) + " / " + std::to_string(row.capacity), rowColor);
             drawText(470, y, directoryPhase(row), rowColor);
@@ -2152,7 +2152,7 @@ namespace Duel6 {
             const auto admission = row.admissionState();
             drawText(670, y, browser.stale() || browser.loading() ? "Unconfirmed" : admission == "busy" ? "Busy"
                 : admission == "closed" ? "Closed" : row.players >= row.capacity ? "Full" : "Open", rowColor);
-            drawFocusKeyline(30, y - 4, 790, 22, selection && focus == 0);
+            drawFocusKeyline(34, y - 4, 782, 22, selection && focus == 0);
         }
         std::string reason = selected ? ""
             : !visibleRows ? "Refresh successfully before joining. Availability unconfirmed."
@@ -2170,21 +2170,21 @@ namespace Duel6 {
         if (browser.stale() || browser.loading()) reason = "Refresh successfully before joining. Availability unconfirmed.";
         std::vector<std::string> details;
         if (selected) {
-            appendWrapped(details, "Session: " + selected->sessionId + " • Mode: " + selected->mode, 97);
-            appendWrapped(details, "Endpoint: " + selected->endpoint.host + ":" + std::to_string(selected->endpoint.port), 97);
+            appendWrapped(details, "Session: " + selected->sessionId + " • Mode: " + selected->mode, 96);
+            appendWrapped(details, "Endpoint: " + selected->endpoint.host + ":" + std::to_string(selected->endpoint.port), 96);
         }
-        appendWrapped(details, reason, 97);
+        appendWrapped(details, reason, 96);
         if (selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host) == Network::Trust::EndpointScope::Loopback) {
-            appendWrapped(details, "Same-machine endpoint. Only clients on the host machine can connect.", 97);
-            appendWrapped(details, "Loopback address; not verified as the advertised host on this machine.", 97);
+            appendWrapped(details, "Same-machine endpoint. Only clients on the host machine can connect.", 96);
+            appendWrapped(details, "Loopback address; not verified as the advertised host on this machine.", 96);
         }
-        renderer.frame(Vector(28, 108), Vector(794, 128), 1.0f, Color::BLACK);
+        renderer.frame(Vector(32, 108), Vector(786, 128), 1.0f, Color::BLACK);
         for (std::size_t index = 0; index < details.size(); ++index)
-            drawText(36, 212 - static_cast<Int32>(index) * 18, details[index]);
+            drawText(40, 212 - static_cast<Int32>(index) * 18, details[index]);
         const bool pagination = browser.hasPrevious() || !browser.result().nextCursor.empty();
         if (pagination) {
             const std::string page = "Page " + std::to_string(browser.pageNumber());
-            drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 72, page);
+            drawText(425 - static_cast<Int32>(utf8Length(page)) * 4, 76, page);
         }
         for (const auto &action: BrowserActions) {
             if (!pagination && (action.focus == 4 || action.focus == 5)) continue;

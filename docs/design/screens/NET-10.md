@@ -10,6 +10,8 @@ States retain NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, NET-10
 
 The [unified presentation](../../design.md#unified-network-presentation) applies. Inline empty/error presentation, upper Refresh, and the single-row footer supersede the grey list replacement and lower Refresh/two-row footer. Six columns, selected details, reserved paging, and bound setup remain.
 
+The Browse window is the existing raised panel at (24, 24), 802 by 544 logical pixels, not the surrounding 850 by 700 menu canvas. Keep that panel and its title chrome unchanged. Body components must stay at least 8 logical pixels inside its outer left, right, and bottom edges: four more than the former 4-pixel inset. This leaves 6 pixels inside its 2-pixel bevel, or 4 pixels when a 2-pixel outer focus keyline is present. Keep the existing top allocation below the title; add no new panel, decorative space, or text-size change.
+
 - **UX-NET-10-001** BROWSE SESSIONS must remain above the reserved directory-feedback allocation without `Sessions listed` on successful results.
 - **UX-NET-10-002** The table must retain its inset white body and fixed grey heading strip.
 - **UX-NET-10-003** Row selection must retain its selection fill/text, textual marker, and separate focus outline.
@@ -26,21 +28,21 @@ The [unified presentation](../../design.md#unified-network-presentation) applies
 
 Approximate column widths remain 256, 112, 72, 104, 96, and 144 logical pixels. Preserve standard metrics, fixed-height rows, full-row pointer targets, and the table/details relationship. A row count must not take precedence over required detail readability.
 
-On the existing logical canvas, keep the heading strip at (28, 490), 794 by 20. Extend the list body downward to (28, 248), 794 by 242, showing ten rows instead of eight at the existing 22-logical-pixel pitch. Use the released caption/footer space, not smaller text or narrower columns. Place the detail border at (28, 108), 794 by 128. Wrapped values, necessary eligibility explanations, and ongoing/final-round context must stay inside its padding without covering paging or actions. These bounds apply to results, empty, and unavailable variants; hidden selected metadata must remain hidden.
+On the existing logical canvas, inset the heading strip to (32, 490), 786 by 20, and the list body to (32, 248), 786 by 242. Preserve ten visible rows at the existing 22-logical-pixel pitch, all six headings, and the current column hierarchy. Only edge space narrows; do not reduce text or row height. Place the detail border at (32, 108), 786 by 128. Keep its 8-pixel inner padding and 12-pixel list separation; move its text origin 4 pixels right and fit wrapped values to the narrower inner width. Necessary eligibility explanations and ongoing/final-round context must stay inside the padding without covering paging or actions. These bounds apply to results, empty, and unavailable variants; hidden selected metadata must remain hidden.
 
 ## Upper Refresh and single-row footer
 
 These values use the existing 850 by 700 logical canvas and bottom-left renderer origin. SVG coordinates are top-left structural allocation.
 
-- **UX-NET-10-042** Refresh must occupy (710, 518), 112 by 24 logical pixels.
-- Refresh must retain right edge 822 and an 8-logical-pixel gap above header top 510.
+- **UX-NET-10-042** Refresh must occupy (706, 518), 112 by 24 logical pixels: 4 pixels left of its former position, with unchanged vertical allocation and size.
+- Refresh must retain right edge 818 and an 8-logical-pixel gap above header top 510.
 - Its 2-logical-pixel outer focus keyline must retain 6 logical pixels of clearance from the header and title strip at 550.
-- Loading and age-stale feedback must retain their left origin and at least 8 logical pixels of clearance from the Refresh focus keyline.
-- The footer under UX-NET-10-008 must show Join selected, Direct connect, and Back at (28, 28), (296, 28), and (564, 28), respectively: one existing action row, or 40 logical pixels, below their former positions.
-- Each footer action must measure 252 by 32 logical pixels with 16-logical-pixel gaps.
+- Loading and age-stale feedback must move their left origin 4 logical pixels right and keep at least 8 logical pixels of clearance from the Refresh focus keyline.
+- The footer under UX-NET-10-008 must show Join selected, Direct connect, and Back at (32, 32), (300, 32), and (568, 32), respectively. It remains the lowered single row, moved up only 4 pixels for the bottom inset.
+- Each footer action must measure 250 by 32 logical pixels with 18-logical-pixel gaps, fitting the inset width without reducing caption size.
 - Captions must remain centered at the standard 16-logical-pixel text size.
 - Whole button rectangles must remain pointer targets with current pressed, disabled, focus, and canvas-scaling behavior.
-- The former lower Refresh action must not remain as a separate affordance or activation target. Direct connect must occupy its approved single-row footer bounds. Conditional paging must also move down 40 logical pixels, retaining its horizontal allocation and sizes: Previous page at (28, 68), 252 by 24, Next page at (560, 68), 256 by 24, and the centered current-page label between them. Former footer bounds must not retain duplicate Join selected, Direct connect, or Back targets.
+- The former lower Refresh action must not remain as a separate affordance or activation target. Direct connect must occupy its approved single-row footer bounds. Conditional paging must keep the 8-pixel gap above that row: Previous page at (32, 72) and Next page at (568, 72), each 250 by 24, with the centered current-page label between them moved up 4 pixels. Former bounds must not retain duplicate action targets.
 
 Forward traversal must cycle Refresh → table → Previous page → Next page → Join selected → Direct connect → Back → Refresh. Reverse traversal must reverse this cycle. Both must skip hidden or disabled browser controls under existing eligibility.
 
@@ -107,7 +109,7 @@ A generic Selected session label is permitted without retained metadata. A retry
 - **UX-NET-10-043** Known later-match details must show `Match in progress. Your players join next round if admitted.`; known final-round details must show `Final round in progress. You may not play in this match if admitted.`; unknown context must not promise immediate spawn.
 - Selected details must retain full endpoint, identity/mode, protection meaning, and necessary state-dependent feedback. Every browser state must omit `The host confirms availability when you connect.` without replacement text. Authority still follows the functional contract; bound NET-03 guidance remains unchanged.
 - **UX-NET-10-046** The browser must omit `A listing does not guarantee reachability.` in every state without replacement text.
-- The existing `LAN-first.` text and its position must remain unchanged.
+- The existing `LAN-first.` text and vertical position must remain unchanged; the common horizontal inset applies to its placement only, without introducing absent copy.
 - Context must wrap or use existing scrolling before it covers paging or the footer.
 - **UX-NET-10-044** The results representative must pair a selected protected ongoing Open session with a genuinely completed Closed session and mixed-hosting context.
 - **UX-NET-10-045** Started or Password must not imply Closed; joining must follow product-authorized Admission and existing freshness/capability checks.
@@ -135,4 +137,4 @@ Check single/multiple pages, refresh-driven pagination changes, hidden input exc
 
 Both selected hosting modes must retain immutable targets and protection-aware Password focus. All joining paths must use the same validated availability, freshness, identity, capability, and admission checks. Stills do not establish those behaviors, security, leases, or lifecycle authority.
 
-The [current browser layout matrix](../screenshots/README.md#net-10-current-layout-matrix) owns the affected NET-10 results, NET-10-E empty, and NET-10-U unavailable representatives, plus selected dedicated-idle coverage, at 1280 by 900. Earlier copy-removal images retain their original scope, not conformance with the changed allocation. Do not refresh gameplay, NET-03, or historical unsupported-platform images for this layout-only refinement.
+The [current inner-padding matrix](../screenshots/README.md#net-10-current-inner-padding-matrix) owns the affected NET-10 results, NET-10-E empty, and NET-10-U unavailable representatives at 1280 by 900. Reuse the prior dedicated-idle supplement for its unchanged copy/state scope, not as evidence of the new outer inset. Do not refresh gameplay, NET-03, or historical unsupported-platform images for this layout-only refinement.
