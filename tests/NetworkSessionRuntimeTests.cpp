@@ -1592,7 +1592,7 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
     f.key(SDLK_DOWN); f.key(SDLK_DOWN); f.key(SDLK_SPACE);
     D6R_REQUIRE(menu.hostAddressSelectorOpen && !menu.listening.contains("10.1.2.3"));
     D6R_REQUIRE_EQ(std::string("Explicit: 2 addresses"), menu.listeningSummary());
-    f.click(425, 94); D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    f.click(267, 94); D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
     f.key(SDLK_ESCAPE); D6R_REQUIRE(!menu.hostAddressSelectorOpen); D6R_REQUIRE_EQ(1, menu.focus);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.listening.selected.size() == 2);
     f.key(SDLK_RETURN); f.key(SDLK_SPACE); D6R_REQUIRE(menu.listening.all);
@@ -2811,21 +2811,22 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
     auto &menu = f.menu;
     for (auto screen: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
         menu.setupScreen = screen; menu.port.clear();
+        const int startX = screen == NetworkMenu::SetupScreen::Host ? 117 : 275;
         const int startFocus = menu.setupFields() + 2;
         menu.focus = startFocus - 1;
         controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
         D6R_REQUIRE_EQ(startFocus, menu.focus); // Traversal still reaches disabled Start/Connect.
-        f.draw(); D6R_REQUIRE(f.frame(275, 82, 300, 32, 1)); D6R_REQUIRE(f.frame(273, 80, 304, 36, 2));
+        f.draw(); D6R_REQUIRE(f.frame(startX, 82, 300, 32, 1)); D6R_REQUIRE(f.frame(startX - 2, 80, 304, 36, 2));
         const std::string caption = screen == NetworkMenu::SetupScreen::Host ? "Start session" : "Connect";
         D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(caption + " (disabled)"));
-        f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(425, 98);
+        f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(startX + 150, 98);
         controller.pulse(SDL_CONTROLLER_BUTTON_A);
         D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
         D6R_REQUIRE_EQ(startFocus, menu.focus); D6R_REQUIRE(!menu.runtime.supervisor);
         f.key(SDLK_UP); D6R_REQUIRE_EQ(startFocus - 1, menu.focus);
         f.key(SDLK_TAB); D6R_REQUIRE_EQ(startFocus, menu.focus);
         menu.port = "26660"; f.draw();
-        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.frame(275, 82, 300, 32, 1));
+        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.frame(startX, 82, 300, 32, 1));
     }
     f.lobby(); menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
     for (bool retained: {false, true}) {
