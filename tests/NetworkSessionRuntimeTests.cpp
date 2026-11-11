@@ -608,16 +608,16 @@ D6R_TEST_CASE("UX-NET native frames preserve scaled press activation fields sele
         D6R_REQUIRE(fill(224, 494, 586, 24, Color::WHITE));
         D6R_REQUIRE(fill(224, 462, 586, 24, Color::WHITE));
         D6R_REQUIRE(fill(224, 430, 586, 24, Color::WHITE));
-        D6R_REQUIRE(fill(48, 206, 354, 176, Color::WHITE));
-        D6R_REQUIRE(fill(428, 206, 394, 176, Color::WHITE));
+        D6R_REQUIRE(fill(48, 162, 354, 220, Color::WHITE));
+        D6R_REQUIRE(fill(428, 162, 394, 220, Color::WHITE));
         click(223, 440, true); D6R_REQUIRE_EQ(0, menu.focus);
         click(225, 440, true); D6R_REQUIRE_EQ(2, menu.focus);
         menu.textInputEvent(TextInputEvent("disposable"));
         clear(); menu.render();
         textPosition("**********_");
-        D6R_REQUIRE(fill(117, 82, 300, 32, Color(192))); // Disabled Start still has a surface and boundary.
+        D6R_REQUIRE(fill(117, 38, 300, 32, Color(192))); // Disabled Start still has a surface and boundary.
         D6R_REQUIRE(std::any_of(recorder.frames.begin(), recorder.frames.end(), [](const auto &frame) {
-            return frame.position.x == 117 && frame.position.y == 82 && frame.width == 1;
+            return frame.position.x == 117 && frame.position.y == 38 && frame.width == 1;
         }));
         menu.password.clear();
     }
@@ -1533,16 +1533,16 @@ D6R_TEST_CASE("NET-02 editable footer keeps one action row conditional feedback 
         for (int left: {117, 433})
             D6R_REQUIRE(std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &q) {
                 return q.material.getTexture() == Texture{} && q.material.getColor() == Color(192)
-                    && q.vertices[0].x == left && q.vertices[0].y == 82
-                    && q.vertices[2].x == left + 300 && q.vertices[2].y == 114;
+                    && q.vertices[0].x == left && q.vertices[0].y == 38
+                    && q.vertices[2].x == left + 300 && q.vertices[2].y == 70;
             }));
         D6R_REQUIRE_EQ(850, 117 + 433 + 300);
         std::string reason = "stale";
         D6R_REQUIRE(menu.setupValid(reason) && reason.empty());
         menu.port.clear(); f.draw(); omitted();
         D6R_REQUIRE(f.text("Enter a valid port (1–65535)."));
-        D6R_REQUIRE(f.frame(117, 82, 300, 32, 1)); // Flat disabled Start.
-        click(250, 96);
+        D6R_REQUIRE(f.frame(117, 38, 300, 32, 1)); // Flat disabled Start.
+        click(250, 50);
         D6R_REQUIRE_EQ(2, menu.focus);
         D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
         menu.focus = 0; menu.enterText("26660"); f.draw(); omitted();
@@ -1553,22 +1553,108 @@ D6R_TEST_CASE("NET-02 editable footer keeps one action row conditional feedback 
         // Start dispatch can be observed without launching a service: the disclosed
         // invalid composition is rejected by the existing serializer before startup.
         menu.hostSetup.mode = "invalid-test-mode"; menu.hostSetup.localPlayerNames.clear();
-        click(425, 96); click(425, 50); // New gap and retired Back target are inert.
+        click(267, 96); click(425, 50); // Retired upper row and current gap are inert.
         D6R_REQUIRE_EQ(0, menu.focus);
         D6R_REQUIRE(menu.hostSetup.localPlayerNames.empty());
-        click(250, 96);
+        click(250, 50);
         D6R_REQUIRE_EQ(std::size_t(1), menu.hostSetup.localPlayerNames.size());
         D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
         menu.focus = footer; f.key(SDLK_TAB); D6R_REQUIRE_EQ(footer + 1, menu.focus);
         f.key(SDLK_RETURN); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
         menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 0;
-        click(600, 96); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+        click(600, 50); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
     }
     // Join retains its original stacked actions and idle/status copy.
     menu.setupScreen = NetworkMenu::SetupScreen::Join; menu.focus = 0;
     menu.password.clear(); f.draw(); D6R_REQUIRE(f.text("Ready to connect."));
     f.video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
     click(425, 50); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
+}
+
+D6R_TEST_CASE("NET-02 lower row and taller host lists retain ten rows scrolling and separate pointer targets") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    const auto &controls = f.service.getControlsManager().get(0);
+    const auto fill = [&](int x, int y, int width, int height, Color color) {
+        return std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
+                && quad.vertices[0].x == x && quad.vertices[0].y == y
+                && quad.vertices[2].x == x + width && quad.vertices[2].y == y + height;
+        });
+    };
+    const auto textOrigin = [&](const std::string &text) {
+        for (const auto &quad: f.recorder.quads)
+            for (const auto &entry: f.font.fontCache.entryList)
+                if (entry.texture == quad.material.getTexture() && entry.text == text) return quad.vertices[0];
+        Test::fail("caption rendered", __FILE__, __LINE__, text); return Vector();
+    };
+    const auto click = [&](int x, int y) {
+        const auto &screen = f.video.getScreen();
+        const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850,
+                                                   float(screen.getClientHeight()) / 700));
+        const int px = (screen.getClientWidth() - int(850 * scale)) / 2 + int(x * scale);
+        const int py = (screen.getClientHeight() - int(700 * scale)) / 2 + int(y * scale);
+        f.click(px, py); f.click(px, py, false);
+    };
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        for (auto screen: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
+            const bool host = screen == NetworkMenu::SetupScreen::Host;
+            const int bottom = host ? 158 : 202, visible = host ? 10 : 8;
+            menu.setupScreen = screen; menu.availablePersons.clear(); menu.localPlayers.clear();
+            menu.setupPersonsScroll = menu.setupPlayersScroll = 0; menu.focus = 0; menu.port = "26660";
+            for (int slot = 0; slot < 15; ++slot) {
+                const auto name = "Person " + std::to_string(slot + 1);
+                menu.availablePersons.push_back(name);
+                menu.localPlayers.push_back({name, &controls, controls.getDescription()});
+            }
+            f.draw();
+            D6R_REQUIRE_EQ(visible, menu.setupVisibleRows());
+            D6R_REQUIRE(fill(46, bottom, 358, 404 - bottom, Color(192)));
+            D6R_REQUIRE(fill(426, bottom, 398, 404 - bottom, Color(192)));
+            D6R_REQUIRE(fill(48, bottom + 4, 354, 378 - bottom, Color::WHITE));
+            D6R_REQUIRE(fill(428, bottom + 4, 394, 378 - bottom, Color::WHITE));
+            const auto count = textOrigin("Local players: 15 • Lobby 1–15 • Match 1–15");
+            D6R_REQUIRE_EQ(50.0f, count.x); D6R_REQUIRE_EQ(float(bottom - 20), count.y);
+            D6R_REQUIRE(count.y + 16 <= bottom);
+            menu.port.clear(); f.draw();
+            const auto reason = textOrigin(host ? "Enter a valid port (1–65535)."
+                                                : "Enter a valid address and port (1–65535).");
+            D6R_REQUIRE_EQ(float(bottom - 64), reason.y);
+            D6R_REQUIRE(reason.y + 16 < count.y);
+            D6R_REQUIRE(reason.y > (host ? 70 : 114));
+            menu.port = "26660";
+            const int base = menu.setupFields() + static_cast<int>(menu.availablePersons.size());
+            for (int slot = 0; slot < 15; ++slot) {
+                menu.focus = menu.setupFields() + slot; menu.syncSetupScroll(); f.draw();
+                D6R_REQUIRE_EQ(std::max(0, slot - visible + 1), menu.setupPersonsScroll);
+                const auto person = textOrigin("> Person " + std::to_string(slot + 1) + " • Selected");
+                D6R_REQUIRE(person.y - 3 >= bottom + 4 && person.y + 18 <= 382);
+                menu.focus = base + slot * 2; menu.syncSetupScroll(); f.draw();
+                D6R_REQUIRE_EQ(std::max(0, slot - visible + 1), menu.setupPlayersScroll);
+                const int baseline = 364 - (slot - menu.setupPlayersScroll) * 22;
+                D6R_REQUIRE(f.frame(428, baseline - 4, 294, 22, 2));
+                D6R_REQUIRE(baseline - 4 >= bottom + 4 && baseline + 18 <= 382);
+                unsigned rows = 0;
+                for (const auto &quad: f.recorder.quads)
+                    if (quad.material.getTexture() == Texture{} && quad.material.getColor() == Color::WHITE
+                        && quad.vertices[0].x == 430 && quad.vertices[2].x == 720) ++rows;
+                D6R_REQUIRE_EQ(unsigned(visible), rows);
+            }
+            const int last = 364 - (visible - 1) * 22;
+            const auto before = menu.localPlayers.back().controlDescription;
+            click(550, last + 6); // Assignment target must not remove the last player.
+            D6R_REQUIRE_EQ(std::size_t(15), menu.localPlayers.size());
+            D6R_REQUIRE(menu.localPlayers.back().controlDescription != before);
+            click(722, last + 6); click(770, bottom - 1); // Gap and below-list space are inert.
+            D6R_REQUIRE_EQ(std::size_t(15), menu.localPlayers.size());
+            menu.focus = base + 29; f.draw();
+            D6R_REQUIRE(f.frame(722, last - 4, 100, 22, 2));
+            click(770, last + 6);
+            D6R_REQUIRE_EQ(std::size_t(14), menu.localPlayers.size());
+            D6R_REQUIRE_EQ(std::size_t(15), menu.availablePersons.size());
+        }
+    }
 }
 
 D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choices and exposes recovery") {
@@ -1592,7 +1678,7 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
     f.key(SDLK_DOWN); f.key(SDLK_DOWN); f.key(SDLK_SPACE);
     D6R_REQUIRE(menu.hostAddressSelectorOpen && !menu.listening.contains("10.1.2.3"));
     D6R_REQUIRE_EQ(std::string("Explicit: 2 addresses"), menu.listeningSummary());
-    f.click(267, 94); D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+    f.click(267, 50); D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
     f.key(SDLK_ESCAPE); D6R_REQUIRE(!menu.hostAddressSelectorOpen); D6R_REQUIRE_EQ(1, menu.focus);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.listening.selected.size() == 2);
     f.key(SDLK_RETURN); f.key(SDLK_SPACE); D6R_REQUIRE(menu.listening.all);
@@ -2812,21 +2898,22 @@ D6R_TEST_CASE("UX-NET review disabled focused setup start and missing-controller
     for (auto screen: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
         menu.setupScreen = screen; menu.port.clear();
         const int startX = screen == NetworkMenu::SetupScreen::Host ? 117 : 275;
+        const int startY = screen == NetworkMenu::SetupScreen::Host ? 38 : 82;
         const int startFocus = menu.setupFields() + 2;
         menu.focus = startFocus - 1;
         controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
         D6R_REQUIRE_EQ(startFocus, menu.focus); // Traversal still reaches disabled Start/Connect.
-        f.draw(); D6R_REQUIRE(f.frame(startX, 82, 300, 32, 1)); D6R_REQUIRE(f.frame(startX - 2, 80, 304, 36, 2));
+        f.draw(); D6R_REQUIRE(f.frame(startX, startY, 300, 32, 1)); D6R_REQUIRE(f.frame(startX - 2, startY - 2, 304, 36, 2));
         const std::string caption = screen == NetworkMenu::SetupScreen::Host ? "Start session" : "Connect";
         D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.text(caption + " (disabled)"));
-        f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(startX + 150, 98);
+        f.key(SDLK_RETURN); f.key(SDLK_SPACE); f.click(startX + 150, startY + 16);
         controller.pulse(SDL_CONTROLLER_BUTTON_A);
         D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
         D6R_REQUIRE_EQ(startFocus, menu.focus); D6R_REQUIRE(!menu.runtime.supervisor);
         f.key(SDLK_UP); D6R_REQUIRE_EQ(startFocus - 1, menu.focus);
         f.key(SDLK_TAB); D6R_REQUIRE_EQ(startFocus, menu.focus);
         menu.port = "26660"; f.draw();
-        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.frame(startX, 82, 300, 32, 1));
+        D6R_REQUIRE(f.text(caption)); D6R_REQUIRE(!f.frame(startX, startY, 300, 32, 1));
     }
     f.lobby(); menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
     for (bool retained: {false, true}) {
@@ -3417,17 +3504,17 @@ D6R_TEST_CASE("NET-DIR NET-PASS setup rosters retain scrolling and pointer remov
         menu.availablePersons.push_back(name); menu.localPlayers.push_back(player(name));
     }
     menu.focus = 3 + 15 + 14 * 2;
-    menu.syncSetupScroll(); D6R_REQUIRE_EQ(7, menu.setupPlayersScroll);
+    menu.syncSetupScroll(); D6R_REQUIRE_EQ(5, menu.setupPlayersScroll);
     menu.focus = 3 + 14;
-    menu.syncSetupScroll(); D6R_REQUIRE_EQ(7, menu.setupPersonsScroll);
+    menu.syncSetupScroll(); D6R_REQUIRE_EQ(5, menu.setupPersonsScroll);
     const auto &screen = application.service->getVideo().getScreen();
     const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850, float(screen.getClientHeight()) / 700));
     const int tx = (screen.getClientWidth() - int(850 * scale)) / 2;
     const int ty = (screen.getClientHeight() - int(700 * scale)) / 2;
-    menu.mouseWheelEvent(MouseWheelEvent(tx + int(200 * scale), ty + int(300 * scale), 0, 3));
-    D6R_REQUIRE_EQ(4, menu.setupPersonsScroll);
+    menu.mouseWheelEvent(MouseWheelEvent(tx + int(200 * scale), ty + int(180 * scale), 0, 3));
+    D6R_REQUIRE_EQ(2, menu.setupPersonsScroll);
     D6R_REQUIRE_EQ(std::size_t(15), menu.localPlayers.size());
-    menu.mouseButtonEvent(MouseButtonEvent(tx + int(760 * scale), ty + int(218 * scale),
+    menu.mouseButtonEvent(MouseButtonEvent(tx + int(760 * scale), ty + int(170 * scale),
         SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
     D6R_REQUIRE_EQ(std::size_t(14), menu.localPlayers.size());
     D6R_REQUIRE_EQ(std::size_t(15), menu.availablePersons.size());
