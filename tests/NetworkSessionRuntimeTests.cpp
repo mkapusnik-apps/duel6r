@@ -35,6 +35,7 @@
 #include "tests/TestHarness.h"
 #include "tests/AppearanceFixtures.h"
 #include "source/client/HostServiceSupervisor.h"
+#include "source/server/HeadlessServer.h"
 #include "source/DataException.h"
 #include "source/IoException.h"
 #include "source/json/JsonException.h"
@@ -100,6 +101,98 @@ namespace {
     }
 
 #ifndef _WIN32
+    // Use the existing production adapter factory without changing HeadlessServer's
+    // access declarations or bypassing its real secure transport/reconnect path.
+    struct AdmissionDependenciesMember {
+        using Type = Server::AdmissionRuntimeDependencies Server::HeadlessServer::*;
+        friend Type admissionDependenciesMember(AdmissionDependenciesMember);
+    };
+    template<typename Tag, typename Tag::Type Member>
+    struct AdmissionMemberAccess {
+        friend typename Tag::Type admissionDependenciesMember(Tag) { return Member; }
+    };
+    template struct AdmissionMemberAccess<AdmissionDependenciesMember, &Server::HeadlessServer::runtimeDependencies>;
+
+    struct OwnedEditLoss {
+        std::atomic<bool> armed{false}, enqueued{false}, release{false}, discarded{false};
+        std::atomic<unsigned> clients{0};
+    };
+
+    class LostOwnedEditConnection final : public Server::AdmissionRuntimeConnection {
+    public:
+        LostOwnedEditConnection(std::shared_ptr<Server::AdmissionRuntimeConnection> connection,
+                                std::shared_ptr<OwnedEditLoss> loss)
+            : connection(std::move(connection)), loss(std::move(loss)) {}
+        Network::SendResult send(std::vector<std::uint8_t> payload) override {
+            const auto message = Network::HostComposition::deserialize(payload);
+            if (message && message->kind == Network::HostComposition::Kind::UpdateOwnedPersons
+                && loss->armed.exchange(false)) {
+                // Accepted into this connection's test transport queue, but never
+                // forwarded to the actual service. Release only after the UI has
+                // queued a readiness action based on this uncommitted selection.
+                queuedEdit = std::move(payload);
+                loss->enqueued = true;
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                while (!loss->release && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                return Network::SendResult::Accepted;
+            }
+            return connection->send(std::move(payload));
+        }
+        Network::SendResult sendSensitive(std::vector<std::uint8_t> payload) override {
+            return connection->sendSensitive(std::move(payload));
+        }
+        Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
+                std::vector<std::uint8_t> payload, Network::AdmissionAttemptGate &attempt,
+                const std::function<bool()> &cancelled, const Network::Trust::Clock &now,
+                Network::TransportTimePoint deadline) override {
+            return connection->enqueueAdmissionAcceptance(std::move(payload), attempt, cancelled, now, deadline);
+        }
+        bool receive(Network::TransportFrame &frame) override {
+            if (!queuedEdit.empty()) {
+                // HeadlessServer has returned from send and acknowledged enqueue
+                // by now. Drop that queue and close only this owned connection.
+                queuedEdit.clear();
+                connection->requestClose();
+                loss->discarded = true;
+            }
+            return connection->receive(frame);
+        }
+        Network::ClientState state() const override { return connection->state(); }
+        Network::TransportTimePoint acceptedAt() const override { return connection->acceptedAt(); }
+        Network::TransportTimePoint terminalAt() const override { return connection->terminalAt(); }
+        bool permitAdmissionAcceptance() override { return connection->permitAdmissionAcceptance(); }
+        void revokeAdmissionAcceptance() override { connection->revokeAdmissionAcceptance(); }
+        void markAdmissionSucceeded() override { connection->markAdmissionSucceeded(); }
+        void requestClose() override { connection->requestClose(); }
+    private:
+        std::shared_ptr<Server::AdmissionRuntimeConnection> connection;
+        std::shared_ptr<OwnedEditLoss> loss;
+        std::vector<std::uint8_t> queuedEdit;
+    };
+
+    class LostOwnedEditClient final : public Server::AdmissionRuntimeClient {
+    public:
+        LostOwnedEditClient(std::unique_ptr<Server::AdmissionRuntimeClient> client,
+                            std::shared_ptr<OwnedEditLoss> loss)
+            : client(std::move(client)), loss(std::move(loss)) { ++this->loss->clients; }
+        bool start(const Network::Endpoint &endpoint) override { return client->start(endpoint); }
+        bool waitForConnected(std::chrono::milliseconds timeout) override { return client->waitForConnected(timeout); }
+        Network::ClientState state() const override { return client->state(); }
+        Network::TransportFailure failure() const override { return client->failure(); }
+        std::shared_ptr<Server::AdmissionRuntimeConnection> connection() const override {
+            if (!wrapped && client->connection())
+                wrapped = std::make_shared<LostOwnedEditConnection>(client->connection(), loss);
+            return wrapped;
+        }
+        void cancel() override { client->cancel(); }
+        void close() override { client->close(); }
+    private:
+        std::unique_ptr<Server::AdmissionRuntimeClient> client;
+        std::shared_ptr<OwnedEditLoss> loss;
+        mutable std::shared_ptr<Server::AdmissionRuntimeConnection> wrapped;
+    };
+
     std::uint16_t unusedLoopbackPort() {
         const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
         D6R_REQUIRE(descriptor >= 0);
@@ -6820,6 +6913,136 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
                << ";guest-host-ended=" << (guest.snapshot().journey == Client::NetworkJourney::HostEnded);
         Test::fail("host and guest converge after intentional End", __FILE__, __LINE__, detail.str());
     }
+}
+
+D6R_TEST_CASE("NET-VIS lost enqueued person edit restores accepted random appearance before other owned edits") {
+    using namespace std::chrono_literals;
+    // Keep the real secure adapter owner alive through both admission/reconnect.
+    Server::HeadlessServer adapterOwner(Server::ServerConfig{});
+    const auto factory = (adapterOwner.*admissionDependenciesMember(AdmissionDependenciesMember{})).clientFactory;
+    const auto loss = std::make_shared<OwnedEditLoss>();
+    char name[] = "duel6r-owned-edit-recovery-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    Client::NetworkSessionRuntime host, observer;
+    auto &guest = menu.runtime;
+    guest.guestClientFactory = [factory, loss] {
+        return std::make_unique<LostOwnedEditClient>(factory(), loss);
+    };
+    unsigned resolutions = 0;
+    // These names have no matched profile. Distinct deterministic draws model
+    // the random branch and make an accidental second resolution observable.
+    menu.resolveAppearance = [&](const auto &) { return Test::appearance(++resolutions); };
+    auto a = player("Unmatched A"), c = player("Unmatched C");
+    a.appearance = menu.resolveAppearance(a.name); c.appearance = menu.resolveAppearance(c.name);
+    const auto &controls = application.service->getControlsManager().get(0);
+    a.controls = &controls; a.controlDescription = controls.getDescription();
+    menu.localPlayers = {a, c};
+    menu.availablePersons = {a.name, "Unmatched B", c.name, "Unmatched D"};
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    auto h = player("Recovery Host"), o = player("Recovery Observer");
+    h.appearance = Test::appearance(8); o.appearance = Test::appearance(9);
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {h.name}; setup.fixedLevel = "levels/duel_16.json";
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {h}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, menu.localPlayers));
+    D6R_REQUIRE(observer.join(endpoint, D6R_TEST_RESOURCE_DIR, {o}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 10s, [&] {
+        return guest.snapshot().journey == Client::NetworkJourney::Lobby
+            && observer.snapshot().journey == Client::NetworkJourney::Lobby
+            && host.snapshot().canonical->players.size() == 4;
+    }));
+    const auto participant = guest.snapshot().localParticipantId;
+    const auto hostParticipant = host.snapshot().localParticipantId;
+    const auto observerParticipant = observer.snapshot().localParticipantId;
+    const auto slotFor = [](const auto &snapshot, const auto &name) {
+        const auto found = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
+            [&](const auto &slot) { return slot.displayName == name; });
+        D6R_REQUIRE(found != snapshot.canonical->players.end()); return *found;
+    };
+    const auto originalA = slotFor(host.snapshot(), a.name);
+    const auto originalC = slotFor(host.snapshot(), c.name);
+    host.moveRosterPlayer(originalA.playerId, 1);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        return slotFor(guest.snapshot(), a.name).rosterPosition != originalA.rosterPosition;
+    }));
+    host.setReady(true); observer.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        return participantReady(host.snapshot(), hostParticipant)
+            && participantReady(host.snapshot(), observerParticipant)
+            && !participantReady(host.snapshot(), participant);
+    }));
+
+    loss->armed = true;
+    menu.cyclePerson(0, 1); // Optimistic editor B, with an uncommitted new draw.
+    D6R_REQUIRE_EQ(std::string("Unmatched B"), menu.localPlayers[0].name);
+    D6R_REQUIRE_EQ(3u, resolutions);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 3s, [&] { return loss->enqueued.load(); }));
+    guest.setReady(true); // Must not replay readiness based on the discarded edit.
+    loss->release = true;
+    // Deliberately do not call menu.update: reconnect may complete between UI
+    // frames. The accepted configuration must still be delivered durably.
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 10s, [&] {
+        std::lock_guard<std::mutex> lock(guest.mutex);
+        return loss->discarded && guest.restoredLocalPlayers
+            && guest.current.journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(loss->clients >= 2);
+    D6R_REQUIRE_EQ(participant, guest.snapshot().localParticipantId);
+    D6R_REQUIRE_EQ(std::string("Unmatched B"), menu.localPlayers[0].name);
+    D6R_REQUIRE(slotFor(host.snapshot(), a.name).appearance == a.appearance);
+    D6R_REQUIRE(slotFor(observer.snapshot(), c.name).appearance == c.appearance);
+
+    menu.availablePersons = {a.name};
+    menu.cyclePerson(0, 1); // Original A is now a genuine no-op, not a new draw Y.
+    D6R_REQUIRE_EQ(a.name, menu.localPlayers[0].name);
+    D6R_REQUIRE(menu.localPlayers[0].appearance == a.appearance);
+    D6R_REQUIRE_EQ(c.name, menu.localPlayers[1].name);
+    D6R_REQUIRE(menu.localPlayers[1].appearance == c.appearance);
+    D6R_REQUIRE_EQ(a.controls, menu.localPlayers[0].controls);
+    D6R_REQUIRE_EQ(a.controlDescription, menu.localPlayers[0].controlDescription);
+    D6R_REQUIRE_EQ(3u, resolutions);
+    D6R_REQUIRE_EQ(std::vector<std::string>({a.name, c.name}), menu.hostSetup.localPlayerNames);
+    D6R_REQUIRE_EQ(std::vector<PlayerAppearance>({a.appearance, c.appearance}), menu.hostSetup.localPlayerAppearances);
+    D6R_REQUIRE(!pumpRuntimes(host, guest, observer, 250ms, [] { return false; }));
+    D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Lobby);
+    D6R_REQUIRE(!participantReady(host.snapshot(), participant));
+    D6R_REQUIRE(participantReady(host.snapshot(), hostParticipant));
+    D6R_REQUIRE(participantReady(host.snapshot(), observerParticipant));
+    {
+        std::lock_guard<std::mutex> lock(guest.mutex);
+        D6R_REQUIRE(guest.pendingGuestCommands.empty());
+        D6R_REQUIRE(guest.players[0].appearance == a.appearance);
+    }
+
+    menu.availablePersons = {c.name, "Unmatched D"};
+    menu.cyclePerson(1, 1); // Editing another slot must not resend stale B/Y.
+    const auto d = menu.localPlayers[1];
+    D6R_REQUIRE_EQ(4u, resolutions);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        const auto snapshot = observer.snapshot();
+        return std::any_of(snapshot.canonical->players.begin(), snapshot.canonical->players.end(), [&](const auto &slot) {
+            return slot.playerId == originalC.playerId && slot.displayName == d.name && slot.appearance == d.appearance;
+        }) && everyParticipantReady(snapshot, false);
+    }));
+    for (const auto *runtime: {&host, &guest, &observer}) {
+        const auto snapshot = runtime->snapshot();
+        const auto restoredA = slotFor(snapshot, a.name);
+        D6R_REQUIRE_EQ(originalA.playerId, restoredA.playerId);
+        D6R_REQUIRE_EQ(participant, restoredA.ownerParticipantId);
+        D6R_REQUIRE(restoredA.appearance == a.appearance);
+        D6R_REQUIRE(slotFor(snapshot, h.name).appearance == h.appearance);
+        D6R_REQUIRE(slotFor(snapshot, o.name).appearance == o.appearance);
+        D6R_REQUIRE(snapshot.journey == Client::NetworkJourney::Lobby);
+    }
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Inactive
+            && guest.snapshot().journey == Client::NetworkJourney::HostEnded;
+    }));
 }
 
 D6R_TEST_CASE("NET-VIS real owned configuration retains no-op appearance and rejects independent edits without changing peers") {

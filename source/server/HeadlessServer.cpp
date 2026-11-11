@@ -925,6 +925,9 @@ namespace {
                         break; // The shared eligible sealed-End consumer runs below.
                     } else {
                         try {
+                            // Transport queue acknowledgement only. A restored
+                            // canonical snapshot, not this callback, resolves
+                            // whether a person/appearance edit committed.
                             if (runtimeDependencies.localParticipantCommandAccepted)
                                 runtimeDependencies.localParticipantCommandAccepted();
                         } catch (...) { break; }
@@ -1402,7 +1405,8 @@ namespace Duel6::Server {
         };
         const bool productionClient = !this->runtimeDependencies.clientFactory;
         const bool productionListener = !this->runtimeDependencies.listenerFactory;
-        this->runtimeDependencies.productionReplicationProtocol = productionClient && productionListener;
+        this->runtimeDependencies.productionReplicationProtocol = this->runtimeDependencies.productionReplicationProtocol
+                || (productionClient && productionListener);
         if (this->runtimeDependencies.productionReplicationProtocol
             && this->config.tickRate != Network::Responsiveness::AuthoritativeTicksPerSecond)
             throw std::invalid_argument("Supported network matches require the fixed 60 Hz tick rate");

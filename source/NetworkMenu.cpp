@@ -862,6 +862,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::cycleControl(std::size_t playerIndex, int direction) {
+        reconcileRestoredLocalPlayers();
         if (playerIndex >= localPlayers.size()) return;
         const Size count = controlsManager.getNumAvailable();
         if (!count) { localPlayers[playerIndex].controls = nullptr; localPlayers[playerIndex].controlDescription.clear(); return; }
@@ -878,6 +879,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::cyclePerson(std::size_t playerIndex, int direction) {
+        reconcileRestoredLocalPlayers();
         if (playerIndex >= localPlayers.size() || availablePersons.empty()) return;
         const auto current = std::find(availablePersons.begin(), availablePersons.end(), localPlayers[playerIndex].name);
         std::size_t index = current == availablePersons.end() ? 0
@@ -908,7 +910,23 @@ namespace Duel6 {
         }
     }
 
+    void NetworkMenu::reconcileRestoredLocalPlayers() {
+        const auto restored = runtime.takeRestoredLocalPlayers();
+        if (!restored || restored->size() != localPlayers.size()) return;
+        hostSetup.localPlayerNames.clear();
+        hostSetup.localPlayerAppearances.clear();
+        for (std::size_t index = 0; index < localPlayers.size(); ++index) {
+            // Keep input-thread control assignments; restore only service-owned
+            // person/appearance values, without resolving profiles or rerolling.
+            localPlayers[index].name = (*restored)[index].name;
+            localPlayers[index].appearance = (*restored)[index].appearance;
+            hostSetup.localPlayerNames.push_back(localPlayers[index].name);
+            hostSetup.localPlayerAppearances.push_back(localPlayers[index].appearance);
+        }
+    }
+
     void NetworkMenu::rescanControls() {
+        reconcileRestoredLocalPlayers();
         std::vector<std::string> retained;
         for (const auto &player: localPlayers) retained.push_back(player.controlDescription);
         controlsManager.detectJoypads();
@@ -1369,6 +1387,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::activate() {
+        reconcileRestoredLocalPlayers();
         auto snap = runtime.snapshot();
         clearConfirmedPassword();
         if (confirmation != Confirmation::None) {
@@ -1835,6 +1854,7 @@ namespace Duel6 {
         }
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();
+        reconcileRestoredLocalPlayers();
         const auto currentSnapshot = runtime.snapshot();
         if (currentSnapshot.canonical && currentSnapshot.canonical->result.available
             && (finalSession != currentSnapshot.canonical->sessionId || finalMatch != currentSnapshot.canonical->matchId)) {

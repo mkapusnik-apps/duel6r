@@ -117,6 +117,8 @@ namespace Duel6::Client {
                 config.localPlayerAppearances.push_back(player.appearance);
             }
             Server::AdmissionRuntimeDependencies dependencies;
+            dependencies.clientFactory = guestClientFactory;
+            dependencies.productionReplicationProtocol = true;
             dependencies.sessionPassword = password;
             dependencies.secureLimits = sessionLimits;
             dependencies.expectedHostingKind = expectedDedicated
@@ -189,6 +191,12 @@ namespace Duel6::Client {
                 std::lock_guard<std::mutex> lock(mutex);
                 if (current.journey == NetworkJourney::Cancelling) return;
                 if (journey == Network::Lifecycle::GuestJourney::Reconnecting) {
+                    if (!restoringOwnedConfiguration) {
+                        // Enqueue is not a service commit. Abandon commands from
+                        // the old binding, including readiness based on a lost edit.
+                        pendingGuestCommands.clear();
+                        restoringOwnedConfiguration = true;
+                    }
                     if (current.journey == NetworkJourney::Reconnecting
                         && current.reconnectSeconds && seconds)
                         current.reconnectSeconds = std::min(*current.reconnectSeconds, *seconds);
@@ -257,6 +265,35 @@ namespace Duel6::Client {
         if (current.publicSession)
             current.host = current.localParticipantId != 0 && current.localParticipantId == state.hostParticipantId;
         else if (current.host) current.localParticipantId = state.hostParticipantId;
+        if (!cancelling && restoringOwnedConfiguration && !presentation.reconnecting
+            && !presentation.resynchronizing) {
+            auto restored = players;
+            const auto owner = std::find_if(state.participants.begin(), state.participants.end(), [&](const auto &entry) {
+                return entry.participantId == current.localParticipantId
+                    && entry.connection == Network::Replication::ConnectionState::Connected;
+            });
+            bool complete = owner != state.participants.end()
+                && owner->ownedPlayerIds.size() == players.size() && ownedPlayerBindings.size() == players.size();
+            std::vector<bool> found(players.size(), false);
+            for (const auto &slot: state.players) {
+                const auto binding = ownedPlayerBindings.find(slot.playerId);
+                if (binding == ownedPlayerBindings.end()) continue;
+                if (slot.ownerParticipantId != current.localParticipantId || binding->second >= restored.size()) {
+                    complete = false;
+                    continue;
+                }
+                auto &local = restored[binding->second];
+                local.name = slot.displayName;
+                local.appearance = slot.appearance;
+                found[binding->second] = true;
+            }
+            if (complete && std::all_of(found.begin(), found.end(), [](bool value) { return value; })) {
+                pendingGuestCommands.clear();
+                players = restored;
+                restoredLocalPlayers = std::move(restored);
+                restoringOwnedConfiguration = false;
+            }
+        }
         if (current.localParticipantId != 0) confirmedAdmissionPending = true;
         if (!cancelling) {
             current.journey = journeyFor(state); current.status = "Connected";
@@ -596,6 +633,13 @@ namespace Duel6::Client {
         return confirmed;
     }
 
+    std::optional<std::vector<NetworkLocalPlayer>> NetworkSessionRuntime::takeRestoredLocalPlayers() {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto restored = std::move(restoredLocalPlayers);
+        restoredLocalPlayers.reset();
+        return restored;
+    }
+
     void NetworkSessionRuntime::reset() {
         // Request controller departure on normal application teardown. An unreachable
         // service still ends it at the unchanged reservation deadline.
@@ -615,6 +659,7 @@ namespace Duel6::Client {
         std::lock_guard<std::mutex> lock(mutex);
         current = {}; players.clear(); sampledActions.clear(); ownedPlayerBindings.clear();
         pendingGuestCommands.clear(); pendingHostCommands.clear();
+        restoringOwnedConfiguration = false; restoredLocalPlayers.reset();
         pendingHostEnd = false;
         gameplayInputSuppressed = false;
         hostInput.reset(); hostPresentation.reset(); deferredHostPresentation.reset();

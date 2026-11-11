@@ -163,7 +163,8 @@ namespace Duel6::Server {
         std::function<std::optional<Network::Lifecycle::ParticipantActionKind>()> localParticipantAction;
         std::function<std::optional<std::vector<std::string>>()> localParticipantPersons;
         // Graphical guests use this single peek/ack channel so every local composition,
-        // readiness, and leave command keeps its UI production order until accepted.
+        // readiness, and leave command keeps its UI production order until transport
+        // enqueue. This acknowledgement is not an authoritative configuration commit.
         std::function<std::optional<std::vector<std::uint8_t>>()> localParticipantCommand;
         std::function<void()> localParticipantCommandAccepted;
         std::function<void(Network::AdmissionResultCode, bool)> guestAdmissionOutcome;
