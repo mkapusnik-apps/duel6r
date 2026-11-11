@@ -349,6 +349,24 @@ def display_diagnostic(output, name, stage, process, env, log_path, **fields):
             pass
 
 
+def read_display_number(reader):
+    """Consume Xvfb's complete bounded acknowledgement before closing its pipe."""
+    deadline = time.monotonic() + 5
+    acknowledgement = b""
+    while not acknowledgement.endswith(b"\n"):
+        remaining = deadline - time.monotonic()
+        require(remaining > 0 and select.select([reader], [], [], remaining)[0],
+                "private display startup deadline")
+        chunk = os.read(reader, 32 - len(acknowledgement))
+        require(chunk, "private display startup failed: incomplete acknowledgement")
+        acknowledgement += chunk
+        require(re.fullmatch(rb"[0-9]+\n?", acknowledgement) is not None,
+                "private display startup failed: invalid acknowledgement")
+        require(len(acknowledgement) < 32 or acknowledgement.endswith(b"\n"),
+                "private display startup failed: oversized acknowledgement")
+    return acknowledgement[:-1].decode("ascii")
+
+
 def execute(runtime, identity, recipe, output, *, operator=False):
     """Worker runs under OwnedProcessRunner; all processes are its descendants."""
     runtime = verify_runtime(runtime, identity)
@@ -386,8 +404,7 @@ def execute(runtime, identity, recipe, output, *, operator=False):
                         display_diagnostic(output, name, "xvfb-launched", xvfb, env, log_path)
                     finally:
                         os.close(writer)
-                    require(select.select([reader], [], [], 5)[0], "private display startup deadline")
-                    number = os.read(reader, 32).decode().strip()
+                    number = read_display_number(reader)
                     display_diagnostic(output, name, "displayfd-read", xvfb, env, log_path,
                                        displayfd_number=number if number.isdecimal() else "invalid")
                     require(number.isdecimal() and xvfb.poll() is None, "private display startup failed")
