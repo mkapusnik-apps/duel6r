@@ -685,11 +685,19 @@ D6R_TEST_CASE("UX-NET round result wraps complete outcomes above countdown and k
         Network::Replication::PlayerState player{};
         player.playerId = i + 1; player.displayName = std::string(63, char('A' + i)) + char('a' + i);
         state.players.push_back(player); state.score.ranking.push_back(player.playerId);
+        state.score.players.push_back({player.playerId});
         if (i < 14) state.score.winner.winnerPlayerIds.push_back(player.playerId);
     }
     menu.runtime.current.journey = Client::NetworkJourney::Match;
     menu.runtime.current.canonical = state;
     video.screen = ScreenParameters(1280, 720, 24, 24, 0, false);
+    const auto expectedRows = NetworkRoundSummary::rows(state);
+    std::string completeOutcome = "Round outcome: ";
+    for (unsigned i = 0; i < 14; ++i) {
+        if (i) completeOutcome += ", ";
+        completeOutcome += state.players[i].displayName;
+    }
+    const auto layout = NetworkRoundSummary::layout(expectedRows, "Rounds: 1|3", completeOutcome, 1280, 720);
     std::set<std::string> rankings;
     for (int step = 0; step < 20; ++step) {
         recorder.quads.clear(); menu.drawRoundSummary(menu.runtime.snapshot(), 1280, 720);
@@ -702,8 +710,16 @@ D6R_TEST_CASE("UX-NET round result wraps complete outcomes above countdown and k
                 outcomeText += entry->text; lowestOutcome = std::min(lowestOutcome, q.vertices[0].y);
             }
             if (entry->text.find("Round frozen") == 0) phaseTop = q.vertices[2].y;
-            for (unsigned i = 0; i < 15; ++i)
-                if (entry->text.find(std::to_string(i + 1) + ". ") == 0) rankings.insert(std::to_string(i + 1));
+            for (unsigned i = 0; i < 15; ++i) {
+                // The approved local-equivalent table has no network rank prefix.
+                // Recognize each unique contained identity, not obsolete copy.
+                if (entry->text != NetworkRoundSummary::rowLabel(expectedRows[i], layout.nameWidth - 5)) continue;
+                rankings.insert(std::to_string(i + 1));
+                D6R_REQUIRE(q.vertices[0].x >= layout.tableLeft);
+                D6R_REQUIRE(q.vertices[2].x <= layout.tableLeft + layout.nameWidth);
+                D6R_REQUIRE(q.vertices[0].y >= layout.bottom + 64);
+                D6R_REQUIRE(q.vertices[2].y <= layout.scoreY - 32);
+            }
         }
         D6R_REQUIRE(phaseTop > 0 && phaseTop < lowestOutcome);
         for (unsigned i = 0; i < 14; ++i) D6R_REQUIRE(outcomeText.find(state.players[i].displayName) != std::string::npos);
