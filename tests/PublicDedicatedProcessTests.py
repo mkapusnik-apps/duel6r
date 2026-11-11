@@ -690,7 +690,7 @@ def failure_context(root, handles, peer, *, result=None, timed_out=False):
                 elif line.startswith(("PASS ", "FAIL public dedicated:", "client-receipt ", "runtime alias=",
                                       "peer-receipt ", "Dedicated trusted-proxy backend;",
                                       "duel6r-server transport ", "duel6r server error:", "admitted", "Directory:")):
-                    output.append(line[:512])
+                    output.append(line[:2048] if line.startswith(("client-receipt ", "peer-receipt ")) else line[:512])
                 else:
                     output.append("withheld-unclassified-line")
             return output
@@ -712,7 +712,8 @@ def failure_context(root, handles, peer, *, result=None, timed_out=False):
                     receipt["logs"][name] = safe_log(stream.read(8192))
         for name in ("action", "acted", "attack.bin", "attack-rejected"):
             receipt["markers"][name] = (root / name).exists()
-        for path in [root / "client-failure-context", *sorted(root.glob("peer-receipt-*"))[:8]]:
+        for path in [root / "client-failure-context", *sorted(root.glob("peer-receipt-*"))[:8],
+                     *sorted(root.glob("peer-binding-events-*"))[:8]]:
             if path.exists():
                 with path.open() as stream:
                     receipt["receipts"][path.name] = safe_log(stream.read(4096))
@@ -782,7 +783,9 @@ def main():
         cases = ["flow-race", "flow-fatal-before-end", "notice-eof-match"] + ["flow"] * 4
     if cases == ["--review-regressions"]:
         cases = [f"notice-{reason}-{phase}" for phase in ("lobby", "match", "summary")
-                 for reason in ("maintenance", "controller", "wrong", "eof")] + ["recovery", "expiry", "summary-return", "summary-return-ordered"]
+                 for reason in ("maintenance", "controller", "wrong", "eof")] + [
+                     "notice-controller-summary-recovered", "notice-maintenance-summary-recovered",
+                     "recovery", "expiry", "summary-return", "summary-return-ordered"]
     if cases == ["--authorization-regressions"]:
         cases = ["attack-start", "attack-setup", "attack-roster", "attack-return", "attack-advance"]
     with tempfile.TemporaryDirectory(prefix="duel6r-public-test-") as temp:
@@ -865,6 +868,9 @@ def main():
                 assert observation and observation["complete"] and observation["connection"] == 2, "EOF observation did not finish before unwind"
                 assert observation["ends"] == 0, "unconfirmed affected-connection EOF must not become End"
                 print("PASS unconfirmed active-match loss stays distinct from End", flush=True)
+            if scenario.endswith("-recovered"):
+                for path in sorted(root.glob("peer-binding-events-*")):
+                    print(path.read_text().strip(), flush=True)  # Fixed aliases, no logical identities or payloads.
             print(result.stdout.strip(), flush=True)
         if review:
             failures = []
@@ -901,7 +907,8 @@ def main():
                             failures.append(scenario)
                             print(f"FAIL iteration {iteration} {scenario}: {str(error)[:1000]}", flush=True)
                             print(peer.evidence(), flush=True)  # Fixed aliases/codes, never application payloads.
-                            print("authenticated peer stages=" + repr([(p.name, p.read_text()) for p in sorted(root.glob("peer-*-*"))]), flush=True)
+                            print("authenticated peer stages=" + repr([(p.name, "identity-withheld" if p.name == "peer-restored-summary" else p.read_text())
+                                  for p in sorted(root.glob("peer-*-*"))]), flush=True)
                             print("authenticated End observations=" + repr([p.name for p in sorted(root.glob("end-forwarded-*"))]
                                   + (["race-write-failed"] if (root / "race-write-failed").exists() else [])), flush=True)
                         finally:

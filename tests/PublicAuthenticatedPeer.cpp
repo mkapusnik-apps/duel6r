@@ -4,6 +4,7 @@
 #include "source/network/SessionTransport.h"
 #include "source/network/SessionLifecycle.h"
 #include "source/network/PublicSession.h"
+#include "source/network/AdmissionProtocol.h"
 #include "source/network/StateReplicationProtocol.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -24,6 +25,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <mutex>
 #include <stdexcept>
@@ -57,6 +59,7 @@ struct PeerReceipt {
     bool frontendEof = false, leaveForwarded = false;
     int backendUnread = -1;
     std::size_t backendPartial = 0;
+    SecureFailureDiagnostic secureFailure;
     void emit(const char *event, unsigned line) noexcept {
         // Fixed aliases/stages and numeric state only. No bytes, paths, session
         // identities or credential data; at most three receipts per connection.
@@ -66,7 +69,8 @@ struct PeerReceipt {
             std::ofstream out(root / ("peer-receipt-" + std::to_string(alias)), std::ios::app);
             out << "peer-receipt version=1 event=" << event << " line=" << line
                 << " stage=" << stage << " operation=" << operation << " mapped=" << mapped
-                << " requested=" << requested << " progress=" << progress
+                 << " requested=" << requested << " progress=" << progress
+                 << " mono-us=" << std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count()
                 << " elapsed-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - began).count()
                 << " io-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - ioBegan).count()
                 << " budget-expired=" << budgetExpired << " stopped=" << stopped.load()
@@ -74,7 +78,14 @@ struct PeerReceipt {
                 << " attack-seen=" << attackSeen << " attack-forwarded=" << attackForwarded
                 << " frontend-reads-after-attack=" << frontendReadsAfterAttack
                 << " frontend-eof=" << frontendEof << " leave-forwarded=" << leaveForwarded
-                << " backend-unread=" << backendUnread << " backend-partial=" << backendPartial << '\n';
+                 << " backend-unread=" << backendUnread << " backend-partial=" << backendPartial
+                 << " first-category=" << static_cast<int>(secureFailure.category)
+                 << " first-tls=" << secureFailure.tlsResult << " first-observed-errno=" << secureFailure.observedErrno
+                 << " first-mono-us=" << secureFailure.monotonicMicroseconds
+                 << " key-age-ms=" << secureFailure.ageMilliseconds << " key-lifetime-ms=" << secureFailure.lifetimeMilliseconds
+                 << " received-records=" << secureFailure.receivedRecords << " sent-records=" << secureFailure.sentRecords
+                 << " record-limit=" << secureFailure.recordLimit << " received-plaintext=" << secureFailure.receivedPlaintext
+                 << " sent-plaintext=" << secureFailure.sentPlaintext << " plaintext-limit=" << secureFailure.plaintextLimit << '\n';
         } catch (...) {} // Logging failure must never replace the original failure.
     }
 };
@@ -87,6 +98,65 @@ static void require(bool value, unsigned line) {
 }
 #define require(value) require((value), __LINE__)
 static void marker(const std::filesystem::path &root, const char *name) { std::ofstream out(root / name); }
+static std::mutex bindingMutex;
+static std::map<std::pair<std::uint64_t, std::uint64_t>, unsigned> liveBindings;
+struct LogicalBinding {
+    const std::filesystem::path &root;
+    unsigned alias;
+    std::uint64_t session = 0, participant = 0;
+    bool restored = false, published = false;
+    std::optional<Replication::FullSnapshot> snapshot;
+    void event(const char *name, unsigned slots = 0) const noexcept {
+        try {
+        std::ofstream out(root / ("peer-binding-events-" + std::to_string(alias)), std::ios::app);
+        out << "peer-receipt version=2 event=" << name << " alias=" << alias
+            << " mono-us=" << std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count()
+            << " authenticated-binding=" << published << " owned-slots=" << slots << '\n';
+        } catch (...) {} // Diagnostic failure cannot change the original outcome.
+    }
+    ~LogicalBinding() {
+        std::lock_guard<std::mutex> lock(bindingMutex);
+        const auto found = liveBindings.find({session, participant});
+        if (published) event("binding-retired");
+        if (found != liveBindings.end() && found->second == alias) liveBindings.erase(found);
+    }
+    // Called only AFTER successful forwarding on both authenticated legs. An
+    // accepted identity AND a matching current snapshot are required, in either
+    // order; TCP acceptance or the newest connection ordinal grants nothing.
+    void observe(const std::vector<std::uint8_t> &bytes) {
+        if (published) return;
+        std::vector<std::uint8_t> payload(bytes.begin() + TransportEnvelopeBytes, bytes.end());
+        struct Erase { std::vector<std::uint8_t> &bytes; ~Erase() { Trust::secureEraseMemory(bytes.data(), bytes.size()); } } erase{payload};
+        if (const auto response = Lifecycle::deserializeReconnectResponse(payload)) {
+            if (response->outcome == Lifecycle::ReconnectOutcome::Accepted && response->nextGrant
+                && response->nextGrant->sessionId == response->sessionId
+                && response->nextGrant->participantId == response->participantId) {
+                session = response->sessionId; participant = response->participantId; restored = true;
+            }
+        } else {
+            try {
+                const auto confirmation = deserializeAdmissionConfirmation(payload);
+                session = confirmation.sessionId; participant = confirmation.participantId;
+            } catch (...) {} // This frame need not be an admission confirmation.
+        }
+        if (const auto replication = Replication::deserializeReplicationFrame(payload); replication && replication->snapshot)
+            snapshot = replication->snapshot;
+        if (!session || !participant || !snapshot || snapshot->state.sessionId != session) return;
+        const auto owner = std::find_if(snapshot->state.participants.begin(), snapshot->state.participants.end(),
+            [&](const auto &p) { return p.participantId == participant
+                && p.connection == Replication::ConnectionState::Connected && !p.ownedPlayerIds.empty(); });
+        if (owner == snapshot->state.participants.end()) return;
+        std::lock_guard<std::mutex> lock(bindingMutex);
+        liveBindings[{session, participant}] = alias; published = true;
+        event(restored ? "binding-restored" : "binding-established", static_cast<unsigned>(owner->ownedPlayerIds.size()));
+        if (restored && snapshot->state.phase == Replication::Phase::FinalSummary && snapshot->state.result.available) {
+            std::ofstream proof(root / "peer-restored-summary.tmp");
+            proof << session << ' ' << participant << ' ' << alias << ' ' << snapshot->version;
+            proof.close(); std::filesystem::rename(root / "peer-restored-summary.tmp", root / "peer-restored-summary");
+        }
+        snapshot.reset();
+    }
+};
 struct Frame {
     std::vector<std::uint8_t> bytes;
     std::size_t used = 0, total = TransportEnvelopeBytes;
@@ -106,6 +176,7 @@ struct Frame {
         if (activeReceipt) activeReceipt->mapped = count;
         if (count == -2) return 0;
         if (count <= 0) {
+            if (activeReceipt) activeReceipt->secureFailure = session.firstFailure(); // Latched memory only, no SDK query.
             if (activeReceipt) activeReceipt->emit(count == 0 ? "read-eof" : "read-failed", __LINE__);
             return -1;
         }
@@ -138,6 +209,7 @@ static bool write(SecureSession &session, const std::vector<std::uint8_t> &bytes
         if (activeReceipt) activeReceipt->mapped = count;
         if (count > 0) offset += static_cast<std::size_t>(count);
         else if (count != -2) {
+            if (activeReceipt) activeReceipt->secureFailure = session.firstFailure();
             if (activeReceipt) activeReceipt->emit("write-failed", __LINE__);
             return false;
         }
@@ -208,6 +280,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
         SecureSession service(back.fd, false, password);
         require(service.handshake(Clock::now() + 3s, [] { return stopped.load(); }));
         Frame incoming, outgoing;
+        LogicalBinding binding{root, id};
         bool attackReceived = false, attackForwarded = false, deferAttackRead = false, raceCompleted = false;
         const bool positiveRace = scenario == "flow-race";
         const bool negativeRace = scenario == "flow-fatal-before-end";
@@ -242,13 +315,20 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
             }
             if (gated) require(Clock::now() < coordinationDeadline);
             if (frontendEnded) require(Clock::now() < frontendCloseDeadline);
-            if (id == 2) {
-                std::ifstream command(root / "action"); unsigned target = 0; std::string action; std::uint64_t session = 0;
-                if (command >> target >> action >> session && target == id
+            if (binding.published && !frontendEnded) {
+                std::lock_guard<std::mutex> lock(bindingMutex);
+                std::ifstream command(root / "action"); unsigned target = 0; std::string action;
+                std::uint64_t session = 0, participant = 0;
+                const auto current = liveBindings.find({binding.session, binding.participant});
+                if (command >> target >> action >> session >> participant && target == 0
+                    && current != liveBindings.end() && current->second == id
+                    && session == binding.session && participant == binding.participant
                     && (action == "maintenance" || action == "controller" || action == "wrong")) {
+                    binding.event("logical-action-consumed");
                     std::filesystem::remove(root / "action");
                     require(write(client, frame(PublicSession::terminalNotice(session + (action == "wrong"), action != "controller")), "notice-write", enclosingDeadline()));
                     require(Clock::now() < enclosingDeadline());
+                    binding.event("logical-notice-forwarded");
                     marker(root, "acted");
                 }
             }
@@ -393,6 +473,7 @@ static void bridge(int accepted, unsigned id, unsigned backendPort, const std::f
                 // A successful final SDK call can cross the deadline. Never
                 // turn that into a forwarded-frame or authenticated-End claim.
                 require(Clock::now() < forwardDeadline);
+                if (scenario.compare(0, 7, "notice-") == 0) binding.observe(outgoing.bytes);
                 if (testControl && frontendEnded) ++testControl->forwardedAfterEof;
                 if (end) {
                     marker(root, ("end-forwarded-" + std::to_string(id)).c_str());
@@ -535,6 +616,24 @@ static int halfCloseRegression(bool blocked = false) {
               << " reply-received=" << receivedReply << " backend-failed=" << backendFailed << '\n';
     require(backendRequest && backendEof && backendReply && receivedReply && !backendFailed);
     std::cout << "PASS authenticated relay preserves reverse response after frontend write EOF\n";
+    require(client.firstFailure().category == SecureFailureCategory::None);
+    // The client's OS write half is already closed. Exercise the real first
+    // error, then prove memory-only observations/later rejected calls retain it.
+    require(!write(client, frame({0x75})));
+    const auto first = client.firstFailure();
+    require(first.category == SecureFailureCategory::Tls && first.tlsResult < 0
+        && first.observedErrno == EPIPE && first.monotonicMicroseconds > 0
+        && first.receivedRecords > 0 && first.sentRecords > 0
+        && first.recordLimit == (UINT64_C(1) << 20) && first.plaintextLimit == (UINT64_C(1) << 30)
+        && first.lifetimeMilliseconds == std::chrono::duration_cast<std::chrono::milliseconds>(30min).count());
+    unsigned char byte = 0;
+    require(!client.usable() && !client.pending() && client.send(&byte, 1) == -1 && client.receive(&byte, 1) == -1);
+    const auto retained = client.firstFailure();
+    require(retained.monotonicMicroseconds == first.monotonicMicroseconds && retained.tlsResult == first.tlsResult
+        && retained.observedErrno == first.observedErrno && retained.category == first.category
+        && retained.receivedRecords == first.receivedRecords && retained.sentRecords == first.sentRecords
+        && retained.receivedPlaintext == first.receivedPlaintext && retained.sentPlaintext == first.sentPlaintext);
+    std::cout << "PASS first TLS failure retains numeric cause/budgets across rejected post-fatal operations\n";
     return 0;
 }
 
