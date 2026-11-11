@@ -31,6 +31,7 @@
 #include "DataException.h"
 #include "Defines.h"
 #include "File.h"
+#include <filesystem>
 
 namespace Duel6 {
     namespace {
@@ -115,6 +116,9 @@ namespace Duel6 {
                                                              const std::string &profilesRoot) {
         // Only an initiating CLI client's own selection uses this path. Enumerate
         // exact local names rather than interpreting a selected name as a path.
+        // A gameplay-only CLI bundle has no matched profiles when this optional
+        // tree is absent. Errors in an existing matched profile still propagate.
+        if (!std::filesystem::exists(profilesRoot)) return makeRandom().appearance();
         for (const auto &entry: File::listDirectory(profilesRoot, ""))
             if (entry == name) return load(profilesRoot + "/" + entry + "/", D6_FILE_PROFILE_SKIN).appearance();
         return makeRandom().appearance();

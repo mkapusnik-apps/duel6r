@@ -2606,9 +2606,9 @@ D6R_TEST_CASE("NET-VIS appearance-only lobby delta and recovery preserve all bou
     D6R_REQUIRE(host.initialize(state));
     R::ReplicatedState incremental;
     D6R_REQUIRE(incremental.apply(*host.fullSnapshot()) == R::ApplyResult::Applied);
-    state.players[1].displayName = "Replacement";
+    // Isolate value equality/codec behavior here; owner mutation policy is
+    // exercised separately through the real service's name/appearance edit.
     state.players[1].appearance = Duel6::Test::appearance(3);
-    state.participants[0].ready = false;
     const auto update = host.publish(state);
     D6R_REQUIRE(update && update->players.size() == 1);
     const auto delta = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));

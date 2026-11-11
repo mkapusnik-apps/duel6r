@@ -5056,6 +5056,19 @@ D6R_TEST_CASE("NET-VIS initiating menu resolves only actual person changes and r
     const auto randomized = PlayerSkinColors::resolveLocalAppearance("No matching profile", "profiles");
     D6R_REQUIRE(randomized.valid());
     D6R_REQUIRE(PlayerSkinColors::fromAppearance(randomized).appearance() == randomized);
+    const auto root = std::filesystem::temp_directory_path()
+        / ("duel6r-appearance-cli-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    const auto profiles = root / "profiles";
+    D6R_REQUIRE(PlayerSkinColors::resolveLocalAppearance("CLI owner", profiles.string()).valid());
+    std::filesystem::create_directories(profiles / "Matched");
+    D6R_REQUIRE_THROW(PlayerSkinColors::resolveLocalAppearance("Matched", profiles.string()), std::exception);
+    { std::ofstream invalid(profiles / "Matched" / "skin.json"); invalid << "not JSON"; }
+    D6R_REQUIRE_THROW(PlayerSkinColors::resolveLocalAppearance("Matched", profiles.string()), std::exception);
 }
 
 D6R_TEST_CASE("Shared arena texture-free default body timing matches every shipped semantic clip") {
