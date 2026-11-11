@@ -64,7 +64,7 @@ D6R_TEST_CASE("Non-final team rows aggregate K A D PTS before calculating the ra
     D6R_REQUIRE_EQ(Color(255, 0, 255, 178), rows[0].background);
     D6R_REQUIRE(rows[1].nested && !rows[1].team);
     D6R_REQUIRE_EQ(Color(51, 0, 51, 178), rows[1].background);
-    D6R_REQUIRE_EQ(std::size_t(3), std::count_if(rows.begin(), rows.end(), [](const auto &r) { return r.separatorBefore; }));
+    D6R_REQUIRE_EQ(3, std::count_if(rows.begin(), rows.end(), [](const auto &r) { return r.separatorBefore; }));
     D6R_REQUIRE(!rows.back().separatorBefore);
     D6R_REQUIRE_EQ(std::string("Alpha"), rows[9].name);
 }
@@ -106,7 +106,7 @@ D6R_TEST_CASE("Non-final ordinary score allocation matches Local Play padding ty
 
 D6R_TEST_CASE("Non-final constrained team body keeps fixed headings all rows reachable and local separator pitch") {
     const auto rows = S::rows(summary(15, 4));
-    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}}) {
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}}) {
         std::set<std::size_t> reached;
         const auto initial = S::layout(rows, "Rounds: 2|3", "Round outcome: Team 4", size.first, size.second);
         D6R_REQUIRE(initial.maximumFirst > 0);
@@ -141,7 +141,7 @@ D6R_TEST_CASE("Non-final long names and outcomes stay contained without shrinkin
     state.score.players[0].kills = 12345; state.score.players[0].assists = 23456;
     state.score.players[0].deaths = 34567; state.score.players[0].cumulativePoints = -45678;
     const auto rows = S::rows(state);
-    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}}) {
         const auto shortOutcome = S::layout(rows, "Rounds: 2|3", "Round outcome: No winner", size.first, size.second);
         const auto layout = S::layout(rows, "Rounds: 2|3", "Round outcome: " + std::string(350, 'X'), size.first, size.second);
         D6R_REQUIRE(layout.count < shortOutcome.count);
@@ -151,7 +151,7 @@ D6R_TEST_CASE("Non-final long names and outcomes stay contained without shrinkin
             D6R_REQUIRE(label.find("…") != std::string::npos || row.team);
             if (!row.lifecycle.empty()) D6R_REQUIRE(label.find(" • Departed") != std::string::npos);
             const auto text = S::numericText(row, layout);
-            D6R_REQUIRE_EQ(std::size_t(5), std::count(text.begin(), text.end(), '|'));
+            D6R_REQUIRE_EQ(5, std::count(text.begin(), text.end(), '|'));
             D6R_REQUIRE_EQ(std::size_t(layout.tableWidth - layout.nameWidth), text.size() * 16);
         }
         D6R_REQUIRE(layout.bottom >= layout.outcomeY + int(layout.outcomeRows.size()) * 18 + 16);

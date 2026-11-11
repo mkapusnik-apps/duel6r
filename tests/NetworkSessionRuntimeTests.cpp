@@ -2361,7 +2361,7 @@ D6R_TEST_CASE("Non-final rendered score table retains role actions countdown fix
     ReviewMenuFixture f;
     namespace S = NetworkRoundSummary;
     namespace R = Network::Replication;
-    for (bool host: {true, false}) for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}}) {
+    for (bool host: {true, false}) for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}}) {
         f.lobby(host);
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         f.menu.runtime.current.journey = Client::NetworkJourney::Match;
@@ -2382,7 +2382,7 @@ D6R_TEST_CASE("Non-final rendered score table retains role actions countdown fix
             state.score.players.push_back(score);
         }
         for (const auto countdown: {360u, 240u}) {
-            state.roundEndCountdown = countdown; f.menu.rankingScroll = 0;
+            state.roundEndCountdown = countdown; f.menu.rankingScroll = 0; f.menu.focus = 0;
             const auto rows = S::rows(state);
             const auto layout = S::layout(rows, "Rounds: 1|2", "Round outcome: No winner", size.first, size.second);
             f.draw();
