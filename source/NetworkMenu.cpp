@@ -37,6 +37,11 @@ namespace Duel6 {
         constexpr std::size_t InterfaceVisibleRows = 3;
         constexpr Int32 LobbyReadyBottom = 164;
         constexpr Float32 CanvasMaximumScale = 1.35f;
+        struct SetupFooterBounds {
+            Int32 primaryX, primaryY, backX, backY;
+        };
+        constexpr SetupFooterBounds HostSetupFooter{117, 38, 433, 38};
+        constexpr SetupFooterBounds JoinSetupFooter{275, 82, 275, 38};
 #ifdef D6_MACOS_PLATFORM
         constexpr const char *SetupScope = "LAN-first • Session only • Optional scripts disabled";
 #else
@@ -682,7 +687,7 @@ namespace Duel6 {
         // Control/pointer bottom is baseline - 2; its outer focus extends another
         // two pixels. Count only rows whose complete extent stays in the inset.
         if (boundDedicated()) return std::max(1, (setupFirstRow() - 206 - 4) / 22 + 1);
-        return 8;
+        return setupScreen == SetupScreen::Host ? 10 : 8;
     }
 
     void NetworkMenu::enterDirectSetup() {
@@ -764,7 +769,7 @@ namespace Duel6 {
         if (invalid != localPlayers.end()) {
             reason = "Assign a valid control to every local player."; return false;
         }
-        reason = setupScreen == SetupScreen::Host ? "Ready to start a player-hosted session."
+        reason = setupScreen == SetupScreen::Host ? ""
             : boundSelection() && !browserSelection->passwordRequired && password.empty()
                 ? "The host confirms availability when you connect." : "Ready to connect.";
         return true;
@@ -1042,11 +1047,12 @@ namespace Duel6 {
                 }
             }
             const int footer = playerBase + static_cast<int>(localPlayers.size()) * 2;
+            const auto &bounds = setupScreen == SetupScreen::Host ? HostSetupFooter : JoinSetupFooter;
             std::string reason;
-            if (setupValid(reason) && pointerInside(x, y, 275, 82, 300, 32)) {
+            if (setupValid(reason) && pointerInside(x, y, bounds.primaryX, bounds.primaryY, 300, 32)) {
                 focus = footer; activate(); return;
             }
-            if (pointerInside(x, y, 275, 38, 300, 32)) { focus = footer + 1; activate(); return; }
+            if (pointerInside(x, y, bounds.backX, bounds.backY, 300, 32)) { focus = footer + 1; activate(); return; }
         } else if (snap.journey == Client::NetworkJourney::Starting) {
             const Int32 cancelY = !snap.host && setupScreen == SetupScreen::Join ? 38 : 300;
             if (pointerInside(x, y, 275, cancelY, 300, 32)) { focus = 0; activate(); return; }
@@ -1177,7 +1183,7 @@ namespace Duel6 {
             if (scale <= 0) return;
             const int x = static_cast<int>((event.getX() - (screen.getClientWidth() - CanvasWidth * scale) / 2) / scale);
             const int y = static_cast<int>((event.getY() - (screen.getClientHeight() - CanvasHeight * scale) / 2) / scale);
-            if (y < 200 || y >= setupFirstRow() + 18) return;
+            if (y < setupPanelBottom() - 2 || y >= setupFirstRow() + 18) return;
             if (x >= 50 && x < 400) {
                 setupPersonsScroll = std::clamp(setupPersonsScroll - event.getAmountY(), 0,
                     std::max(0, static_cast<int>(availablePersons.size()) - setupVisibleRows()));
@@ -2846,11 +2852,12 @@ namespace Duel6 {
                 for (std::size_t line = 0; line < context.size(); ++line)
                     drawText(50, 382 - static_cast<Int32>(line) * 20, context[line]);
             }
-            const int panelHeight = boundDedicated() ? setupFirstRow() + 40 - 202 : 202;
-            drawPanel(46, 202, 358, panelHeight, "PERSONS");
-            drawPanel(426, 202, 398, panelHeight, "LOCAL PLAYERS AND CONTROLS");
-            drawField(48, 206, 354, panelHeight - 26);
-            drawField(428, 206, 394, panelHeight - 26);
+            const int panelBottom = setupPanelBottom();
+            const int panelHeight = (boundDedicated() ? setupFirstRow() + 40 : 404) - panelBottom;
+            drawPanel(46, panelBottom, 358, panelHeight, "PERSONS");
+            drawPanel(426, panelBottom, 398, panelHeight, "LOCAL PLAYERS AND CONTROLS");
+            drawField(48, panelBottom + 4, 354, panelHeight - 26);
+            drawField(428, panelBottom + 4, 394, panelHeight - 26);
             const std::size_t firstPerson = static_cast<std::size_t>(setupPersonsScroll);
             y = setupFirstRow();
             for (std::size_t index = firstPerson; index < availablePersons.size() && index < firstPerson + setupVisibleRows(); ++index, y -= 18) {
@@ -2871,10 +2878,11 @@ namespace Duel6 {
                 drawButton(724, y - 2, 96, 18, "Remove", focus == playerBase + static_cast<int>(index) * 2 + 1);
             }
             std::string reason; const bool valid = setupValid(reason);
-            drawText(50, 182, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 1–15");
+            drawText(50, panelBottom - 20, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 1–15");
             if (boundSelection() && !boundDedicated())
                 drawText(470, 182, "Session: " + browserSelection->sessionId);
-            drawText(50, 160, browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "first-round"
+            if (setupScreen == SetupScreen::Join)
+                drawText(50, 160, browserSelection && browserSelection->phase == "first-round"
                 ? "Round 1 in progress. You will play immediately if admitted."
                 : browserSelection && setupScreen == SetupScreen::Join && browserSelection->phase == "started"
                     ? "Match in progress. Your players join next round if admitted."
@@ -2884,14 +2892,16 @@ namespace Duel6 {
                     && (!browserSelection || !browserSelection->passwordRequired)
                 ? "Endpoint-only first contact does not authenticate host identity."
                  : "Listing does not guarantee reachability. Direct play remains available.");
-            drawText(50, 138, passwordFeedback.empty() ? reason : passwordFeedback);
+            drawText(50, panelBottom - 64, passwordFeedback.empty() ? reason : passwordFeedback);
             if (browserSelection && setupScreen == SetupScreen::Join)
                 drawText(50, 118, !browserSelection->passwordRequired && password.empty()
                     ? "Endpoint-only first contact does not authenticate host identity."
                     : "The host confirms availability when you connect.");
             const int footer = playerBase + static_cast<int>(localPlayers.size()) * 2;
-            drawAction(82, setupScreen == SetupScreen::Host ? "Start session" : "Connect", focus == footer, valid);
-            drawAction(38, "Back", focus == footer + 1);
+            const auto &bounds = setupScreen == SetupScreen::Host ? HostSetupFooter : JoinSetupFooter;
+            drawButton(bounds.primaryX, bounds.primaryY, 300, 32,
+                       setupScreen == SetupScreen::Host ? "Start session" : "Connect", focus == footer, valid);
+            drawButton(bounds.backX, bounds.backY, 300, 32, "Back", focus == footer + 1);
             if (setupScreen == SetupScreen::Host && hostAddressSelectorOpen) {
                 drawPanel(224, 202, 586, 252, "LISTENING INTERFACE");
                 const auto checkbox = [&](Int32 bottom, const std::string &label, bool checked, bool selected, bool enabled) {

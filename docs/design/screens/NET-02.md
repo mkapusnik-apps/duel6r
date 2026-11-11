@@ -2,7 +2,7 @@
 
 Functional contract: [network-host-setup](../../screens/network-host-setup.md), including NET-HOST-IF-001–024 and NET-OWN-001. State `NET-02-password` consumes [NET-PASS-001 and NET-DIR-001/015](../../network-host-directory.md). Listening startup consumes [HSL-IF-001–005](../../network-host-service-lifecycle.md); publication consumes [NET-DIR-017–020](../../network-host-directory.md). Wireframes: [NET-02 editable](../wireframes/NET-02/NET-02.svg), [NET-02-LA wildcard popup](../wireframes/NET-02/NET-02-LA.svg), [NET-02-LE explicit popup](../wireframes/NET-02/NET-02-LE.svg), and [NET-02-P pending startup](../wireframes/NET-02/NET-02-P.svg). These variants do not add functional screen identities. NET-02-P remains unchanged.
 
-Visual impact is localized to the Listening interface field, popup, and listening validation feedback. This section supersedes the legacy single-address selector presentation in `docs/design.md`; unrelated styling and input rules remain authoritative. Product owns mode initialization, retention, eligibility, startup, and publication outcomes. No design-system token changes are required.
+Visual impact covers the Listening interface field, popup, validation feedback, editable host footer, and taller setup lists. The footer omits static listing/direct-play help and idle readiness text and uses one bottom action row. This section supersedes the legacy single-address selector presentation in `docs/design.md`; unrelated styling and input rules remain authoritative. Product owns mode initialization, retention, eligibility, startup, and publication outcomes. No design-system token changes are required.
 
 ## Presentation and allocation
 
@@ -12,15 +12,30 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - **UX-NET-02-002** Endpoint labels must occupy a fixed left column while the remaining width contains separately framed Port, Listening interface, and Password values.
 - **UX-NET-02-003** The editable Port must keep its five digits visible without horizontal scrolling.
 - **UX-NET-02-004** The collapsed interface selector must show the listening mode and selection summary defined below.
-- **UX-NET-02-005** Persons and Local players and controls must each have a title strip and an independently contained white list body.
+- **UX-NET-02-005** Persons and Local players and controls must each have a title strip and an independently contained white list body. Both panels and list bodies must extend downward by 44 logical px without moving their top edges, headings, or first rows. Both lists must use the additional height for ten complete visible rows instead of eight at their existing row pitches; further entries must remain accessible through existing scrolling.
 - **UX-NET-02-006** Each player row must keep its existing control-assignment target separate from its Remove button.
 - **UX-NET-02-007** The setup lists must give remaining horizontal space to person and control values after row-action bounds are reserved.
-- **UX-NET-02-008** The fixed lower region must keep local-player count, validation, and help above the centered Start session and Back action column.
+- **UX-NET-02-008** The fixed lower region must keep local-player count and conditional validation/input feedback above one centered bottom action row, with Start session on the left and Back on the right. Both buttons must use the original Back button's bottom position and 32-logical-pixel height, retain their current horizontal allocation and 16-logical-pixel gap, and keep the shared control-clearance rules. Count and feedback must move down by the same 44 logical px as the panel bottoms without entering either list or the action row.
 - **UX-NET-02-009** The listening popup must overlay lower body content inside the canvas without moving the setup headings or footer.
 - **UX-NET-02-010** NET-02-P must present the existing startup status and timing help in a fixed status group above the sole Cancel action.
 - **UX-NET-02-011** Cancelling must use the same progress allocation without an enabled Cancel, Start session, or Back affordance.
 
 NET-02-P preserves the current separate progress presentation. It does not introduce a new editable form, setup summary, progress percentage, or directory-success claim. Retained setup remains available through the existing completed-cancel transition.
+
+### Editable host geometry
+
+These exact bounds use the existing 850 × 700 logical canvas and bottom-left origin. They apply to NET-02 and the underlying setup in NET-02-LA/LE only, not Join or NET-02-P. The original Back allocation in develop `07416c5ebb60657cd6de03cd9bd7e2c6383d9277` is y=38 with height 32; the bottom row restores that vertical allocation. Its lower edge is 38 px above the canvas bottom and 14 px above the enclosing panel's y=24 lower edge.
+
+| Region | Left / bottom | Width / height | Preserved relationship |
+|---|---|---|---|
+| Start session | 117 / 38 | 300 / 32 | Left action; 44 px below the previous row at y=82 |
+| Back | 433 / 38 | 300 / 32 | Right action; same vertical centerline and 16 px gap |
+| Persons panel | 46 / 158 | 358 / 246 | Top remains y=404; height increases from 202 by 44 |
+| Local players and controls panel | 426 / 158 | 398 / 246 | Same top, bottom and height as Persons |
+| Persons list body | 48 / 162 | 354 / 220 | Top remains y=382; height increases from 176 by 44 |
+| Local players and controls list body | 428 / 162 | 394 / 220 | Same top, bottom and height as Persons list body |
+
+Keep the first row at y=364 and the existing 18 px Persons / 22 px local-player row pitches. Keep control-assignment and Remove bounds separate. Place the count text origin at (50,138) instead of (50,182), and conditional feedback at (50,94) instead of (50,138), using the unchanged 16 px text. Retain blank idle feedback, readable conditional reasons, focus clearance and existing wrapping without covering count, lists or actions. Do not enlarge or move the listening popup into the added list area; its lower edge remains y=202. Other SVG positions remain structural approximations; the action bounds and this allocation table define the exact geometry.
 
 ## Hierarchy and controls
 
@@ -40,7 +55,7 @@ NET-02-P preserves the current separate progress presentation. It does not intro
 - The roster region must shrink by that same height.
 - Roster headings and the footer must remain fixed.
 - Long rosters must scroll inside their existing regions.
-- The UI must reserve one wrapped help line for `Listing does not guarantee reachability. Direct play remains available.`
+- Editable host setup must omit `Listing does not guarantee reachability.`, `Direct play remains available.`, and `Ready to start a player-hosted session.` without replacement text. Existing errors, disabled reasons, input-rejection feedback, and non-static statuses must remain visible when present.
 - Password validation must appear beside the field without exposing its value.
 - Starting and Cancelling must retain their existing locked setup and Cancel behavior.
 - Startup copy must not imply successful directory registration.
@@ -49,7 +64,7 @@ NET-02-P preserves the current separate progress presentation. It does not intro
 
 At 850 × 700, the password label, mask, help, player count, validation, and footer must remain separate and readable. Expanded interface options must remain inside the canvas. Field focus must remain visible without color. Directory registration failure must not be presented as hosted-session startup failure when the host service is running. NET-04 owns registration feedback.
 
-The editable representative must show that fields and row actions remain recognizable while Password is focused. The two popup representatives must show wildcard coverage and an independent explicit subset. The progress representative retains its prior scope when its presentation remains unchanged. Capture details are in the [current matrix](../screenshots/README.md#network-presentation-current-capture-matrix).
+The editable representative must show that fields and row actions remain recognizable while Password is focused. The two popup representatives must show wildcard coverage and an independent explicit subset. The progress representative retains its prior scope when its presentation remains unchanged. Capture details are in the [current footer matrix](../screenshots/README.md#net-02-current-footer-capture-matrix).
 
 ## Listening summary and popup
 
@@ -117,4 +132,4 @@ Product-owned NET-SOLO and NET-PASS determine available startup and secret behav
 - Common Password entry must retain product-owned UTF-8, byte-limit, whole-event rejection, masking, and context-erasure behavior.
 - Password rejection feedback must remain secret-free in the existing validation region.
 
-NET-02, NET-02-LA, and NET-02-LE change only the required capacity/Password text. NET-02-P and every unrelated diagram remain unchanged. The coordinated matrix replaces the old capacity representatives without a separate host-setup campaign.
+NET-02, NET-02-LA, and NET-02-LE retain these capacity/Password requirements and the shared editable footer above. NET-02-P and every unrelated diagram remain unchanged. The [current footer matrix](../screenshots/README.md#net-02-current-footer-capture-matrix) owns the affected representatives.

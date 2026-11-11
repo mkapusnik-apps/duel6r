@@ -123,6 +123,7 @@ namespace Duel6 {
         bool boundDedicated() const { return boundSelection() && browserSelection->dedicated(); }
         std::vector<std::string> boundContextLines() const;
         int setupFirstRow() const;
+        int setupPanelBottom() const { return setupScreen == SetupScreen::Host ? 158 : 202; }
         int setupVisibleRows() const;
         void clearPassword();
         void clearConfirmedPassword();

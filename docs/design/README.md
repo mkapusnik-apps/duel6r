@@ -28,7 +28,7 @@ Network-capable experimental macOS uses existing NET-01 through NET-10 journeys.
 | PLAY-01 | [Unchanged local arena reference](screens/PLAY-01.md) | [PLAY-01](wireframes/PLAY-01/PLAY-01.svg) |
 | OVER-03 | [Local shared final binding](screens/OVER-03.md) | [OVER-03](wireframes/OVER-03/OVER-03.svg) |
 | NET-01 | [Current compact entry modal](screens/NET-01.md) over actual retained MENU-01 | Exact incoming [NET-01](wireframes/NET-01/NET-01.svg) from develop0625f25 |
-| NET-02 | [Host setup, common Password and hosted capacity](screens/NET-02.md) | Text-only NET-02/LA/LE updates; unchanged NET-02-P |
+| NET-02 | [Host setup, common Password and hosted capacity](screens/NET-02.md) | NET-02/LA/LE use one Start session / Back row without static listing/direct-play or idle readiness text; unchanged NET-02-P |
 | NET-03 | [Common Password, selector-free Direct and bound setup](screens/NET-03.md) | NET-03-P removes the selector and restores ordinary Direct allocation; NET-03-E/B and connecting change affected text/annotations only |
 | NET-04 | [Current settings and dedicated role context](screens/NET-04.md) | [NET-04](wireframes/NET-04/NET-04.svg); [NET-04-R](wireframes/NET-04/NET-04-R.svg) |
 | NET-05 | [Local-reference parity and existing hosting/waiting status](screens/NET-05.md) | [NET-05](wireframes/NET-05/NET-05.svg); unchanged NET-05-W/C/S/R |
