@@ -34,7 +34,7 @@ D6R_TEST_CASE("browser kind and session mismatch reject before provisional alloc
     for (bool dedicated : {false, true}) {
         Server::AdmissionPolicy policy(content, dedicated ? 0 : 1, {}, {}, {}, dedicated);
         Server::AdmissionContext context; context.sessionId = 42;
-        auto request = makeLocalAdmissionRequest(1, content);
+        auto request = makeLocalAdmissionRequest(1, content, {"Channel"}, {PlayerAppearance{}});
         request.expectedSessionId = 42;
         request.expectedHostingKind = dedicated ? HostingKind::PlayerHosted : HostingKind::Dedicated;
         const auto mismatch = policy.offer(request, context);

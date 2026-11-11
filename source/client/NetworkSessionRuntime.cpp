@@ -51,12 +51,17 @@ namespace Duel6::Client {
             if (!selection.validation().empty()) return false;
         }
         std::vector<std::uint8_t> setupPayload;
-        try { setupPayload = Network::HostComposition::serializeSetup(setup); }
+        auto resolvedSetup = setup;
+        resolvedSetup.localPlayerAppearances.clear();
+        for (const auto &player: localPlayers) resolvedSetup.localPlayerAppearances.push_back(player.appearance);
+        try { setupPayload = Network::HostComposition::serializeSetup(resolvedSetup); }
         catch (...) { return false; }
         if (localPlayers.size() != setup.localPlayerNames.size()
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
-                return Network::Trust::validParticipantName(player.name);
+                return Network::Trust::validParticipantName(player.name) && player.appearance.valid();
             })) return false;
+        for (std::size_t index = 0; index < localPlayers.size(); ++index)
+            if (localPlayers[index].name != setup.localPlayerNames[index]) return false;
         reset();
         HostServiceDependencies dependencies;
         passwordRequired = setup.password && setup.password->required();
@@ -92,7 +97,7 @@ namespace Duel6::Client {
                                       std::string expectedSessionId, std::optional<bool> expectedDedicated) {
         if (localPlayers.empty() || localPlayers.size() > Network::MaxNetworkPlayers
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
-                return Network::Trust::validParticipantName(player.name);
+                return Network::Trust::validParticipantName(player.name) && player.appearance.valid();
             })) return false;
         reset();
         {
@@ -107,7 +112,10 @@ namespace Duel6::Client {
                                   password = std::move(password), expectedSessionId = std::move(expectedSessionId)] {
             Server::ServerConfig config; config.admissionClient = true; config.listenEndpoint = endpoint;
             config.resourcePath = resourcePath; config.localPlayers = static_cast<std::uint8_t>(players.size());
-            for (const auto &player: players) config.localPlayerNames.push_back(player.name);
+            for (const auto &player: players) {
+                config.localPlayerNames.push_back(player.name);
+                config.localPlayerAppearances.push_back(player.appearance);
+            }
             Server::AdmissionRuntimeDependencies dependencies;
             dependencies.sessionPassword = password;
             dependencies.secureLimits = sessionLimits;
@@ -516,25 +524,27 @@ namespace Duel6::Client {
         std::lock_guard<std::mutex> lock(mutex);
         if (localPlayers.size() != players.size()
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
-                return Network::Trust::validParticipantName(player.name);
+                return Network::Trust::validParticipantName(player.name) && player.appearance.valid();
             })) return;
         players = std::move(localPlayers);
         sampledActions.assign(players.size(), 0);
     }
     void NetworkSessionRuntime::ownedPersonsChanged() {
         std::vector<std::string> names;
+        std::vector<PlayerAppearance> appearances;
         {
             std::lock_guard<std::mutex> lock(mutex);
             for (const auto &player: players) {
-                if (!Network::Trust::validParticipantName(player.name)) return;
+                if (!Network::Trust::validParticipantName(player.name) || !player.appearance.valid()) return;
                 names.push_back(player.name);
+                appearances.push_back(player.appearance);
             }
             if (!supervisor) {
-                pendingGuestCommands.push_back(Network::HostComposition::serializeOwnedPersons(names));
+                pendingGuestCommands.push_back(Network::HostComposition::serializeOwnedPersons(names, appearances));
                 return;
             }
         }
-        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeOwnedPersons(names)); }
+        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeOwnedPersons(names, appearances)); }
         catch (...) {}
     }
     void NetworkSessionRuntime::localConfigurationChanged() {

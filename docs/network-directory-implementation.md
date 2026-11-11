@@ -144,15 +144,46 @@ consume-once reconnect credential; it does not allocate new players.
 
 ## Live admission and bounds
 
-The canonical network release identifier is `duel6r-network-r2`; the encrypted
+The canonical network release identifier is `duel6r-network-r7`; the encrypted
 session transport does not provide a legacy plaintext fallback. The approved ongoing-admission target orders outcome and round-start decisions before admission at an equal host-clock instant. Active rounds and non-final delays remain open; only final outcome closes admission before final delay/summary. Lobby return reopens it. An offer alone reserves no participant authority. These target changes require implementation verification and do not inherit earlier acceptance below.
 
-Admission wire version **3** binds a browser-selected nonzero session ID and expected hosting kind inside the
+Admission wire version **4** binds a browser-selected nonzero session ID and expected hosting kind inside the
 encrypted `D6RA` request before reservation or commitment. The guest additionally
 checks the confirmed snapshot and reconnect grant agree on session identity and
 checks the exact ordered offered/accepted/confirmed participant/player identities.
 
-Offers, acceptance and confirmation encode session ID followed by one hosting-kind byte (`1` player-hosted, `2` dedicated). The request appends expected kind (`0` unbound Direct, `1` or `2` selected) after expected session ID. Missing/unknown/trailing data rejects without a version-2 adapter. Direct publishes kind only after complete admission. Lifecycle envelope **2** includes confirmed kind in grants and accepted reconnect responses; changed kind cannot restore the session. Framing remains **1** and the required capability names remain unchanged. Replace matching clients/services together. Legacy dedicated outer-TLS frontends and PROXY backends are unsupported, never probed; pre-admission mismatch does not prove a release mismatch.
+Offers, acceptance and confirmation encode session ID followed by one hosting-kind byte (`1` player-hosted, `2` dedicated). The request appends expected kind (`0` unbound Direct, `1` or `2` selected) after expected session ID. Missing/unknown/trailing data rejects without a legacy adapter. Direct publishes kind only after complete admission. Lifecycle envelope **2** includes confirmed kind in grants and accepted reconnect responses; changed kind cannot restore the session. Framing remains **1** and the required capability names remain unchanged. Replace matching clients/services together. Legacy dedicated outer-TLS frontends and PROXY backends are unsupported, never probed; pre-admission mismatch does not prove a release mismatch.
+
+### Selected-person appearance encoding
+
+Release `duel6r-network-r7` requires admission **4**, host-composition **4**, and
+replication **8**, with no old-schema/default-appearance fallback. Matching clients
+and services must be replaced together; this is not a live deployment instruction.
+
+Every appearance is exactly 32 bytes: ten opaque RGB triples in `PlayerSkinColors`
+order (hair top, hair bottom, body outer, body inner, hand outer, hand inner,
+trousers, shoes, face, headband), then hair (`0` Normal, `1` None, `2` Short) and
+headband (`0` Off, `1` On). Channels are unsigned bytes; there is no alpha or
+resource selector. Hair values above 2, headband values above 1, incomplete values,
+or trailing data fail validation. Headband outline color retains local derivation.
+
+Admission requires an ordered name and appearance for every local player. Each
+existing length-prefixed name is immediately followed by its appearance; names
+are no longer optional. Initial host setup, setup updates, and owned-person edits
+use the same name/appearance pairing within the existing bounded player count.
+The service binds proposals to that connection's immutable owned slots. Unchanged
+names cannot submit different appearances. Person and appearance replacements
+commit together with readiness clearing; reorder and control edits preserve them.
+
+Replication appends the 32-byte base appearance after each player record's
+`animation.weaponVisible`, in both full and incremental records. It participates
+in player equality, validation, and conservative payload accounting (32 additional
+bytes per player). Waiting slots carry it without an actor. Recovery restores
+service-retained values, never a receiver profile. Reconnect compatibility retains
+the client's already-resolved configuration but is not a configuration mutation.
+Team colors are presentation overrides over that base. Positive authoritative
+`temporaryMovementRemaining` selects the existing brown skin; expiry or round
+reset restores the applicable base/Team skin without a client effect timer.
 
 Under NET-ADM-001 through NET-ADM-016, commit strictly before the first-round outcome initializes only appended players in the current world with normal loadout, retaining Team starting-area rotation and the existing Predator. Other ongoing commits retain waiting ownership without bodies until the first strictly later round start, then use normal initialization exactly once with cleared input. Leave/expiry cancels pending spawn; reconnect does not accelerate or duplicate it. Final active waiting creates no extra round. Existing players, world state, and timers remain intact. Initial snapshots carry current calibrated authoritative state, including Waiting where applicable, not an artificial lobby.
 

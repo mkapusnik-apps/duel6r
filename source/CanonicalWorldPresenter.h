@@ -24,6 +24,7 @@ namespace Duel6 {
     class CanonicalWorldPresenter final {
     public:
         CanonicalWorldPresenter(AppService &service, GameResources &resources);
+        ~CanonicalWorldPresenter();
         void setCanonicalLevels(std::vector<std::string> levels);
         void update(Float32 elapsedTime,
                     const Network::Replication::CanonicalState *state,
@@ -42,7 +43,14 @@ namespace Duel6 {
         Renderer &renderer;
         Font &font;
         PlayerAnimations animations;
-        std::vector<std::unique_ptr<PlayerSkin>> skins;
+        struct CachedSkin {
+            PlayerAppearance appearance;
+            std::uint8_t team;
+            bool temporaryBrown;
+            std::unique_ptr<PlayerSkin> skin;
+        };
+        mutable std::map<Network::Replication::Identity, CachedSkin> skins;
+        void clearSkins();
         std::unique_ptr<RandomSource> levelRandomSource;
         std::unique_ptr<Level> level;
         std::unique_ptr<LevelRenderData> levelRenderData;

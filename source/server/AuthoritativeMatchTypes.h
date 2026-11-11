@@ -2,6 +2,7 @@
 #define DUEL6_SERVER_AUTHORITATIVEMATCHTYPES_H
 #include "../Defines.h"
 #include "../ArenaState.h"
+#include "../PlayerAppearance.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -74,6 +75,7 @@ namespace Duel6::Server::Authoritative {
         Identity playerId = 0;
         std::string displayName;
         std::uint8_t rosterOrder = 0;
+        PlayerAppearance appearance;
     };
 
     struct MatchConfig {

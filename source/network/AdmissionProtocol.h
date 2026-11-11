@@ -10,10 +10,11 @@
 #include <vector>
 
 #include "CompatibilityManifest.h"
+#include "../PlayerAppearance.h"
 
 namespace Duel6::Network {
-    constexpr std::uint32_t AdmissionProtocolVersion = 3;
-    inline constexpr std::string_view NetworkReleaseId = "duel6r-network-r6";
+    constexpr std::uint32_t AdmissionProtocolVersion = 4;
+    inline constexpr std::string_view NetworkReleaseId = "duel6r-network-r7";
     enum class HostingKind : std::uint8_t { Unbound = 0, PlayerHosted = 1, Dedicated = 2 };
     inline bool validHostingKind(HostingKind kind) {
         return kind == HostingKind::PlayerHosted || kind == HostingKind::Dedicated;
@@ -30,6 +31,7 @@ namespace Duel6::Network {
         std::vector<std::string> capabilities;
         std::uint8_t localPlayerCount = 1;
         std::vector<std::string> localPlayerNames;
+        std::vector<PlayerAppearance> localPlayerAppearances;
         GameplayManifest gameplayManifest;
         std::uint64_t expectedSessionId = 0; // Zero only for explicit direct joining.
         HostingKind expectedHostingKind = HostingKind::Unbound;
@@ -102,7 +104,8 @@ namespace Duel6::Network {
     std::string_view reconnectCompatibilityUserCopy(ReconnectCompatibilityCode code);
     bool hasRequiredAdmissionCapabilities(const std::vector<std::string> &capabilities);
     AdmissionRequest makeLocalAdmissionRequest(std::uint8_t localPlayers, GameplayManifest manifest,
-                                               std::vector<std::string> localPlayerNames = {});
+                                               std::vector<std::string> localPlayerNames,
+                                               std::vector<PlayerAppearance> localPlayerAppearances);
 }
 
 #endif

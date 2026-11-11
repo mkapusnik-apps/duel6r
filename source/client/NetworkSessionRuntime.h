@@ -39,6 +39,7 @@ namespace Duel6::Client {
         std::string name;
         const PlayerControls *controls = nullptr;
         std::string controlDescription;
+        PlayerAppearance appearance;
     };
 
     struct NetworkRuntimeSnapshot {

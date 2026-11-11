@@ -13,6 +13,7 @@
 #include <sstream>
 
 #include "Defines.h"
+#include "DataException.h"
 #include "json/JsonParser.h"
 #include "network/NetworkTrustPolicy.h"
 #include "network/SecureSession.h"
@@ -570,8 +571,12 @@ namespace Duel6 {
     void NetworkMenu::open(std::vector<Client::NetworkLocalPlayer> players,
                            Network::HostComposition::Setup setup,
                            std::vector<std::string> persons,
-                           std::vector<std::string> levels) {
+                           std::vector<std::string> levels,
+                           std::function<PlayerAppearance(const std::string &)> resolver) {
         runtime.reset(); localPlayers = std::move(players); hostSetup = std::move(setup);
+        resolveAppearance = std::move(resolver);
+        if (resolveAppearance)
+            for (auto &player: localPlayers) player.appearance = resolveAppearance(player.name);
         preferredTeamCount = hostSetup.teamCount >= 2 ? hostSetup.teamCount : 2;
         preferredFriendlyFire = hostSetup.friendlyFire;
         if (hostSetup.mode != "Team deathmatch") {
@@ -885,9 +890,17 @@ namespace Duel6 {
                 return &player != &localPlayers[playerIndex] && player.name == availablePersons[index];
             });
             if (!alreadySelected) {
+                if (localPlayers[playerIndex].name == availablePersons[index]) return;
+                if (!resolveAppearance) D6_THROW(DataException, "Local appearance resolver is unavailable");
+                const auto appearance = resolveAppearance(availablePersons[index]);
                 localPlayers[playerIndex].name = availablePersons[index];
+                localPlayers[playerIndex].appearance = appearance;
                 hostSetup.localPlayerNames.clear();
-                for (const auto &player: localPlayers) hostSetup.localPlayerNames.push_back(player.name);
+                hostSetup.localPlayerAppearances.clear();
+                for (const auto &player: localPlayers) {
+                    hostSetup.localPlayerNames.push_back(player.name);
+                    hostSetup.localPlayerAppearances.push_back(player.appearance);
+                }
                 runtime.rebindLocalPlayers(localPlayers);
                 runtime.ownedPersonsChanged();
                 return;
@@ -1414,6 +1427,8 @@ namespace Duel6 {
                 const auto selected = std::find_if(localPlayers.begin(), localPlayers.end(), [&](const auto &p) { return p.name == name; });
                 if (selected == localPlayers.end() && localPlayers.size() < Network::MaxNetworkPlayers) {
                     Client::NetworkLocalPlayer player; player.name = name;
+                    if (!resolveAppearance) D6_THROW(DataException, "Local appearance resolver is unavailable");
+                    player.appearance = resolveAppearance(name);
                     localPlayers.push_back(std::move(player)); cycleControl(localPlayers.size() - 1);
                 }
                 return;
@@ -1434,7 +1449,11 @@ namespace Duel6 {
                 return;
             }
             hostSetup.localPlayerNames.clear();
-            for (const auto &player: localPlayers) hostSetup.localPlayerNames.push_back(player.name);
+            hostSetup.localPlayerAppearances.clear();
+            for (const auto &player: localPlayers) {
+                hostSetup.localPlayerNames.push_back(player.name);
+                hostSetup.localPlayerAppearances.push_back(player.appearance);
+            }
             if (setupScreen == SetupScreen::Host) {
                 hostSetup.password = std::make_shared<Network::SessionPassword>(password);
                 // The graphical client loads data/ and levels/ from its working

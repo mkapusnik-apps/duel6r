@@ -185,6 +185,7 @@ int main(int argc, char **argv) {
                 return row.sessionId == original && row.players == 2 && row.phase == "lobby"; }); }, 5s), "authoritative lobby publication");
             Network::HostComposition::Setup setup;
             setup.localPlayerNames = {controller.snapshot().host && &controller == &first ? "Controller" : "Guest"};
+            setup.localPlayerAppearances.resize(1);
             setup.fixedLevel = "levels/arena.json"; setup.roundLimit = 1; setup.quickLiquid = true;
             setup.assistance = !controller.snapshot().canonical->settings.assistance;
             require(controller.updateHostSetup(setup), "bound controller setup");
@@ -241,7 +242,7 @@ int main(int argc, char **argv) {
             Network::TcpClient offeredGuest(transport);
             require(offeredGuest.start(endpoint) && offeredGuest.waitForConnected(5s), "R1 actual guest TLS");
             auto connection = offeredGuest.connection(); require(connection != nullptr, "R1 actual guest connection");
-            auto request = Network::makeLocalAdmissionRequest(1, content.manifest, {"Deferred guest"});
+            auto request = Network::makeLocalAdmissionRequest(1, content.manifest, {"Deferred guest"}, {PlayerAppearance{}});
             request.expectedSessionId = original.sessionId;
             require(connection->send(Network::serializeAdmissionRequest(request)) == Network::SendResult::Accepted, "R1 request while controller connected");
             std::optional<Network::AdmissionOfferPayload> offer;
@@ -295,6 +296,7 @@ int main(int argc, char **argv) {
             const bool advance = scenario == "attack-advance";
             H::Setup setup;
             setup.localPlayerNames = {"Controller"}; setup.fixedLevel = "levels/arena.json";
+            setup.localPlayerAppearances.resize(1);
             setup.quickLiquid = summary || advance; setup.roundLimit = advance ? 2 : 1;
             setup.assistance = !first.snapshot().canonical->settings.assistance;
             require(first.updateHostSetup(setup), "legitimate setup");
@@ -402,6 +404,7 @@ int main(int argc, char **argv) {
             if (match || summary) {
                 Network::HostComposition::Setup setup;
                 setup.localPlayerNames = {"Controller"};
+                setup.localPlayerAppearances.resize(1);
                 setup.fixedLevel = "levels/arena.json";
                 setup.roundLimit = 1; setup.quickLiquid = summary;
                 // The lobby can already have this round limit/Quick Liquid

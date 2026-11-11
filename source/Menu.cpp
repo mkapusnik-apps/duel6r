@@ -459,7 +459,10 @@ namespace Duel6 {
         std::vector<std::string> personNames;
         for (const auto &person: persons.list()) personNames.push_back(person.getName());
         networkMenu->open(std::move(localPlayers), std::move(setup),
-                          std::move(personNames), listMaps());
+                          std::move(personNames), listMaps(), [this](const std::string &name) {
+            const auto *profile = getPersonProfile(name);
+            return (profile ? profile->getSkinColors() : PlayerSkinColors::makeRandom()).appearance();
+        });
     }
 
     void Menu::initializePresentation() {

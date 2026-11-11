@@ -1,4 +1,5 @@
 #include "StateReplicationProtocol.h"
+#include "PlayerAppearanceProtocol.h"
 
 #include <algorithm>
 #include <limits>
@@ -212,6 +213,7 @@ namespace Duel6::Network::Replication {
             w.integer(v.width); w.integer(v.height); w.integer(v.roundKills);
             w.integer(static_cast<std::uint8_t>(v.animation.pose)); w.integer(v.animation.bodyFrame);
             w.integer(v.animation.weaponFrame); w.boolean(v.animation.weaponVisible);
+            writeAppearance(v.appearance, [&](auto byte) { w.integer(byte); });
         }
         PlayerState readPlayer(Reader &r) {
             PlayerState v; v.playerId = r.integer<Identity>(); v.ownerParticipantId = r.integer<Identity>();
@@ -233,7 +235,8 @@ namespace Duel6::Network::Replication {
             v.roundKills = r.integer<std::int32_t>();
             v.animation.pose = static_cast<PlayerPose>(r.integer<std::uint8_t>());
             v.animation.bodyFrame = r.integer<std::uint16_t>(); v.animation.weaponFrame = r.integer<std::uint16_t>();
-            v.animation.weaponVisible = r.boolean(); return v;
+            v.animation.weaponVisible = r.boolean();
+            v.appearance = readAppearance([&] { return r.integer<std::uint8_t>(); }); return v;
         }
         void writeEntity(Writer &w, const WorldEntityState &v) {
             w.integer(v.entityId); w.integer(static_cast<std::uint8_t>(v.kind)); w.integer(v.ownerPlayerId); w.string(v.type);

@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "NetworkTrustPolicy.h"
+#include "PlayerAppearanceProtocol.h"
 
 namespace Duel6::Network::HostComposition {
     namespace {
@@ -102,15 +103,18 @@ namespace Duel6::Network::HostComposition {
 
     static std::vector<std::uint8_t> serializeSetupFields(const Setup &setup, Kind kind) {
         if (setup.localPlayerNames.empty() || setup.localPlayerNames.size() > Trust::MaxParticipants
+            || setup.localPlayerAppearances.size() != setup.localPlayerNames.size()
             || !validMode(setup.mode) || !validLevelPlan(setup.levelPlan)
             || setup.roundLimit == 0 || setup.roundLimit > 99 || !validTeamSettings(setup))
             throw std::invalid_argument("Invalid host composition setup");
         Writer writer; envelope(writer, kind);
         writer.u8(static_cast<std::uint8_t>(setup.localPlayerNames.size()));
-        for (const auto &name: setup.localPlayerNames) {
+        for (std::size_t index = 0; index < setup.localPlayerNames.size(); ++index) {
+            const auto &name = setup.localPlayerNames[index];
             if (!Trust::validParticipantName(name) || name.size() > MaximumDisplayNameBytes)
                 throw std::invalid_argument("Invalid host player name");
             writer.text(name, MaximumDisplayNameBytes);
+            writeAppearance(setup.localPlayerAppearances[index], [&](auto byte) { writer.u8(byte); });
         }
         writer.text(setup.mode, 32);
         writer.u8(setup.teamCount);
@@ -157,15 +161,18 @@ namespace Duel6::Network::HostComposition {
         writer.u8(static_cast<std::uint8_t>(direction)); return writer.take();
     }
 
-    std::vector<std::uint8_t> serializeOwnedPersons(const std::vector<std::string> &names) {
-        if (names.empty() || names.size() > Trust::MaxParticipants)
+    std::vector<std::uint8_t> serializeOwnedPersons(const std::vector<std::string> &names,
+                                                   const std::vector<PlayerAppearance> &appearances) {
+        if (names.empty() || names.size() > Trust::MaxParticipants || appearances.size() != names.size())
             throw std::invalid_argument("Invalid owned person configuration");
         Writer writer; envelope(writer, Kind::UpdateOwnedPersons);
         writer.u8(static_cast<std::uint8_t>(names.size()));
-        for (const auto &name: names) {
+        for (std::size_t index = 0; index < names.size(); ++index) {
+            const auto &name = names[index];
             if (!Trust::validParticipantName(name) || name.size() > MaximumDisplayNameBytes)
                 throw std::invalid_argument("Invalid local player name");
             writer.text(name, MaximumDisplayNameBytes);
+            writeAppearance(appearances[index], [&](auto byte) { writer.u8(byte); });
         }
         return writer.take();
     }
@@ -186,6 +193,7 @@ namespace Duel6::Network::HostComposition {
                     auto name = reader.text(MaximumDisplayNameBytes);
                     if (!Trust::validParticipantName(name)) return std::nullopt;
                     setup.localPlayerNames.push_back(std::move(name));
+                    setup.localPlayerAppearances.push_back(readAppearance([&] { return reader.u8(); }));
                 }
                 setup.mode = reader.text(32);
                 setup.teamCount = reader.u8();
@@ -222,6 +230,7 @@ namespace Duel6::Network::HostComposition {
                     auto name = reader.text(MaximumDisplayNameBytes);
                     if (!Trust::validParticipantName(name)) return std::nullopt;
                     message.ownedPersonNames.push_back(std::move(name));
+                    message.ownedPersonAppearances.push_back(readAppearance([&] { return reader.u8(); }));
                 }
                 if (!reader.done()) return std::nullopt;
             } else {

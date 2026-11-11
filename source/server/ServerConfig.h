@@ -8,6 +8,7 @@
 
 #include "../network/Protocol.h"
 #include "../network/PublicSession.h"
+#include "../PlayerAppearance.h"
 
 namespace Duel6::Server {
     struct ServerConfig {
@@ -21,6 +22,7 @@ namespace Duel6::Server {
         std::uint32_t maxClients = 15;
         std::uint8_t localPlayers = 1;
         std::vector<std::string> localPlayerNames;
+        std::vector<PlayerAppearance> localPlayerAppearances;
         std::vector<std::string> enabledGameplayScripts;
         bool localOnly = false;
         bool transportEnabled = false;

@@ -998,6 +998,7 @@ namespace Duel6::Server::Authoritative {
                     return existing.definition.participantId == entry.participantId;
                 })) return ActionResult::RejectedAuthority;
             if (entry.playerId == 0 || entry.participantId == 0 || !Network::Trust::validParticipantName(entry.displayName)
+                || !entry.appearance.valid()
                 || entry.rosterOrder != roster.size()
                 || std::any_of(roster.begin(), roster.end(), [&](const auto &existing) { return existing.playerId == entry.playerId; }))
                 return ActionResult::RejectedValue;

@@ -2,6 +2,7 @@
 #define DUEL6_NETWORK_STATEREPLICATION_H
 #include "../Defines.h"
 #include "../ArenaState.h"
+#include "../PlayerAppearance.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -116,6 +117,7 @@ namespace Duel6::Network::Replication {
         PlayerAnimationState animation;
         std::int64_t width = 0, height = 0; // Authoritative collision dimensions, Q16 world units.
         std::int32_t roundKills = 0;
+        PlayerAppearance appearance;
     };
 
     struct WorldEntityState {

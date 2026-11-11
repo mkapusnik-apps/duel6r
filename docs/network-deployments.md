@@ -161,7 +161,7 @@ The approved rollback rule does not approve cross-release compatibility or data 
 
 ## Client/server compatibility coverage
 
-The compatibility contract remains the sole authority for compatibility values and checks. Its current constants specify admission protocol `3`, network release ID `duel6r-network-r2`, and these required capabilities:
+The compatibility contract remains the sole authority for compatibility values and checks. The [current protocol reference](network-directory-implementation.md#selected-person-appearance-encoding) specifies admission protocol `4`, network release ID `duel6r-network-r7`, host-composition `4`, replication `8`, and these unchanged required capabilities:
 
 - `d6r.compatibility-admission.v1`
 - `d6r.gameplay-manifest.v1`

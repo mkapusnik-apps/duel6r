@@ -915,7 +915,7 @@ D6R_TEST_CASE("credential-bearing wire buffers are observably erased after contr
     ContentIdentity identity{};
     identity[0] = 1;
     const auto compatibility = makeLocalAdmissionRequest(
-            1, GameplayManifest{{"levels/a.json", identity}});
+            1, GameplayManifest{{"levels/a.json", identity}}, {"Lifecycle"}, {Duel6::PlayerAppearance{}});
     auto attemptPayload = serializeReconnectAttempt({requestFor(grant), compatibility});
     D6R_REQUIRE(!requestPayload.empty() && !responsePayload.empty() && !attemptPayload.empty());
     eraseLifecycleCredentialPayload(requestPayload);
