@@ -59,7 +59,7 @@ D6R_TEST_CASE("Non-final legal numeric extremes keep name lifecycle and every ma
             D6R_REQUIRE_EQ(std::string("-36893488147419103232"), alpha->values[4]);
         }
         for (int width: {850, 1280, 1920}) {
-            const auto layout = S::layout(rows, "Rounds: 2|3", "Round outcome: No winner", width, 700);
+            const auto layout = S::layout(rows, "Round outcome: No winner", width, 700);
             D6R_REQUIRE(layout.nameWidth >= 16 * 16 + 5); // … plus full Reconnecting cue, with player padding.
             D6R_REQUIRE(layout.tableLeft >= 16);
             for (const auto &row: rows) {
@@ -91,7 +91,7 @@ D6R_TEST_CASE("Non-final legal numeric extremes keep name lifecycle and every ma
     state.score.players[0].cumulativePoints = 2000000000;
     const auto rows = S::rows(state);
     for (int width: {850, 1280}) {
-        const auto layout = S::layout(rows, "Rounds: 2|3", "Round outcome: Player 0", width, 700);
+        const auto layout = S::layout(rows, "Round outcome: Player 0", width, 700);
         D6R_REQUIRE(layout.nameWidth >= 21);
         const auto text = S::numericText(rows[0], layout);
         D6R_REQUIRE_EQ(width == 850, text.find("…") != std::string::npos);
@@ -180,10 +180,11 @@ D6R_TEST_CASE("Non-final ordinary score allocation matches Local Play padding ty
     auto state = summary();
     state.players[0].displayName = "Maple"; state.players[1].displayName = "Oak";
     const auto rows = S::rows(state);
-    const auto layout = S::layout(rows, "Rounds: 1|2", "Round outcome: Maple", 1280, 900);
+    const auto layout = S::layout(rows, "Round outcome: Maple", 1280, 900);
     D6R_REQUIRE_EQ(496, layout.tableWidth); // (5 + 26) * 16, from OVER-02.
     D6R_REQUIRE_EQ(528, layout.width);
-    D6R_REQUIRE_EQ(256, layout.height);
+    D6R_REQUIRE_EQ(224, layout.height); // The old 32px progress row is gone.
+    D6R_REQUIRE_EQ(layout.bottom + layout.height - 64, layout.scoreY);
     D6R_REQUIRE_EQ((900 - layout.height) / 2, layout.bottom);
     D6R_REQUIRE_EQ((1280 - layout.width) / 2, layout.left);
     D6R_REQUIRE_EQ(16, layout.tableLeft - layout.left);
@@ -196,14 +197,14 @@ D6R_TEST_CASE("Non-final constrained team body keeps fixed headings all rows rea
     const auto rows = S::rows(summary(15, 4));
     for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}}) {
         std::set<std::size_t> reached;
-        const auto initial = S::layout(rows, "Rounds: 2|3", "Round outcome: Team 4", size.first, size.second);
+        const auto initial = S::layout(rows, "Round outcome: Team 4", size.first, size.second);
         D6R_REQUIRE(initial.maximumFirst > 0);
         for (std::size_t first = 0; first <= initial.maximumFirst; ++first) {
-            const auto layout = S::layout(rows, "Rounds: 2|3", "Round outcome: Team 4", size.first, size.second, first);
+            const auto layout = S::layout(rows, "Round outcome: Team 4", size.first, size.second, first);
             D6R_REQUIRE_EQ(initial.scoreY, layout.scoreY);
             D6R_REQUIRE(layout.left - 5 >= 16 && layout.left + layout.width + 5 <= size.first - 16);
             D6R_REQUIRE(layout.bottom + layout.height <= size.second - 16);
-            D6R_REQUIRE(layout.phaseY >= 134);
+            D6R_REQUIRE(layout.phaseY >= S::footer(2).phaseY);
             D6R_REQUIRE(layout.outcomeY + 16 + 16 <= layout.bottom);
             int y = layout.firstRowY;
             for (auto index = first; index < first + layout.count; ++index) {
@@ -214,11 +215,11 @@ D6R_TEST_CASE("Non-final constrained team body keeps fixed headings all rows rea
             }
         }
         D6R_REQUIRE_EQ(rows.size(), reached.size());
-        const auto last = S::layout(rows, "Rounds: 2|3", "Round outcome: Team 4", size.first, size.second, 999);
+        const auto last = S::layout(rows, "Round outcome: Team 4", size.first, size.second, 999);
         D6R_REQUIRE_EQ(rows.size(), last.first + last.count);
     }
-    const auto eight = S::layout(S::rows(summary(8, 4)), "Rounds: 2|3", "Round outcome: Team 4", 1280, 900);
-    D6R_REQUIRE_EQ(192 + 12 * 32 + 3 * 8, eight.height);
+    const auto eight = S::layout(S::rows(summary(8, 4)), "Round outcome: Team 4", 1280, 900);
+    D6R_REQUIRE_EQ(160 + 12 * 32 + 3 * 8, eight.height);
     D6R_REQUIRE_EQ(std::size_t(0), eight.maximumFirst);
 }
 
@@ -230,8 +231,8 @@ D6R_TEST_CASE("Non-final long names and outcomes stay contained without shrinkin
     state.score.players[0].deaths = 34567; state.score.players[0].cumulativePoints = -45678;
     const auto rows = S::rows(state);
     for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}}) {
-        const auto shortOutcome = S::layout(rows, "Rounds: 2|3", "Round outcome: No winner", size.first, size.second);
-        const auto layout = S::layout(rows, "Rounds: 2|3", "Round outcome: " + std::string(350, 'X'), size.first, size.second);
+        const auto shortOutcome = S::layout(rows, "Round outcome: No winner", size.first, size.second);
+        const auto layout = S::layout(rows, "Round outcome: " + std::string(350, 'X'), size.first, size.second);
         D6R_REQUIRE(layout.count < shortOutcome.count);
         D6R_REQUIRE(layout.outcomeRows.size() > 1);
         for (const auto &row: rows) {
@@ -243,6 +244,31 @@ D6R_TEST_CASE("Non-final long names and outcomes stay contained without shrinkin
             D6R_REQUIRE_EQ(std::size_t(layout.tableWidth - layout.nameWidth), text.size() * 16);
         }
         D6R_REQUIRE(layout.bottom >= layout.outcomeY + int(layout.outcomeRows.size()) * 18 + 16);
+    }
+}
+
+D6R_TEST_CASE("Non-final footer reserves the counter before actual status rows and leaves every ranking row reachable") {
+    const auto rows = S::rows(summary(15,4));
+    for (int statusRows: {1,2,3}) {
+        const auto footer = S::footer(statusRows);
+        D6R_REQUIRE_EQ(72,footer.statusY);
+        D6R_REQUIRE_EQ(8+statusRows*16,footer.statusHeight);
+        D6R_REQUIRE_EQ(footer.statusY+footer.statusHeight+16,footer.actionY);
+        D6R_REQUIRE_EQ(footer.actionY+34+16,footer.phaseY);
+        for (const auto &size: {std::pair{850,700},std::pair{1280,720},std::pair{1280,900}}) {
+            std::set<std::size_t> reached;
+            const auto first = S::layout(rows,"Round outcome: Team 4",size.first,size.second,0,statusRows);
+            for (std::size_t offset=0;offset<=first.maximumFirst;++offset) {
+                const auto layout = S::layout(rows,"Round outcome: Team 4",size.first,size.second,offset,statusRows);
+                D6R_REQUIRE(layout.phaseY>=footer.phaseY);
+                D6R_REQUIRE_EQ(first.scoreY,layout.scoreY);
+                D6R_REQUIRE(layout.bottom>=layout.outcomeY+int(layout.outcomeRows.size())*18+16);
+                D6R_REQUIRE(layout.bottom+layout.height<=size.second-16);
+                D6R_REQUIRE(layout.count>0);
+                for (std::size_t row=layout.first;row<layout.first+layout.count;++row) reached.insert(row);
+            }
+            D6R_REQUIRE_EQ(rows.size(),reached.size());
+        }
     }
 }
 

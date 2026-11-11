@@ -209,7 +209,7 @@ def label_evidence(image, font_path, left, total):
     numeral_region = played_numeral_region(expected_masks)
     numeral_scores = {played: 0.0 for played in expected_masks}
     full_scores = {played: 0.0 for played in expected_masks}
-    for top in range(336, 344):
+    for top in range(HEIGHT - 52, HEIGHT - 44):
         observed = observed_text_mask(image, left, top)
         observed_numeral = crop_mask(observed, numeral_region)
         for played, expected in expected_masks.items():
@@ -236,6 +236,16 @@ def has_top_progress(image):
     return dark >= 1700 and glyphs >= 75, dark, glyphs
 
 
+def has_bottom_counter(image):
+    left = (WIDTH - LABEL_WIDTH) // 2
+    padding = [(x,y) for y in range(HEIGHT-56,HEIGHT-16)
+               for x in range(left-8,left+LABEL_WIDTH+8)
+               if y < HEIGHT-52 or y >= HEIGHT-20 or x < left or x >= left+LABEL_WIDTH]
+    dark = sum(max(pixel(image,x,y)) <= 5 for x,y in padding)
+    glyphs = white_count(image,(left,HEIGHT-52,left+LABEL_WIDTH,HEIGHT-20))
+    return dark == len(padding) and glyphs >= 75
+
+
 def summary_state_evidence(image, played, total, font_path):
     """Return whether a frame has the complete expected summary semantics."""
     if total > 0 and played == total:
@@ -250,11 +260,11 @@ def summary_state_evidence(image, played, total, font_path):
         return True, f"shared final shell, three result rows, Rounds: {played} | {total}, End of Game"
     bands = blue_strip_bands(image)
     non_final_limited = total > 0 and played < total
-    expected_strip = (366, 402) if non_final_limited else (350, 386)
+    expected_strip = (350, 386)
     if bands != [expected_strip]:
         return False, f"score-strip bands={bands}, expected={[expected_strip]}"
 
-    # A non-final limited summary moves progress into its dedicated panel row.
+    # A finite non-final summary has only the external bottom-center counter.
     # Unlimited summaries have no round progress in either location.
     top_progress, _, _ = has_top_progress(image)
     expected_top_progress = total > 0 and not non_final_limited
@@ -263,14 +273,20 @@ def summary_state_evidence(image, played, total, font_path):
             f"top-progress shown={top_progress}, expected={expected_top_progress}"
         )
 
-    label_diagnostic = "panel progress not applicable"
+    label_diagnostic = "non-final counter not applicable"
     if non_final_limited:
         strip_bounds = blue_strip_bounds(image, expected_strip)
         if strip_bounds is None:
             return False, "SCORE strip horizontal bounds unavailable"
-        panel_right = strip_bounds[1] - SCORE_STRIP_OVERHANG
-        progress_right = panel_right - PANEL_INSET
-        progress_left = progress_right - LABEL_WIDTH
+        progress_left = (WIDTH - LABEL_WIDTH) // 2
+        progress_right = progress_left + LABEL_WIDTH
+        # The actual opaque backing retains 8px horizontal / 4px vertical
+        # padding and a 16px full-client bottom inset, independent of the table.
+        padding = [(x,y) for y in range(HEIGHT-56,HEIGHT-16)
+                   for x in range(progress_left-8,progress_right+8)
+                   if y < HEIGHT-52 or y >= HEIGHT-20 or x < progress_left or x >= progress_right]
+        if any(max(pixel(image,x,y))>5 for x,y in padding):
+            return False,"bottom counter backing/padding is not opaque black at the exact inset"
         numeral_scores, full_scores, region = label_evidence(
             image, font_path, progress_left, total
         )
@@ -296,6 +312,8 @@ def summary_state_evidence(image, played, total, font_path):
                 f"exact Rounds: {played}|{total} full-label score="
                 f"{full_scores[played]:.4f}, scores={full_scores}, label-x={progress_left}"
             )
+    elif has_bottom_counter(image):
+        return False,"excluded unlimited summary retained the non-final bottom counter"
 
     return True, f"complete expected summary semantic state; {label_diagnostic}"
 
@@ -308,41 +326,24 @@ def assert_included(root, font_path, label, played, frames=("summary-early.png",
     for frame in frames:
         image = pixels(os.path.join(root, label, frame))
         strip = only_blue_strip(image, f"{label}/{frame}")
-        if strip != (366, 402):
-            fail(f"{label}/{frame}: expected unobstructed score strip at rows 366..401, got {strip}")
+        if strip != (350, 386):
+            fail(f"{label}/{frame}: expected unobstructed score strip with no progress-row gap at rows 350..385, got {strip}")
         strip_bounds = blue_strip_bounds(image, strip)
         if strip_bounds is None:
             fail(f"{label}/{frame}: could not determine SCORE strip horizontal bounds")
-        # The opaque SCORE strip extends five pixels beyond each side of the
-        # translucent outer panel. The progress text's layout box must end
-        # exactly 16 pixels inside that panel's right edge. Checking the one
-        # resulting origin (rather than a horizontal OCR search range) rejects
-        # the former centered placement and every off-by-one inset regression.
-        panel_right = strip_bounds[1] - SCORE_STRIP_OVERHANG
-        progress_right = panel_right - PANEL_INSET
-        progress_left = progress_right - LABEL_WIDTH
+        progress_left = (WIDTH - LABEL_WIDTH) // 2
         semantic_match, semantic_diagnostic = summary_state_evidence(
             image, played, 5, font_path
         )
         if not semantic_match:
             fail(
-                f"{label}/{frame}: expected exact right-aligned Rounds: {played}|5 label "
-                f"at x={progress_left} (panel right={panel_right}, inset={PANEL_INSET}); "
+                f"{label}/{frame}: expected exact bottom-centered Rounds: {played}|5 label "
+                f"at x={progress_left}, 16px backing inset; "
                 f"semantic evidence: {semantic_diagnostic}"
             )
-        if white_count(image, (550, 366, 730, 402)) < 250:
+        if white_count(image, (550, 350, 730, 386)) < 250:
             fail(f"{label}/{frame}: SCORE heading is missing or obstructed")
-        # Screenshot coordinates increase downward. The dedicated progress row
-        # must therefore finish at the SCORE strip's top edge, not share or
-        # obscure any of its rows.
-        progress_glyphs = white_count(image, (progress_left, strip[0] - LABEL_HEIGHT,
-                                               progress_right, strip[0]))
-        if progress_glyphs < 90:
-            fail(
-                f"{label}/{frame}: dedicated round-progress row immediately above SCORE "
-                f"is missing (white pixels={progress_glyphs})"
-            )
-        if white_count(image, (550, 403, 895, 433)) < 180:
+        if white_count(image, (550, 387, 895, 417)) < 180:
             fail(f"{label}/{frame}: score-table title is missing or overlaps the heading")
         shown, dark, glyphs = has_top_progress(image)
         if shown:
@@ -357,6 +358,8 @@ def assert_excluded(root, label, relative_path, expect_top):
     shown, dark, glyphs = has_top_progress(image)
     if shown != expect_top:
         fail(f"{label}: top-center progress expectation failed (shown={shown}, dark={dark}, glyphs={glyphs})")
+    if has_bottom_counter(image):
+        fail(f"{label}: excluded summary retained the bottom counter")
 
 
 def assert_first(root, font_path):
@@ -376,6 +379,8 @@ def assert_first(root, font_path):
             fail(f"{frame}: next-round top progress was not restored (dark={dark}, glyphs={glyphs})")
         if blue_strip_bands(image):
             fail(f"{frame}: round-summary panel remained on the next-round frame")
+        if has_bottom_counter(image):
+            fail(f"{frame}: non-final bottom counter remained on the next active round")
 
 
 def main():

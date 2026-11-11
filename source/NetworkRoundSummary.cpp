@@ -1,4 +1,5 @@
 #include "NetworkRoundSummary.h"
+#include "RoundSummaryCounter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -187,8 +188,14 @@ namespace Duel6::NetworkRoundSummary {
         return result;
     }
 
-    Layout layout(const std::vector<Row> &rows, const std::string &progress, const std::string &outcome,
-                  int clientWidth, int clientHeight, std::size_t requestedFirst) {
+    Footer footer(int statusRows) {
+        const int statusHeight = 8 + std::max(1, statusRows) * 16;
+        const int actionY = RoundSummaryCounter::ClearTop + statusHeight + 16;
+        return {RoundSummaryCounter::ClearTop, statusHeight, actionY, actionY + 34 + 16};
+    }
+
+    Layout layout(const std::vector<Row> &rows, const std::string &outcome,
+                  int clientWidth, int clientHeight, std::size_t requestedFirst, int statusRows) {
         Layout result;
         result.columnCharacters = {4, 4, 4, 6, 5};
         auto desiredColumns = result.columnCharacters;
@@ -221,19 +228,18 @@ namespace Duel6::NetworkRoundSummary {
         int numericWidth = 0;
         for (const auto count: result.columnCharacters) numericWidth += count * GlyphWidth;
         result.nameWidth = result.tableWidth - numericWidth;
-        result.width = std::max(result.tableWidth, int(length(progress)) * GlyphWidth) + 32;
+        result.width = result.tableWidth + 32;
         result.left = (clientWidth - result.width) / 2;
         result.tableLeft = (clientWidth - result.tableWidth) / 2;
         result.outcomeRows = wrap(outcome, std::max(1, (result.width - 32) / 8));
 
-        // Actions end at y=118. Even the maximum current status/waiting stack
-        // ends below that. Keep 16px between these fixed regions, the plain
-        // outcome/countdown text, and the panel. Only the body can lose rows.
-        result.phaseY = 134;
+        // Reserve the actual status and action/waiting stack above the external
+        // counter. Only the ranking body yields space to this fixed footer.
+        result.phaseY = footer(statusRows).phaseY;
         result.outcomeY = result.phaseY + 22;
         const int minimumBottom = result.outcomeY + int(result.outcomeRows.size()) * 18 + 16;
         const int maximumTop = clientHeight - 16;
-        const int bodyBudget = std::max(TextHeight, maximumTop - minimumBottom - 192);
+        const int bodyBudget = std::max(TextHeight, maximumTop - minimumBottom - 160);
         int used = 0;
         result.maximumFirst = rows.size();
         while (result.maximumFirst > 0) {
@@ -250,10 +256,10 @@ namespace Duel6::NetworkRoundSummary {
             if (used + added > bodyBudget) break;
             used += added; ++result.count;
         }
-        result.height = 192 + (result.maximumFirst != 0 ? bodyBudget : used);
+        result.height = 160 + (result.maximumFirst != 0 ? bodyBudget : used);
         result.bottom = std::clamp((clientHeight - result.height) / 2, minimumBottom,
                                   std::max(minimumBottom, maximumTop - result.height));
-        result.scoreY = result.bottom + result.height - 96;
+        result.scoreY = result.bottom + result.height - 64;
         result.firstRowY = result.scoreY - 64;
         // Keep the plain network footer adjacent to a centered local panel.
         const int shift = result.bottom - minimumBottom;

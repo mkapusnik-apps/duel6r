@@ -6,7 +6,7 @@ Visual impact: restore the world and gameplay HUD to [Local and network arena pa
 
 ## Presentation and allocation
 
-- **UX-NET-05-001** Leave session, End session, and eligible Advance round must retain persistent framed controls in their existing bounds.
+- **UX-NET-05-001** Leave session, End session, and eligible Advance round must retain persistent framed controls, sizes and order. Only the non-final limited-round footer moves vertically as specified below to clear the relocated counter; other states retain their existing bounds.
 - **UX-NET-05-002** Panels must not add gameplay-focus targets outside their existing context.
 - **UX-NET-05-003** NET-05-C must retain its centered 640-client-pixel maximum width, 16-client-pixel edge clearance, and two separate actions.
 - **UX-NET-05-004** The confirmation title must precede wrapped consequence copy and the fixed explicit-action/Cancel row.
@@ -15,19 +15,19 @@ Visual impact: restore the world and gameplay HUD to [Local and network arena pa
 - **UX-NET-05-007** NET-05-S must keep authoritative-score title, session scope, current result-state labels, and body separate.
 - **UX-NET-05-008** NET-05-S must not advertise unsupported scrolling or invent completed-result rows.
 - **UX-NET-05-009** A non-final NET-05-R score panel must use the centered Local Play OVER-02 allocation when it fits. When reserved network regions constrain it, the panel must remain horizontally centered with at least 16 client px clearance from client edges, outcome/countdown, status, waiting feedback, and session actions; only its ranking body may lose visible rows.
-- **UX-NET-05-010** The score panel must use OVER-02's separate right-aligned round-progress row, centered `---SCORE---` strip, column headings, 32 px score text and row pitch, translucent outer/inner layers, and flat score surfaces instead of the grey raised network panel and inset ranking card.
+- **UX-NET-05-010** The score panel must use OVER-02's centered `---SCORE---` strip, column headings, 32 px score text and row pitch, translucent outer/inner layers, and flat score surfaces instead of the grey raised network panel and inset ranking card. The counter uses OVER-02's external bottom-center placement; remove its old panel row.
 - **UX-NET-05-011** Network outcome and phase/countdown text must remain separate below the common score table, using standard readable gameplay text without a menu card. They must not replace a score column or imply that the cumulative leader won the round.
 - **UX-NET-05-012** The table must match Local Play's non-Team row treatment and Team header/nested-row colors. Each Team group must retain the local 8 px separator band and centered 2 px rule between groups only. Network lifecycle text and existing non-color focus feedback must remain legible.
 - **UX-NET-05-013** First-second active and later frozen phases must retain one structural variant without timing or eligibility changes.
 - **UX-NET-05-014** Long values must remain contained without smaller text or covered footers. Non-final numeric overflow must follow the bounded fallback below.
 - **UX-NET-05-015** Long outcomes must wrap above phase/countdown text without covering the common score table or session actions.
-- **UX-NET-05-016** A constrained ranking body must retain fixed progress and column headings, 32 px rows, existing ranking navigation and position feedback. Extra outcome lines must reduce visible ranking height before any fixed region is covered.
+- **UX-NET-05-016** A constrained ranking body must retain the fixed external counter and column headings, 32 px rows, existing ranking navigation and position feedback. Extra outcome lines and the reserved footer must reduce visible ranking height before any fixed region is covered.
 
 NET-05-S position information is plain non-actionable text. Do not add enabled arrows, scroll handlers, focus stops, or shortcuts. Tab retains its existing discrete toggle. Result navigation in NET-04-R and NET-06 and ranking navigation in NET-05-R remain unchanged. Confirmation over lobby, summary, or reconnect uses NET-05-C with that context's product-owned consequence.
 
 ## Non-final round-summary parity
 
-Functional authority is [UI-RND-011–013 and AC-RND-001](../../features.md#status-ranking-and-shared-arena-view). This applies only after an outcome when another configured round remains. Local Play [OVER-02](../../screens/overlay-round-over.md) and its [existing wireframe](../../screens/wireframes/overlay-round-over.md) are the reference, not the former network panel. [NET-05-R](../wireframes/NET-05/NET-05-R.svg) shows the common table with preserved network-only regions. The [scoped capture matrix](../screenshots/README.md#non-final-round-summary-parity) owns replacement evidence.
+Functional authority is [UI-RND-011–013 and AC-RND-001](../../features.md#status-ranking-and-shared-arena-view). This applies only after an outcome when another configured round remains. Local Play [OVER-02](../../screens/overlay-round-over.md) and its [existing wireframe](../../screens/wireframes/overlay-round-over.md) are the reference, not the former network panel. [NET-05-R](../wireframes/NET-05/NET-05-R.svg) shows the common table with preserved network-only regions. The [current counter-placement matrix](../screenshots/README.md#non-final-counter-placement) owns the bounded placement replacement; prior parity evidence retains its unchanged scope.
 
 Use the existing local panel padding, measured table width, white heading/progress text, aligned K/A/D/K/D/PTS columns, Team identity colors, nested row treatment, and winner curtain. A network rank prefix must not displace the local name/score column allocation. Keep the current network name-containment and lifecycle cues; this change adds no horizontal-navigation input. If width is constrained, contain the name before applying the numeric-overflow fallback. Do not shrink score text to fit more rows.
 
@@ -35,7 +35,11 @@ Use the existing local panel padding, measured table width, white heading/progre
 
 The local score core remains the reference even though network-only outcome/countdown and actions require additional bounds. Keep these additions separate from the table. Preserve the existing Host Advance round then End session actions, Guest Leave session, focus order, opening-input protection, and noninteractive session-only/script/status copy. Both round-end phases use the same structure. No local Continue prompt, local non-final scroll input, new network action, final-style outcome/history section, or `End of Game` notice is introduced.
 
-Local OVER-02, including its unlimited and resumed variants, remains unchanged. NET-05-S, active live ranking, the final-round delay, NET-06 and OVER-03 retain their existing contracts and evidence. A genuine conflict returns to team rather than silently changing those surfaces.
+**Non-final counter footer:** Use the exact counter backing, padding, center and bottom inset in [OVER-02](../../screens/overlay-round-over.md#layout-and-hierarchy). The complete client bottom is the anchor, not the score panel or the top of network status. Do not reinterpret the existing completed/total values as rounds remaining. Keep the counter fixed when ranking scrolls, in both round-end phases, with no pointer/focus target.
+
+Reserve the bottom-center counter first. The status bar must start 16 client px above the counter backing's top, retaining its 16 px side insets, existing text, 4 px inner padding, wrapping and three-row limit. Place the existing action/waiting row 16 px above the status bar's top: retain right-aligned 34 px action buttons, their existing horizontal gaps/order, and waiting feedback to their left without overlap. Keep outcome/countdown above that row with at least 16 px clearance; the score panel must retain its existing separation from those texts. Only these necessary vertical offsets and removal of the old counter row are authorized. Do not move the camera, shrink score text, change controls/status content, or add an action. At constrained viewports, the existing network ranking body yields rows to this fixed footer and retains its current navigation.
+
+Local OVER-02 uses the same counter relocation, including unchanged resumed count semantics; its unlimited variant remains unchanged. NET-05-S, active live ranking/progress, the final-round delay, NET-06 and OVER-03 retain their existing contracts and evidence. A genuine conflict returns to team rather than silently changing those surfaces.
 
 ## First-round arrival
 
@@ -60,7 +64,7 @@ Immediate first-round arrival remains distinct from product-confirmed waiting ad
 
 ## Acceptance
 
-Use an ordinary real dedicated Connected match for changed status coverage. The scoped confirmation representative uses the dedicated controller's isolated-End consequence over NET-07; guest Leave and other contexts retain their current structure and focused QA. Unchanged NET-05-S may retain develop evidence with source-impact confirmation rather than receive an automatic replacement. Changed NET-05-R follows the [round-summary parity matrix](../screenshots/README.md#non-final-round-summary-parity). A completed summary cannot substitute for a non-final result when that result presentation changes. Preserve degraded/resynchronizing containment, all modes, maximum ranking, and real first-round arrival. The [dedicated scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) retains its status-only scope; it does not claim new Invisibility, orientation, result-extreme, or gameplay-continuity acceptance.
+Use an ordinary real dedicated Connected match for changed status coverage. The scoped confirmation representative uses the dedicated controller's isolated-End consequence over NET-07; guest Leave and other contexts retain their current structure and focused QA. Unchanged NET-05-S may retain develop evidence with source-impact confirmation rather than receive an automatic replacement. The NET-05-R placement follow-up uses the [current counter-placement matrix](../screenshots/README.md#non-final-counter-placement), not a repeat of the previous three-row parity campaign. A completed summary cannot substitute for a non-final result when that result presentation changes. Preserve degraded/resynchronizing containment, all modes, maximum ranking, and real first-round arrival. The [dedicated scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) retains its status-only scope; it does not claim new Invisibility, orientation, result-extreme, or gameplay-continuity acceptance.
 
 ## Connected waiting and solo presentation
 

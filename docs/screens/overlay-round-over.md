@@ -14,25 +14,20 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - The arena must remain visible behind an animated dark red curtain.
 - The arena must remain one undivided shared view.
 - The centered score panel must use the same structure as the score-tab overlay.
-- The score panel must align its horizontal and vertical center to the client center.
-- A non-final limited-match summary must show `Rounds: <played>|<total>` in a dedicated row above the solid blue heading strip.
-- The progress row must be the top content row of the score panel.
-- The top edge of the progress row must equal the top outer-panel bound plus 32 px.
-- The progress row must span from 16 px inside the left outer-panel bound to 16 px inside the right outer-panel bound.
-- The progress label must align to the right edge of the progress row.
-- The right edge of the rendered progress label must equal the right outer-panel bound minus 16 px.
-- The label must use the white 32 px score-summary text style.
-- The progress row must be 32 px high.
-- The progress row must use the translucent panel surface and must not use the solid blue heading fill.
+- The score panel must remain horizontally centered and vertically centered when the reserved footer permits it. It may move upward only as needed to keep the footer clear.
+- A non-final limited-match summary must show the existing `Rounds: <played>|<total>` counter at the bottom center of the complete client, outside the score panel. This placement applies equally to Local Play and network summaries; it does not mean the bottom of the score panel or a remaining-rounds calculation.
+- The counter must retain white 32 px score-summary text. Its flat opaque black backing must use the measured complete text width plus 8 px of padding on each side, and 4 px of padding above and below the 32 px text bounds.
+- The backing must be horizontally centered on the client and have its bottom edge 16 client px above the bottom client edge. Its height is 40 px; in top-left wireframe coordinates its top is `clientHeight - 56`.
+- The counter must keep at least 16 px of clear space from the score panel and other summary regions. It must remain readable over the arena and curtain without clipping, smaller text, an ellipsis, a focus target or an input target.
+- The old panel-top-right label and its dedicated 32 px row must be removed, not left empty. The score heading becomes the first panel content row with the existing 32 px top padding.
 - The solid blue heading strip must be 36 px high.
 - The `---SCORE---` text must align to the horizontal center of the heading strip.
-- The progress-row baseline and the score-heading baseline must be 32 px apart.
-- The progress label must not overlap or replace the `---SCORE---` heading strip.
-- The content width must equal the largest of the score-table width, 200 px, and the measured progress-label width.
+- The counter must not overlap or replace the `---SCORE---` heading strip.
+- The content width must equal the larger of the score-table width and 200 px; the external counter must not determine panel width.
 - The score-table width must equal 16 px times the ranking maximum text length plus 26 characters.
 - The translucent outer panel width must equal the content width plus 32 px.
 - The solid blue heading strip width must equal the content width plus 42 px.
-- The limited-summary content height must equal 32 px multiplied by the sum of four and the number of visible ranking rows.
+- The summary content height must equal 32 px multiplied by the sum of three and the number of visible ranking rows, with no reserved progress row.
 - Each top-level ranking row and each nested ranking row must count as one visible ranking row.
 - In Team deathmatch, each team row must stay directly adjacent to that team's nested player rows.
 - In Team deathmatch, an 8 px separator band must separate adjacent team groups.
@@ -43,11 +38,11 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - The separator treatment must support two through four teams.
 - Team names, team colors, row colors, headings, values, ranking order, column alignment, controls, and progress behavior must remain unchanged.
 - The translucent outer panel height must equal the limited-summary content height plus 64 px.
-- The progress row must add exactly 32 px to the unchanged score-summary panel height.
+- Relocating the counter must remove only the old 32 px progress-row allocation; score-table row pitch and content remain unchanged.
 - The score table must keep its existing 32 px row height and alignment.
 - Outcome event messages may remain visible with the arena overlays.
 - The top-center arena round progress must be hidden for every frame that shows the limited-match summary panel.
-- The limited-match summary must show only the panel progress label as round-count information.
+- The limited-match summary must show only the bottom-center counter as round-count information.
 
 ## States, controls, and recovery
 
@@ -58,13 +53,12 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - `<played>` must include the round that has just ended.
 - `<played>` must include rounds completed before a resumed match.
 - `<total>` must equal the configured positive round limit.
-- An unlimited-match summary must not show the score-panel round-progress label.
-- An unlimited-match summary must not reserve the 32 px progress row.
-- A final game summary must not show the new score-panel round-progress label.
+- An unlimited-match summary must not show or reserve space for the bottom-center counter and must keep its existing layout.
+- A final game summary must not show this non-final counter.
 - Final Team and non-Team game summaries must use the [common final-screen contract](overlay-game-over.md#common-final-screen-contract). This non-final overlay does not prescribe their appearance.
-- An active-round Tab score overlay must remain unchanged and must not show the new score-panel round-progress label.
+- An active-round Tab score overlay must remain unchanged and must not show the bottom-center summary counter.
 - The first visible frame of the next active limited round must restore the top-center arena round progress.
-- The next active round must not retain the summary progress row.
+- The next active round must not retain the bottom-center summary counter or its reserved footer.
 - The dark red curtain must fade in during the game-over wait.
 - F1 must advance after a winner exists when the round is not final.
 - Shift+F1 must advance before the normal winner condition permits it.
@@ -78,9 +72,9 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 - Column headings must identify score values.
 - The separator rule and separator space must identify team boundaries without color.
 - The panel and curtain must adapt to current client dimensions.
-- The progress label must remain right-aligned 16 px inside the score panel at each supported desktop viewport.
+- The counter backing must keep its exact horizontal center and 16 px bottom inset at each supported desktop viewport, independent of score-table width and scroll position.
 - The score heading must remain horizontally centered at each supported desktop viewport.
-- The panel must keep its specified pixel dimensions and must recalculate its center from the client dimensions.
+- The panel must keep its specified pixel dimensions apart from the removed progress row and recalculate its placement from the client dimensions and footer clearance. This relocation adds no Local Play overflow navigation or other large-table behavior.
 - The implementation does not show an explicit `Continue` prompt.
 - No mobile layout exists, so one desktop wireframe is sufficient.
 

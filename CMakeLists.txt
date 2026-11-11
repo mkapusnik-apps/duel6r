@@ -359,6 +359,7 @@ set(D6R_SOURCES
         source/World.cpp
         source/World.h
         source/WorldRenderer.cpp
+        source/RoundSummaryCounter.cpp
         source/FinalSummaryPresentation.cpp
         source/WorldRenderer.h
 

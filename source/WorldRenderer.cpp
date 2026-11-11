@@ -36,6 +36,7 @@
 #include "gamemodes/TeamDeathMatch.h"
 #include "ArenaPresentation.h"
 #include "ArenaScene.h"
+#include "RoundSummaryCounter.h"
 
 namespace Duel6 {
     WorldRenderer::WorldRenderer(Duel6::AppService &appService, const Duel6::Game &game)
@@ -133,20 +134,18 @@ namespace Duel6 {
         const auto kadWidth = font.getTextWidth(kad, fontSize);
         const auto scoreWidth = font.getTextWidth(score, fontSize);
         std::string roundProgress;
-        Float32 roundProgressWidth = 0;
         if (showRoundProgress) {
             roundProgress = Format("Rounds: {0}|{1}") << game.getPlayedRounds() << game.getSettings().getMaxRounds();
-            roundProgressWidth = font.getTextWidth(roundProgress, fontSize);
-            width = std::max(width, Int32(roundProgressWidth));
-            height += fontSize;
         }
 
         int x = video.getScreen().getClientWidth() / 2 - width / 2;
         int y = video.getScreen().getClientHeight() / 2 - height / 2;
         const Int32 panelBottom = y - Int32(fontSize);
         const Int32 panelHeight = height + 2 * Int32(fontSize);
-        if (clampPanelBounds && panelBottom < minimumPanelBottom) {
-            y += minimumPanelBottom - panelBottom;
+        const Int32 footerBottom = showRoundProgress
+                ? std::max(minimumPanelBottom, RoundSummaryCounter::ClearTop) : minimumPanelBottom;
+        if ((showRoundProgress || clampPanelBounds) && panelBottom < footerBottom) {
+            y += footerBottom - panelBottom;
         }
         const Int32 panelTop = y + height + Int32(fontSize);
         if (clampPanelBounds && panelHeight <= maximumPanelTop - minimumPanelBottom && panelTop > maximumPanelTop) {
@@ -159,7 +158,7 @@ namespace Duel6 {
         renderer.quadXY(Vector(x - fontWidth + 2, y - fontSize + 2),
                         Vector(width + 2 * fontWidth - 4, height + 2 * fontSize - 4), Color(0, 0, 255, 80));
 
-        Float32 scoreY = y + height - fontSize * (showRoundProgress ? 2 : 1);
+        Float32 scoreY = y + height - fontSize;
         renderer.quadXY(Vector(x - fontWidth - 5, scoreY),
                          Vector(width + 2 * fontWidth + 10, fontSize + 4), Color(0, 0, 255, 255));
         renderer.setBlendFunc(BlendFunc::SrcColor);
@@ -170,9 +169,6 @@ namespace Duel6 {
         Color fontColor = Color::WHITE;
 
         font.print(x + (width - scoreWidth) / 2, scoreY, 0.0f, fontColor, score, fontSize);
-        if (showRoundProgress) {
-            font.print(x + width - roundProgressWidth, scoreY + fontSize, 0.0f, fontColor, roundProgress, fontSize);
-        }
         font.print(posX + tableWidth - kadWidth, scoreY - fontSize, 0.0f, fontColor, kad, fontSize);
         for (Size index = 0; index < ranking.entries.size(); index++) {
             const auto &entry = ranking.entries[index];
@@ -187,6 +183,8 @@ namespace Duel6 {
                                 Color(255, 255, 255, 178));
             }
         }
+        if (showRoundProgress)
+            RoundSummaryCounter::render(renderer, font, video.getScreen().getClientWidth(), roundProgress);
     }
 
     void WorldRenderer::gameOverSummary() const {

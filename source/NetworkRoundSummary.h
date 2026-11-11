@@ -32,9 +32,13 @@ namespace Duel6::NetworkRoundSummary {
         std::size_t first = 0, count = 0, maximumFirst = 0;
     };
 
-    Layout layout(const std::vector<Row> &rows, const std::string &progress,
-                  const std::string &outcome, int clientWidth, int clientHeight,
-                  std::size_t requestedFirst = 0);
+    struct Footer {
+        int statusY, statusHeight, actionY, phaseY;
+    };
+    Footer footer(int statusRows);
+    Layout layout(const std::vector<Row> &rows, const std::string &outcome,
+                  int clientWidth, int clientHeight, std::size_t requestedFirst = 0,
+                  int statusRows = 2);
     std::string rowLabel(const Row &row, int availablePixels);
     std::string numericText(const Row &row, const Layout &layout);
     std::string headings(const Layout &layout);

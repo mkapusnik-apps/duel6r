@@ -151,6 +151,13 @@ namespace Duel6 {
         void drawFocusKeyline(Int32 x, Int32 y, Int32 width, Int32 height, bool selected) const;
         void drawMenuCanvas(Int32 width, Int32 height) const;
         void drawPlayers(const Network::Replication::CanonicalState &state, bool host, bool dedicated) const;
+        struct MatchStatus {
+            std::vector<std::string> rows;
+            bool rightFits;
+        };
+        MatchStatus matchStatus(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width,
+                                const std::string &connectionState = "Connected",
+                                bool showLiveNetworkState = true) const;
         void drawMatch(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height,
                        bool interactive = true, const std::string &connectionState = "Connected",
                        bool showLiveNetworkState = true) const;
@@ -159,7 +166,7 @@ namespace Duel6 {
         FinalSummaryPresentation::Plan finalSummaryPlan(const Client::NetworkRuntimeSnapshot &snapshot) const;
         void moveFinalSummary(const Client::NetworkRuntimeSnapshot &snapshot, int rows, int columns);
         void drawRoundSummary(const Client::NetworkRuntimeSnapshot &snapshot,
-                              Int32 width, Int32 height) const;
+                               Int32 width, Int32 height, int statusRows) const;
         void drawRetainedContext(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawReconnectPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
         void drawHostEndedPanel(const Client::NetworkRuntimeSnapshot &snapshot, Int32 width, Int32 height) const;
