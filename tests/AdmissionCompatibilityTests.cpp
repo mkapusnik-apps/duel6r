@@ -5608,7 +5608,7 @@ D6R_TEST_CASE("AC-016 AC-023 auth policy capacity and match rejection allocate n
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::MatchAlreadyStarted);
     D6R_REQUIRE_EQ(initialParticipants, policy.allocation().participantCount());
     policy.setMatchStarted(false);
-    request.localPlayerCount = 15;
+    request = requestFor(host, 15);
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::SessionFull);
     D6R_REQUIRE_EQ(initialPlayers, policy.allocation().playerCount());
 }
