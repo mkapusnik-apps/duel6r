@@ -6,10 +6,11 @@
 #include <string>
 #include <vector>
 #include "SecureSession.h"
+#include "../PlayerAppearance.h"
 
 namespace Duel6::Network::HostComposition {
     constexpr std::uint32_t ProtocolIdentifier = 0x44364843u; // D6HC
-    constexpr std::uint16_t ProtocolVersion = 3;
+    constexpr std::uint16_t ProtocolVersion = 4;
     constexpr std::size_t MaximumDisplayNameBytes = 64;
 
     enum class Kind : std::uint16_t {
@@ -30,6 +31,7 @@ namespace Duel6::Network::HostComposition {
 
     struct Setup {
         std::vector<std::string> localPlayerNames;
+        std::vector<PlayerAppearance> localPlayerAppearances;
         std::string mode = "Deathmatch";
         std::uint8_t teamCount = 0;
         bool friendlyFire = false;
@@ -47,6 +49,7 @@ namespace Duel6::Network::HostComposition {
         std::optional<Setup> setup;
         std::vector<std::uint8_t> payload;
         std::vector<std::string> ownedPersonNames;
+        std::vector<PlayerAppearance> ownedPersonAppearances;
         std::uint64_t rosterPlayerId = 0;
         std::int8_t rosterDirection = 0;
     };
@@ -56,7 +59,8 @@ namespace Duel6::Network::HostComposition {
     std::vector<std::uint8_t> serializeAction(Kind kind);
     std::vector<std::uint8_t> serializePayload(Kind kind, const std::vector<std::uint8_t> &payload);
     std::vector<std::uint8_t> serializeRosterMove(std::uint64_t playerId, std::int8_t direction);
-    std::vector<std::uint8_t> serializeOwnedPersons(const std::vector<std::string> &names);
+    std::vector<std::uint8_t> serializeOwnedPersons(const std::vector<std::string> &names,
+                                                  const std::vector<PlayerAppearance> &appearances);
     std::optional<Message> deserialize(const std::vector<std::uint8_t> &payload) noexcept;
 }
 

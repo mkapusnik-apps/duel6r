@@ -29,6 +29,7 @@
 #define DUEL6_PLAYERSKINCOLORS_H
 
 #include "Color.h"
+#include "PlayerAppearance.h"
 
 namespace Duel6 {
     class PlayerSkinColors {
@@ -100,6 +101,9 @@ namespace Duel6 {
         }
         static PlayerSkinColors load(const std::string &profileRoot, const std::string &file);
         static PlayerSkinColors makeRandom();
+        PlayerAppearance appearance() const;
+        static PlayerSkinColors fromAppearance(const PlayerAppearance &appearance);
+        static PlayerAppearance resolveLocalAppearance(const std::string &name, const std::string &profilesRoot);
     };
 }
 

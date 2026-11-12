@@ -23,7 +23,8 @@ namespace Duel6 {
         void open(std::vector<Client::NetworkLocalPlayer> players,
                   Network::HostComposition::Setup setup,
                   std::vector<std::string> persons,
-                  std::vector<std::string> levels);
+                  std::vector<std::string> levels,
+                  std::function<PlayerAppearance(const std::string &)> resolveAppearance = {});
         void keyEvent(const KeyPressEvent &event) override;
         void textInputEvent(const TextInputEvent &event) override;
         void mouseButtonEvent(const MouseButtonEvent &event) override;
@@ -50,6 +51,7 @@ namespace Duel6 {
         std::function<void()> renderMainMenu;
         bool entryRuntimeAvailable;
         std::vector<Client::NetworkLocalPlayer> localPlayers;
+        std::function<PlayerAppearance(const std::string &)> resolveAppearance;
         std::vector<std::string> availablePersons;
         std::vector<std::string> availableLevels;
         Network::HostComposition::Setup hostSetup;
@@ -112,6 +114,7 @@ namespace Duel6 {
         void rescanControls();
         void cycleControl(std::size_t playerIndex, int direction = 1);
         void cyclePerson(std::size_t playerIndex, int direction = 1);
+        void reconcileRestoredLocalPlayers();
         bool setupValid(std::string &reason) const;
         bool retryEligible(const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const;
         bool startEligible(const Client::NetworkRuntimeSnapshot &snapshot, std::string &reason) const;

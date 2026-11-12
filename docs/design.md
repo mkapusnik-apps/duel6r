@@ -218,7 +218,7 @@ This section owns the visual parity delta for PLAY-01 and NET-05. Functional aut
 - **UX-ARENA-025** Restored current context must show the current effect age without restarting an old burn or splash.
 - **UX-ARENA-026** Next-round presentation must clear prior transient effects without carrying burned or animated state into a fresh round incorrectly.
 
-Compare equivalent visual states, not unrelated screenshots or random decoration choices. Match level, mirror, viewport, default-compatible assets, water level, facing and pose; disclose remaining differences. Local profile customization remains local. Existing default network visuals and deterministic background fallback remain binding, so equal local and network random backgrounds or profile skins are not acceptance criteria. Random cosmetic choices need equivalent resource/attachment behavior, not a newly shared gameplay seed. Network Host and Guest must agree for the same complete state; cosmetic phase differences must not conceal stalled water or a wrong action animation.
+Compare equivalent visual states, not unrelated screenshots or random decoration choices. Match level, mirror, viewport, built-in assets, accepted appearance, water level, facing and pose; disclose remaining differences. Selected-person color/hair/headband parity follows NET-VIS-018–024; network clients must not independently select a receiver's profile. Equal accepted appearance must show the same local body-part colors, shading, hair, and headband through the built-in artwork, rather than a uniform silhouette. Separate local random choices and network background fallback need not match or use a newly shared gameplay seed. Network Host and Guest must agree for the same complete state; cosmetic phase differences must not conceal stalled water or a wrong action animation.
 
 The local rendering order remains the reference, including translucent water over world content and readable indicators above it. A low-fidelity SVG cannot establish concrete water color, material blending, animation speed, or exact projection. Use actual local originals and source-tied temporal comparison from the [matrix](design/screenshots/README.md#arena-parity-and-shared-final-presentation). Apply the same world rules beneath unchanged score, waiting, confirmation, reconnect, and intentional-end overlays. Their existing controls and state transitions remain unchanged. Do not expand this restoration into new lighting, assets, camera behavior, or a HUD redesign.
 
@@ -497,14 +497,15 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - A removed player identity must not be reused during the same session.
 - Reconnect must restore the same reserved participant, player slots, player identities, and ownership.
 - Reconnect must not create, remove, replace, reorder, or transfer a reserved player slot.
-- A network player name must identify the selected local person without implying selected-profile appearance parity.
+- A network player name must identify the selected local person; its accepted appearance follows NET-VIS-018–024 without a new profile label, column, preview, or control.
 - First-release network play must use one built-in default network visual set for every local and remote player.
-- The default network visual set must provide the built-in player skin, animation mapping, and entity-resource mapping.
+- The default network visual set must provide the built-in player artwork, animation mapping, and entity-resource mapping with accepted selected-person colors, hair, and headband.
 - The same supported release and the same complete replicated canonical state must select the same network player animation and entity visual on each client.
 - Presentation must derive movement, action, entity type, and visual gameplay state from read-only replicated canonical state.
 - Presentation must not create or advance a second gameplay simulation.
-- A local or remote profile must not change a network player's skin, animation, or visual resource.
+- Only the accepted owner-resolved colors, hair, and headband may customize the built-in player artwork. Receiver profiles must not replace accepted values, and no profile may select custom artwork or animations.
 - The default network visual set must preserve authoritative Team colors, Predator opacity, invisibility, and each other replicated visual gameplay state.
+- The temporary brown `shit thrower` appearance must match the existing local effect and restore the applicable accepted base/Team appearance when authoritative effect state ends or resets. It must not restart on snapshot, reconnect, or resynchronization.
 - A network client must use the level's named background when that background is locally usable.
 - A network client must use a deterministic pseudo-random built-in fallback when the level has no locally usable named background.
 - The fallback mapping must use only the existing replicated session, match, round, and level logical identities and the client's stable ordered eligible background list.
@@ -520,8 +521,8 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - A client must not load a peer-selected profile, file, or script as a visual fallback.
 - A client that cannot load a required default network visual resource must not start network play.
 - A required default network visual resource failure must keep the existing required-resource failure behavior.
-- `NET-07` and `NET-09` must retain the default network visuals from the last complete accepted network state when they retain arena context.
-- A retained arena context must not switch to a selected-profile appearance while it is non-current or blocked.
+- `NET-07` and `NET-09` must retain each player's accepted appearance and visual gameplay state from the last complete accepted network state when they retain arena context.
+- A retained arena context must not reread local profiles, rerandomize colors, or expire a retained effect using disconnected time. Current-state restoration follows the accepted snapshot.
 - The network arena must use the same visible axis orientation as Local Play for the same level and authoritative horizontal-mirror state.
 - An unmirrored asymmetric level must not appear rotated or horizontally reversed relative to Local Play.
 - An intentional horizontal level mirror must not invert the vertical axis.
@@ -534,7 +535,7 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - An orientation correction must preserve HUD placement, text wrapping, modal containment, focus order, and pointer regions.
 - An orientation correction must preserve Invisibility presentation under `BON-013` and the existing Predator presentation.
 - The retained arena in `NET-07` and `NET-09` must keep the same orientation as `NET-05` for the last complete accepted state.
-- Selected-profile appearance parity is deferred to issue #84 and must not appear as first-release behavior or evidence.
+- Selected-person appearance is limited to NET-VIS-018–024. Broader issue #84 scope does not authorize profile files, peer artwork, scripts, or new profile UI.
 - Only the host may show an enabled early-advance action after a round outcome exists.
 - Guests must not see an enabled round-advance action.
 - Network round-end presentation must distinguish the first-second active phase from the final-five-second frozen phase.

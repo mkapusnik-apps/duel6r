@@ -5,6 +5,7 @@
 #include "source/FaceList.h"
 #include <vector>
 #include <array>
+#include <map>
 
 namespace Duel6::Test {
 // Records actual presenter draw submissions without screenshots or GPU readback.
@@ -42,13 +43,19 @@ public:
     struct Frame { Vector position; Vector size; Float32 width; Color color; };
     std::vector<Frame> frames;
     unsigned uploads = 0;
+    bool retainTextureImages = false;
+    std::map<Texture, Image> textureImages;
     BlendFunc blend = BlendFunc::None;
     bool depthTest = false, depthWrite = true;
     Float32 globalTime = 0;
     Info getInfo() override { return {}; }
     Extensions getExtensions() override { return {}; }
-    Texture createTexture(const Image &, TextureFilter, bool) override { return static_cast<Texture>(++uploads); }
-    void freeTexture(Texture) override {}
+    Texture createTexture(const Image &image, TextureFilter, bool) override {
+        const auto texture = static_cast<Texture>(++uploads);
+        if (retainTextureImages) textureImages.emplace(texture, image);
+        return texture;
+    }
+    void freeTexture(Texture texture) override { textureImages.erase(texture); }
     Image makeScreenshot() override { return {}; }
     void setViewport(Int32, Int32, Int32, Int32) override {}
     void enableWireframe(bool) override {}

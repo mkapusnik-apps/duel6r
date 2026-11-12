@@ -70,6 +70,7 @@ namespace Duel6::Server::Authoritative {
         std::set<std::uint8_t> positions;
         bool hostFound = false;
         for (const auto &player: roster) {
+            if (!player.appearance.valid()) return invalid("player-appearance");
             if (player.participantId == 0 || player.playerId == 0
                 || player.participantId == player.playerId) return invalid("zero-or-overlapping-identity");
             if (!Network::Trust::validParticipantName(player.displayName)

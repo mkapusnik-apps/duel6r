@@ -1,4 +1,5 @@
 #include "HeadlessServer.h"
+#include "../PlayerSkinColors.h"
 
 #include <algorithm>
 #include <array>
@@ -249,8 +250,9 @@ namespace {
     ReplicationLobbyState replicationLobbyState(const Duel6::Server::SessionAllocation &allocation,
                                                    const std::set<std::uint64_t> &connected,
                                                    Duel6::Server::Authoritative::MatchConfig settings,
-                                                   const std::map<std::uint64_t, std::string> *displayNames = nullptr,
-                                                   std::vector<std::uint64_t> *rosterOrder = nullptr) {
+                                                   const std::map<std::uint64_t, std::string> *displayNames,
+                                                   std::vector<std::uint64_t> *rosterOrder,
+                                                   const std::map<std::uint64_t, Duel6::PlayerAppearance> *appearances) {
         ReplicationLobbyState result;
         const auto admitted = allocation.admittedParticipants();
         std::uint8_t roster = 0;
@@ -272,6 +274,7 @@ namespace {
                 player.displayName = displayNames != nullptr && named != displayNames->end()
                                      ? named->second
                                      : "Player " + std::to_string(static_cast<unsigned int>(player.rosterOrder) + 1u);
+                player.appearance = appearances->at(playerId);
                 result.players.push_back(std::move(player));
             }
         }
@@ -460,8 +463,14 @@ namespace {
             closeClient();
             return 2;
         }
+        auto names = config.localPlayerNames;
+        auto appearances = config.localPlayerAppearances;
+        if (names.empty()) for (unsigned index = 0; index < config.localPlayers; ++index)
+            names.push_back("Player " + std::to_string(index + 1));
+        if (appearances.empty()) for (const auto &name: names)
+            appearances.push_back(Duel6::PlayerSkinColors::resolveLocalAppearance(name, config.resourcePath + "/profiles"));
         auto request = Duel6::Network::makeLocalAdmissionRequest(
-                config.localPlayers, std::move(manifest), config.localPlayerNames);
+                config.localPlayers, std::move(manifest), std::move(names), std::move(appearances));
         request.expectedSessionId = runtimeDependencies.expectedSessionId;
         request.expectedHostingKind = runtimeDependencies.expectedHostingKind;
         if (runtimeNow(runtimeDependencies) >= deadline) {
@@ -916,6 +925,9 @@ namespace {
                         break; // The shared eligible sealed-End consumer runs below.
                     } else {
                         try {
+                            // Transport queue acknowledgement only. A restored
+                            // canonical snapshot, not this callback, resolves
+                            // whether a person/appearance edit committed.
                             if (runtimeDependencies.localParticipantCommandAccepted)
                                 runtimeDependencies.localParticipantCommandAccepted();
                         } catch (...) { break; }
@@ -935,8 +947,19 @@ namespace {
                 } catch (...) { break; }
                 if (participantPersons) {
                     Duel6::Network::SendResult sent = Duel6::Network::SendResult::NotConnected;
-                    try { sent = connection->send(
-                            Duel6::Network::HostComposition::serializeOwnedPersons(*participantPersons)); }
+                    try {
+                        auto proposed = request.localPlayerAppearances;
+                        if (participantPersons->size() != request.localPlayerNames.size()) break;
+                        for (std::size_t index = 0; index < participantPersons->size(); ++index)
+                            if ((*participantPersons)[index] != request.localPlayerNames[index])
+                                proposed[index] = Duel6::PlayerSkinColors::resolveLocalAppearance(
+                                    (*participantPersons)[index], config.resourcePath + "/profiles");
+                        sent = connection->send(Duel6::Network::HostComposition::serializeOwnedPersons(*participantPersons, proposed));
+                        if (sent == Duel6::Network::SendResult::Accepted) {
+                            request.localPlayerNames = *participantPersons;
+                            request.localPlayerAppearances = std::move(proposed);
+                        }
+                    }
                     catch (...) {}
                     if (sent != Duel6::Network::SendResult::Accepted) break;
                 }
@@ -1382,7 +1405,8 @@ namespace Duel6::Server {
         };
         const bool productionClient = !this->runtimeDependencies.clientFactory;
         const bool productionListener = !this->runtimeDependencies.listenerFactory;
-        this->runtimeDependencies.productionReplicationProtocol = productionClient && productionListener;
+        this->runtimeDependencies.productionReplicationProtocol = this->runtimeDependencies.productionReplicationProtocol
+                || (productionClient && productionListener);
         if (this->runtimeDependencies.productionReplicationProtocol
             && this->config.tickRate != Network::Responsiveness::AuthoritativeTicksPerSecond)
             throw std::invalid_argument("Supported network matches require the fixed 60 Hz tick rate");
@@ -1633,7 +1657,10 @@ namespace Duel6::Server {
         std::set<std::uint64_t> connectedParticipants;
         std::optional<Network::HostComposition::Setup> graphicalHostSetup;
         std::map<std::uint64_t, std::string> displayNames;
+        std::map<std::uint64_t, PlayerAppearance> appearances;
         std::vector<std::uint64_t> rosterOrder;
+        auto localHostNames = config.localPlayerNames;
+        auto localHostAppearances = config.localPlayerAppearances;
         if (config.graphicalHostComposition && runtimeDependencies.hostSessionPayload && !config.transportEcho) {
             while (runtimeNow(runtimeDependencies) < startupDeadline && !stopRequested) {
                 std::optional<std::vector<std::uint8_t>> payload;
@@ -1657,6 +1684,17 @@ namespace Duel6::Server {
         if (!config.transportEcho) {
             if (runtimeDependencies.productionReplicationProtocol) hostedContent = manifest;
             try {
+                if (!config.dedicated && !graphicalHostSetup) {
+                    if (localHostNames.empty()) for (unsigned index = 0; index < config.localPlayers; ++index)
+                        localHostNames.push_back("Player " + std::to_string(index + 1));
+                    if (localHostAppearances.empty()) for (const auto &name: localHostNames)
+                        localHostAppearances.push_back(PlayerSkinColors::resolveLocalAppearance(name, config.resourcePath + "/profiles"));
+                    if (localHostNames.size() != config.localPlayers || localHostAppearances.size() != config.localPlayers
+                        || !std::all_of(localHostAppearances.begin(), localHostAppearances.end(), [](const auto &value) { return value.valid(); })) {
+                        reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
+                        return 2;
+                    }
+                }
                 admissionPolicy = std::make_unique<AdmissionPolicy>(
                         std::move(manifest.manifest), config.localPlayers, runtimeDependencies.identitySource,
                         runtimeDependencies.validationWorkLimiter, runtimeDependencies.validationWorkGate, config.dedicated);
@@ -1702,8 +1740,16 @@ namespace Duel6::Server {
                     hostedSettings->assistance = setup.assistance;
                     hostedSettings->quickLiquid = setup.quickLiquid;
                     hostedSettings->burnableTrees = setup.burnableTrees;
-                    for (std::size_t index = 0; index < host.playerIds.size(); ++index)
+                    for (std::size_t index = 0; index < host.playerIds.size(); ++index) {
                         displayNames.emplace(host.playerIds[index], setup.localPlayerNames[index]);
+                        appearances.emplace(host.playerIds[index], setup.localPlayerAppearances[index]);
+                    }
+                }
+                if (!config.dedicated && !graphicalHostSetup) {
+                    for (std::size_t index = 0; index < host.playerIds.size(); ++index) {
+                        displayNames.emplace(host.playerIds[index], localHostNames[index]);
+                        appearances.emplace(host.playerIds[index], localHostAppearances[index]);
+                    }
                 }
                 connectedParticipants.insert(host.participantId);
                 hostedMatch = std::make_unique<Authoritative::AuthoritativeHostedMatchController>(
@@ -1738,7 +1784,7 @@ namespace Duel6::Server {
                 }
                 }
                 auto lobby = replicationLobbyState(
-                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder, &appearances);
                 if (!hostedMatch->initializeReplication(std::move(lobby.participants),
                                                         std::move(lobby.players), std::move(lobby.settings))) {
                     reportHostedStatus(Network::HostServiceStatusCode::StartFailed);
@@ -1865,6 +1911,7 @@ namespace Duel6::Server {
             std::chrono::steady_clock::time_point attemptDeadline;
             Network::AdmissionOfferPayload offer;
             std::vector<std::string> requestedPlayerNames;
+            std::vector<PlayerAppearance> requestedAppearances;
             std::uint64_t transactionId = 0;
             Network::Trust::ConnectionId connectionId = 0;
             bool requestReceived = false;
@@ -1963,6 +2010,10 @@ namespace Duel6::Server {
             };
             hooks.removeBatch = [&](const std::vector<Network::Lifecycle::ParticipantId> &participants,
                                      Network::Lifecycle::Phase) {
+                std::vector<std::uint64_t> removedPlayers;
+                for (const auto &participant: admissionPolicy->allocation().admittedParticipants())
+                    if (std::find(participants.begin(), participants.end(), participant.participantId) != participants.end())
+                        removedPlayers.insert(removedPlayers.end(), participant.playerIds.begin(), participant.playerIds.end());
                 if (!hostedMatch->canRemoveLifecycleParticipants(participants)
                     || !admissionPolicy->canRemoveParticipants(participants)
                     || !hostedMatch->removeLifecycleParticipants(participants)
@@ -1972,9 +2023,13 @@ namespace Duel6::Server {
                     participantConnections.erase(participantId);
                     connectedParticipants.erase(participantId);
                 }
+                for (const auto playerId: removedPlayers) {
+                    appearances.erase(playerId);
+                    displayNames.erase(playerId);
+                }
                 if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                     auto lobby = replicationLobbyState(
-                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder, &appearances);
                     return hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                             std::move(lobby.players), std::move(lobby.settings));
                 }
@@ -2024,7 +2079,7 @@ namespace Duel6::Server {
             if (graphicalHostSetup || config.dedicated) hostStartRequested = false;
             if (!sessionLifecycle->allConnectedAndReady()) return true;
             auto current = replicationLobbyState(
-                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder, &appearances);
             if (current.participants.empty() || current.participants.size() > Network::MaxNetworkPlayers
                 || current.players.empty() || current.players.size() > Network::MaxNetworkPlayers
                 || !std::all_of(current.participants.begin(), current.participants.end(), [](const auto &participant) {
@@ -2083,6 +2138,7 @@ namespace Duel6::Server {
         };
         const auto commitLobbyConfiguration = [&](const Authoritative::MatchConfig &requestedSettings,
                 const std::map<std::uint64_t, std::string> &requestedDisplayNames,
+                const std::map<std::uint64_t, PlayerAppearance> &requestedAppearances,
                 const std::vector<std::uint64_t> &requestedRosterOrder, std::string_view reason,
                 Network::Lifecycle::ReadinessMutationPreparation &&readiness) noexcept {
             if (!hostedMatch || !sessionLifecycle || !admissionPolicy || !hostedSettings)
@@ -2096,9 +2152,10 @@ namespace Duel6::Server {
             try {
                 auto nextSettings = requestedSettings;
                 auto nextDisplayNames = requestedDisplayNames;
+                auto nextAppearances = requestedAppearances;
                 auto nextRosterOrder = requestedRosterOrder;
                 auto lobby = replicationLobbyState(admissionPolicy->allocation(), connectedParticipants,
-                        nextSettings, &nextDisplayNames, &nextRosterOrder);
+                        nextSettings, &nextDisplayNames, &nextRosterOrder, &nextAppearances);
                 canonical = hostedMatch->prepareLobbyConfiguration(
                         lobby.participants, lobby.players, lobby.settings, reason);
                 if (canonical.outcome != Authoritative::LobbyCommitOutcome::Committed
@@ -2113,10 +2170,12 @@ namespace Duel6::Server {
                     return lifecycleCommitOutcome(readinessCommitted);
                 static_assert(std::is_nothrow_swappable_v<Authoritative::MatchConfig>);
                 static_assert(std::is_nothrow_swappable_v<decltype(displayNames)>);
+                static_assert(std::is_nothrow_swappable_v<decltype(appearances)>);
                 static_assert(std::is_nothrow_swappable_v<decltype(rosterOrder)>);
                 using std::swap;
                 swap(*hostedSettings, nextSettings);
                 swap(displayNames, nextDisplayNames);
+                swap(appearances, nextAppearances);
                 swap(rosterOrder, nextRosterOrder);
                 return hostedMatch->commitPreparedLobbyMutation(std::move(*canonical.mutation));
             } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
@@ -2141,15 +2200,24 @@ namespace Duel6::Server {
             return hostedMatch->commitPreparedLobbyMutation(std::move(*canonical.mutation));
         };
         const auto commitDisplayNames = [&](const std::vector<std::uint64_t> &playerIds,
-                const std::vector<std::string> &names, std::string_view reason,
+                const std::vector<std::string> &names, const std::vector<PlayerAppearance> &proposals, std::string_view reason,
                 Network::Lifecycle::ReadinessMutationPreparation &&readiness) noexcept {
-            if (!hostedSettings || playerIds.size() != names.size())
+            if (!hostedSettings || playerIds.size() != names.size() || proposals.size() != names.size())
                 return Authoritative::LobbyCommitOutcome::Rejected;
             try {
                 auto nextDisplayNames = displayNames;
-                for (std::size_t index = 0; index < playerIds.size(); ++index)
+                auto nextAppearances = appearances;
+                bool changed = false;
+                for (std::size_t index = 0; index < playerIds.size(); ++index) {
+                    if (!proposals[index].valid() || (displayNames.at(playerIds[index]) == names[index]
+                        && appearances.at(playerIds[index]) != proposals[index]))
+                        return Authoritative::LobbyCommitOutcome::Rejected;
+                    changed = changed || displayNames.at(playerIds[index]) != names[index];
                     nextDisplayNames[playerIds[index]] = names[index];
-                return commitLobbyConfiguration(*hostedSettings, nextDisplayNames, rosterOrder, reason,
+                    nextAppearances[playerIds[index]] = proposals[index];
+                }
+                if (!changed) return Authoritative::LobbyCommitOutcome::Committed;
+                return commitLobbyConfiguration(*hostedSettings, nextDisplayNames, nextAppearances, rosterOrder, reason,
                         std::move(readiness));
             } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
         };
@@ -2166,14 +2234,15 @@ namespace Duel6::Server {
             try {
                 auto nextRosterOrder = rosterOrder;
                 std::iter_swap(nextRosterOrder.begin() + index, nextRosterOrder.begin() + target);
-                return commitLobbyConfiguration(*hostedSettings, displayNames, nextRosterOrder, reason,
+                return commitLobbyConfiguration(*hostedSettings, displayNames, appearances, nextRosterOrder, reason,
                         std::move(readiness));
             } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
         };
         const auto commitHostSetup = [&](const Network::HostComposition::Setup &setup,
                 const std::vector<std::uint64_t> &hostPlayerIds, std::string_view reason,
                 Network::Lifecycle::ReadinessMutationPreparation &&readiness) noexcept {
-            if (!hostedSettings || setup.localPlayerNames.size() != hostPlayerIds.size())
+            if (!hostedSettings || setup.localPlayerNames.size() != hostPlayerIds.size()
+                || setup.localPlayerAppearances.size() != hostPlayerIds.size())
                 return Authoritative::LobbyCommitOutcome::Rejected;
             try {
                 auto nextSettings = *hostedSettings;
@@ -2196,9 +2265,16 @@ namespace Duel6::Server {
                 nextSettings.quickLiquid = setup.quickLiquid;
                 nextSettings.burnableTrees = setup.burnableTrees;
                 auto nextDisplayNames = displayNames;
-                for (std::size_t index = 0; index < hostPlayerIds.size(); ++index)
+                auto nextAppearances = appearances;
+                for (std::size_t index = 0; index < hostPlayerIds.size(); ++index) {
+                    if (!setup.localPlayerAppearances[index].valid()
+                        || (displayNames.at(hostPlayerIds[index]) == setup.localPlayerNames[index]
+                            && appearances.at(hostPlayerIds[index]) != setup.localPlayerAppearances[index]))
+                        return Authoritative::LobbyCommitOutcome::Rejected;
                     nextDisplayNames[hostPlayerIds[index]] = setup.localPlayerNames[index];
-                return commitLobbyConfiguration(nextSettings, nextDisplayNames, rosterOrder, reason,
+                    nextAppearances[hostPlayerIds[index]] = setup.localPlayerAppearances[index];
+                }
+                return commitLobbyConfiguration(nextSettings, nextDisplayNames, nextAppearances, rosterOrder, reason,
                         std::move(readiness));
             } catch (...) { return Authoritative::LobbyCommitOutcome::InternalFailure; }
         };
@@ -2301,7 +2377,7 @@ namespace Duel6::Server {
                     } else if (message->kind == Network::HostComposition::Kind::ConfigurationChanged) {
                         if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
                             && fatalLobbyCommit(commitLobbyConfiguration(
-                                    *hostedSettings, displayNames, rosterOrder,
+                                    *hostedSettings, displayNames, appearances, rosterOrder,
                                     "Local player controls changed. Everyone must confirm readiness again.",
                                     prepareClearReadiness())))
                             runtimeFailed = true;
@@ -2328,7 +2404,7 @@ namespace Duel6::Server {
                             // Reject a command that does not preserve the host's immutable slots.
                         }
                         else {
-                            const auto committed = commitDisplayNames(host.playerIds, message->ownedPersonNames,
+                            const auto committed = commitDisplayNames(host.playerIds, message->ownedPersonNames, message->ownedPersonAppearances,
                                     "A participant changed player configuration. Everyone must confirm readiness again.",
                                     prepareClearReadiness());
                             if (fatalLobbyCommit(committed)) runtimeFailed = true;
@@ -2552,9 +2628,10 @@ namespace Duel6::Server {
                                 connection->requestClose();
                         } else {
                             try {
-                                runtime.requestedPlayerNames =
-                                        Network::deserializeAdmissionRequest(frame.payload).localPlayerNames;
-                            } catch (...) { runtime.requestedPlayerNames.clear(); }
+                                const auto request = Network::deserializeAdmissionRequest(frame.payload);
+                                runtime.requestedPlayerNames = request.localPlayerNames;
+                                runtime.requestedAppearances = request.localPlayerAppearances;
+                            } catch (...) { runtime.requestedPlayerNames.clear(); runtime.requestedAppearances.clear(); }
                             const auto context = currentAdmissionContext();
                             AdmissionOffer offer = admissionPolicy->offerPayload(frame.payload, context);
                             if (offer.pending()) {
@@ -2611,9 +2688,10 @@ namespace Duel6::Server {
                             runtime.transactionId = 0;
                             connection->markAdmissionSucceeded();
                             if (config.dedicated && !hostedMatch) {
-                                for (std::size_t index = 0; index < runtime.offer.playerIds.size()
-                                     && index < runtime.requestedPlayerNames.size(); ++index)
-                                    displayNames[runtime.offer.playerIds[index]] = runtime.requestedPlayerNames[index];
+                                for (std::size_t index = 0; index < runtime.offer.playerIds.size(); ++index) {
+                                    displayNames[runtime.offer.playerIds[index]] = runtime.requestedPlayerNames.at(index);
+                                    appearances[runtime.offer.playerIds[index]] = runtime.requestedAppearances.at(index);
+                                }
                                 if (!initializeHostedMatch() || !hostedMatch->markServiceReady()
                                     || !initializeLifecycle(runtime.connectionId)) {
                                     runtimeFailed = true; connection->requestClose(); break;
@@ -2641,13 +2719,13 @@ namespace Duel6::Server {
                             }
                             bool replicationReady = observed && (!sessionLifecycle || lifecycleGrant.has_value());
                             if (replicationReady && hostedMatch) {
-                                for (std::size_t index = 0;
-                                     index < runtime.offer.playerIds.size()
-                                     && index < runtime.requestedPlayerNames.size(); ++index)
-                                    displayNames[runtime.offer.playerIds[index]] = runtime.requestedPlayerNames[index];
+                                for (std::size_t index = 0; index < runtime.offer.playerIds.size(); ++index) {
+                                    displayNames[runtime.offer.playerIds[index]] = runtime.requestedPlayerNames.at(index);
+                                    appearances[runtime.offer.playerIds[index]] = runtime.requestedAppearances.at(index);
+                                }
                                 connectedParticipants.insert(runtime.offer.participantId);
                                 auto lobby = replicationLobbyState(
-                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder, &appearances);
                                 replicationReady = hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                                         std::move(lobby.players), std::move(lobby.settings));
                                 if (replicationReady) {
@@ -2671,7 +2749,7 @@ namespace Duel6::Server {
                                     hostedMatch->disconnectReplication(runtime.offer.participantId);
                                     hostedMatch->disconnectPlayerInput(runtime.offer.participantId);
                                     auto isolated = replicationLobbyState(
-                                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                                            admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder, &appearances);
                                     (void) hostedMatch->updateReplicationLobby(std::move(isolated.participants),
                                             std::move(isolated.players), std::move(isolated.settings));
                                 }
@@ -2772,6 +2850,7 @@ namespace Duel6::Server {
                                 } else {
                                     const auto committed = commitDisplayNames(runtime.offer.playerIds,
                                             configuration->ownedPersonNames,
+                                            configuration->ownedPersonAppearances,
                                             "A participant changed player configuration. Everyone must confirm readiness again.",
                                             prepareClearReadiness());
                                     if (committed == Authoritative::LobbyCommitOutcome::Rejected)
@@ -2798,9 +2877,11 @@ namespace Duel6::Server {
                                                 runtime.offer.participantId, Authoritative::ActionKind::AdvanceRound);
                                 } else if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
                                            && control->kind == Network::HostComposition::Kind::UpdateSetup && control->setup) {
-                                    if (fatalLobbyCommit(commitHostSetup(*control->setup, runtime.offer.playerIds,
+                                    const auto committed = commitHostSetup(*control->setup, runtime.offer.playerIds,
                                             "Host changed match settings. Everyone must confirm readiness again.",
-                                            prepareClearReadiness()))) runtimeFailed = true;
+                                            prepareClearReadiness());
+                                    if (committed == Authoritative::LobbyCommitOutcome::Rejected) rejectIngress();
+                                    else if (fatalLobbyCommit(committed)) runtimeFailed = true;
                                 } else if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby
                                            && control->kind == Network::HostComposition::Kind::RosterMove) {
                                     if (fatalLobbyCommit(commitRosterMove(control->rosterPlayerId, control->rosterDirection,
@@ -2839,7 +2920,7 @@ namespace Duel6::Server {
                                     if (action->kind
                                         == Network::Lifecycle::ParticipantActionKind::ConfigurationChanged) {
                                         committed = commitLobbyConfiguration(*hostedSettings,
-                                                displayNames, rosterOrder,
+                                                displayNames, appearances, rosterOrder,
                                                 "A participant changed player configuration. Everyone must confirm readiness again.",
                                                 sessionLifecycle->prepareParticipantReadinessAction(
                                                         *action, runtime.connectionId));
@@ -2934,7 +3015,7 @@ namespace Duel6::Server {
                         hostedMatch->disconnectPlayerInput(runtime.offer.participantId);
                         if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                             auto lobby = replicationLobbyState(
-                                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                                    admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder, &appearances);
                             (void) hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                                     std::move(lobby.players), std::move(lobby.settings));
                         } else {
@@ -2972,7 +3053,7 @@ namespace Duel6::Server {
                         try {
                             if (hostedMatch->stage() == Authoritative::HostedMatchStage::Lobby) {
                                 auto lobby = replicationLobbyState(
-                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder);
+                                        admissionPolicy->allocation(), connectedParticipants, *hostedSettings, &displayNames, &rosterOrder, &appearances);
                                 (void) hostedMatch->updateReplicationLobby(std::move(lobby.participants),
                                         std::move(lobby.players), std::move(lobby.settings));
                             } else {
@@ -3027,7 +3108,7 @@ namespace Duel6::Server {
                 sessionLifecycle.reset();
                 hostedMatch->discardSessionResults(); hostedMatch.reset();
                 connections.clear(); participantConnections.clear(); connectedParticipants.clear();
-                nonInputBudgets.clear(); displayNames.clear(); rosterOrder.clear();
+                nonInputBudgets.clear(); displayNames.clear(); appearances.clear(); rosterOrder.clear();
                 deferredLifecycleCloses.clear(); hostedSettings.reset(); hostStartRequested = false;
                 admissionPolicy = std::make_unique<AdmissionPolicy>(hostedContent.manifest, 0,
                         runtimeDependencies.identitySource, runtimeDependencies.validationWorkLimiter,

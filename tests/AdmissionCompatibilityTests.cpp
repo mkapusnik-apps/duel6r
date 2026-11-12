@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "tests/TestHarness.h"
+#include "tests/AppearanceFixtures.h"
 #include "tests/HostDiagnosticFixture.h"
 #ifdef D6R_TEST_OBSERVE_NATIVE_CLOSE
 #include <sys/ioctl.h>
@@ -113,7 +114,10 @@ namespace {
     }
 
     Network::AdmissionRequest requestFor(const Network::GameplayManifest &value, std::uint8_t players = 1) {
-        return Network::makeLocalAdmissionRequest(players, value);
+        std::vector<std::string> names;
+        for (unsigned index = 0; index < players; ++index) names.push_back("Player " + std::to_string(index + 1));
+        return Network::makeLocalAdmissionRequest(players, value, names,
+                std::vector<PlayerAppearance>(players, Test::appearance()));
     }
 
     bool sameManifest(const Network::GameplayManifest &left, const Network::GameplayManifest &right) {
@@ -690,8 +694,8 @@ namespace {
 }
 
 D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire format are exact") {
-    D6R_REQUIRE_EQ(3u, Network::AdmissionProtocolVersion);
-    D6R_REQUIRE_EQ("duel6r-network-r6", std::string(Network::NetworkReleaseId));
+    D6R_REQUIRE_EQ(4u, Network::AdmissionProtocolVersion);
+    D6R_REQUIRE_EQ("duel6r-network-r7", std::string(Network::NetworkReleaseId));
     const std::vector<std::string> exact{
         "d6r.compatibility-admission.v1", "d6r.gameplay-manifest.v1", "d6r.session-identity.v1"};
     D6R_REQUIRE(std::equal(exact.begin(), exact.end(), Network::RequiredAdmissionCapabilities.begin()));
@@ -706,6 +710,59 @@ D6R_TEST_CASE("AC-001 AC-002 compatibility constants capabilities and wire forma
     D6R_REQUIRE_EQ(15u, decoded.localPlayerCount);
     D6R_REQUIRE(sameManifest(request.gameplayManifest, decoded.gameplayManifest));
     D6R_REQUIRE(bytes == Network::serializeAdmissionRequest(decoded));
+}
+
+D6R_TEST_CASE("NET-VIS initial and composition appearance proposals are complete bounded and fail before allocation") {
+    const auto host = manifest({{"levels/a.json", 1}});
+    Server::AdmissionPolicy policy(host, 1);
+    const auto malformed = [&](Network::AdmissionRequest request) {
+        D6R_REQUIRE(policy.offer(request).result.code == Network::AdmissionResultCode::MalformedRequest);
+        D6R_REQUIRE_EQ(0u, policy.allocation().pendingPlayerCount());
+        D6R_REQUIRE_EQ(1u, policy.allocation().playerCount());
+        D6R_REQUIRE_THROW(Network::serializeAdmissionRequest(request), std::exception);
+    };
+    auto request = requestFor(host);
+    request.localPlayerAppearances.clear(); malformed(request);
+    request = requestFor(host); request.localPlayerAppearances.push_back(Test::appearance()); malformed(request);
+    request = requestFor(host); request.localPlayerAppearances[0].hair = 3; malformed(request);
+    request = requestFor(host); request.localPlayerNames.clear(); malformed(request);
+    request = requestFor(host);
+    for (unsigned value = 0; value <= 255; ++value) {
+        auto appearance = Test::appearance(value);
+        appearance.colors[0] = {static_cast<std::uint8_t>(value), 0, 255};
+        request.localPlayerAppearances = {appearance};
+        const auto decoded = Network::deserializeAdmissionRequest(Network::serializeAdmissionRequest(request));
+        D6R_REQUIRE_EQ(request.localPlayerAppearances, decoded.localPlayerAppearances);
+    }
+    const auto bytes = Network::serializeAdmissionRequest(request);
+    std::size_t start = 4 + 4 + 2 + request.networkReleaseId.size() + 2;
+    for (const auto &capability: request.capabilities) start += 2 + capability.size();
+    start += 2 + 2 + request.localPlayerNames[0].size();
+    for (const auto offset: {30u, 31u}) {
+        auto invalid = bytes; invalid[start + offset] = 255;
+        D6R_REQUIRE_THROW(Network::deserializeAdmissionRequest(invalid), std::exception);
+        D6R_REQUIRE(policy.offerPayload(invalid).result.code == Network::AdmissionResultCode::MalformedRequest);
+        D6R_REQUIRE_EQ(0u, policy.allocation().pendingPlayerCount());
+    }
+    for (unsigned size = 0; size < 32; ++size) {
+        auto truncated = bytes; truncated.resize(start + size);
+        D6R_REQUIRE_THROW(Network::deserializeAdmissionRequest(truncated), std::exception);
+    }
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {"Owner"};
+    D6R_REQUIRE_THROW(Network::HostComposition::serializeSetup(setup), std::exception);
+    setup.localPlayerAppearances = {Test::appearance(2)};
+    const auto composition = Network::HostComposition::deserialize(Network::HostComposition::serializeSetup(setup));
+    D6R_REQUIRE(composition && composition->setup);
+    D6R_REQUIRE_EQ(setup.localPlayerAppearances, composition->setup->localPlayerAppearances);
+    const auto edit = Network::HostComposition::serializeOwnedPersons(setup.localPlayerNames, setup.localPlayerAppearances);
+    const auto decoded = Network::HostComposition::deserialize(edit);
+    D6R_REQUIRE(decoded && decoded->ownedPersonAppearances == setup.localPlayerAppearances);
+    auto invalid = edit; invalid.back() = 2;
+    D6R_REQUIRE(!Network::HostComposition::deserialize(invalid));
+    D6R_REQUIRE_THROW(Network::HostComposition::serializeOwnedPersons({"Owner"}, {}), std::exception);
+    auto oldSchema = edit; oldSchema[5] = 3;
+    D6R_REQUIRE(!Network::HostComposition::deserialize(oldSchema));
 }
 
 D6R_TEST_CASE("AC-005 AC-006 AC-007 exact compatibility checks are case and whitespace sensitive") {
@@ -724,6 +781,8 @@ D6R_TEST_CASE("AC-005 AC-006 AC-007 exact compatibility checks are case and whit
     request.networkReleaseId = "duel6r-network-r3";
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);
     request.networkReleaseId = "duel6r-network-r4";
+    D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);
+    request.networkReleaseId = "duel6r-network-r6";
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);
     request.networkReleaseId = std::string(Network::NetworkReleaseId) + " ";
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::NetworkReleaseMismatch);
@@ -2614,14 +2673,14 @@ D6R_TEST_CASE("PR83 production ingress shares burst sixty and sustained thirty a
         for (unsigned index = 0; index < limit; ++index) {
             if (index % 2 == 0)
                 send(Network::HostComposition::serializeOwnedPersons({"window " + std::to_string(window)
-                        + " action " + std::to_string(index)}));
+                        + " action " + std::to_string(index)}, {Test::appearance()}));
             else
                 send(Network::Lifecycle::serializeParticipantAction({peer->reconnectGrant->sessionId,
                         peer->offer->participantId, Network::Lifecycle::ParticipantActionKind::Ready}));
         }
         const std::string expected = "window " + std::to_string(window) + " action " + std::to_string(limit - 2);
         D6R_REQUIRE(pumpUntil(*peer, [&] { return currentName() == expected && peerReady(); }, 2s));
-        send(Network::HostComposition::serializeOwnedPersons({"OVER BUDGET"}));
+        send(Network::HostComposition::serializeOwnedPersons({"OVER BUDGET"}, {Test::appearance()}));
         const auto deadline = std::chrono::steady_clock::now() + 150ms;
         while (std::chrono::steady_clock::now() < deadline) {
             D6R_REQUIRE_EQ(expected, currentName());
@@ -2630,7 +2689,7 @@ D6R_TEST_CASE("PR83 production ingress shares burst sixty and sustained thirty a
         }
         // Other participants have an independent budget and remain usable.
         D6R_REQUIRE(observer->connection->send(Network::HostComposition::serializeOwnedPersons(
-                {"Observer " + std::to_string(window)})) == Network::SendResult::Accepted);
+                {"Observer " + std::to_string(window)}, {Test::appearance()})) == Network::SendResult::Accepted);
         D6R_REQUIRE(pumpUntil(*observer, [&] {
             if (observer->states.empty()) return false;
             return std::any_of(observer->states.back().players.begin(), observer->states.back().players.end(),
@@ -5549,7 +5608,7 @@ D6R_TEST_CASE("AC-016 AC-023 auth policy capacity and match rejection allocate n
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::MatchAlreadyStarted);
     D6R_REQUIRE_EQ(initialParticipants, policy.allocation().participantCount());
     policy.setMatchStarted(false);
-    request.localPlayerCount = 15;
+    request = requestFor(host, 15);
     D6R_REQUIRE(policy.evaluate(request).code == Network::AdmissionResultCode::SessionFull);
     D6R_REQUIRE_EQ(initialPlayers, policy.allocation().playerCount());
 }

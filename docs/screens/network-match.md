@@ -27,8 +27,8 @@ Non-final round-summary content follows [UI-RND-011–013 and AC-RND-001](../fea
 - Add only compact textual session status that does not obscure required play: session role, LAN scope, connection state, result scope, and script policy.
 - The representative state is a six-player LAN Deathmatch at 1280 by 900 during a sustained degraded-network condition while complete canonical updates continue.
 - Network status must state `Optional scripts disabled` without obscuring play.
-- Every local and remote player must use the built-in default network visual set.
-- The screen must not use a selected local or remote profile for player skin, animation, or visual-resource selection.
+- Every local and remote player must use built-in network artwork with the accepted selected-person appearance under NET-VIS-018–024.
+- Receivers must not use local profiles to replace accepted colors, hair, or headband, or use peer profiles/assets to select player animations or visual resources.
 - Player names must remain distinct from player appearance selection.
 - Use the level's named background when it is locally usable.
 - When the named background is not locally usable, show the deterministic built-in fallback selected from the stable ordered eligible background list.
@@ -154,9 +154,9 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - Double-jump, weapon-pick eligibility and drop-first behavior, five-second status display, and dead-player input behavior must remain unchanged.
 - A controller connection change during the round must not reassign a player automatically.
 - The graphical client must collect local device input, but the authoritative service must not initialize a renderer, audio, or local input device.
-- The client must derive player animation and entity visuals from complete read-only replicated canonical state and the default network visual set.
+- The client must derive player animation and entity visuals from complete read-only replicated state, accepted base appearance, and the built-in network visual set.
 - The client must not create or advance a second gameplay simulation for presentation.
-- A full snapshot and equivalent incremental state must select the same default network visuals.
+- A full snapshot and equivalent incremental state must select the same accepted appearance and current network visuals under REP-PRES-002–006.
 - A full snapshot and equivalent incremental state must select the same fallback background when the replicated session, match, round, and level logical identities and eligible background list are equal.
 - Reconnect and resynchronization must restore that same fallback background when those inputs remain equal.
 - The authoritative gameplay seed must not select or change the fallback background.
@@ -165,17 +165,17 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - Network fallback selection must not change gameplay, results, or Local Play background behavior.
 - Equal supported releases presenting the same replicated canonical state must select the same player skin, animation, and entity visual.
 - Authoritative Team colors, Predator opacity, invisibility, and other replicated visual gameplay states must modify the default network visuals as defined by canonical state.
-- A local or remote profile must not change the network player's visible skin, animation, or visual resource.
+- Owner-resolved colors, hair, and headband customize built-in player artwork only through accepted state; receiver profiles must not change that appearance, animation, or visual resource.
 - A client must not load a peer profile, file, or script as a visual fallback.
-- Selected-profile appearance parity remains outside first-release scope and is tracked by issue #84.
+- Selected-person appearance follows NET-VIS-018–024. Profile files, peer assets/scripts, and new profile-selection UI remain outside scope.
 
 ## Observable acceptance and evidence
 
 - A static artifact must show one complete 1280 by 900 client without external window chrome.
 - The artifact must show six living players in one complete LAN Deathmatch arena.
-- The artifact must show the built-in default network player skin for all six local and remote players.
-- The artifact setup must include local persons whose available profile appearances differ from the default network player skin.
-- The artifact must not show a profile-selected player appearance or a profile-selection control.
+- The artifact must show accepted colors, hair, and headband through built-in artwork for all six local and remote players.
+- The artifact setup must disclose each owner's selected appearance; a receiver's missing or different profile must not replace accepted values.
+- The artifact must not show a separate profile-selection control or peer-selected artwork.
 - The artifact must show ranking, round progress, event text, and player status without status overlap.
 - The AP-N representative artifact must show `Guest`, `LAN session`, `Connected`, `Session only scores`, and `Optional scripts disabled`.
 - The artifact must show the exact text `Network connection degraded.` during a sustained budget breach.

@@ -19,7 +19,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.native_visual.common import digest, record, verify_runtime
-from tools.native_visual.controller import Scheduler, expand, seed_names, Native, probe_display_geometry
+from tools.native_visual.controller import Scheduler, expand, seed_names, seed_startup_fixtures, Native, probe_display_geometry
 from tools.native_visual.recognition import Canvas, MAIN, ENTRY, GEOMETRIES, recognize
 
 
@@ -263,6 +263,82 @@ class IdentityTests(unittest.TestCase):
             path=Path(tmp)/"receipt.json"; record(path,{"historical":True}); before=path.read_bytes()
             with self.assertRaises(FileExistsError): record(path,{"historical":False})
             self.assertEqual(before,path.read_bytes())
+
+
+class StartupWeaponFixturesTests(unittest.TestCase):
+    def weapon_runtime(self, root):
+        identity = IdentityTests().runtime(root)
+        config = root / "data/config.script"
+        config.write_bytes((Path(__file__).resolve().parents[1] / "resources/data/config.script").read_bytes())
+        identity["files"]["data/config.script"] = digest(config)
+        return identity
+
+    def test_weapon16_only_matches_clones_without_changing_producer_or_executables(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            producer = Path(tmp) / "producer"; producer.mkdir()
+            identity = self.weapon_runtime(producer)
+            before = {p.relative_to(producer): p.read_bytes() for p in producer.rglob("*") if p.is_file()}
+            configured = []
+            for client in ("host", "guest"):
+                root = Path(tmp) / client
+                shutil.copytree(producer, root)
+                verify_runtime(root, identity)
+                seed_startup_fixtures(root, {}, {"enabled_weapon_ids": [16]})
+                config = (root / "data/config.script").read_bytes()
+                configured.append(config)
+                directives = [line.split() for line in config.decode().splitlines() if line.startswith("gun ")]
+                self.assertEqual([["gun", str(i), "true" if i == 16 else "false"] for i in range(17)], directives)
+                non_weapon = b"".join(line for line in before[Path("data/config.script")].splitlines(keepends=True)
+                                      if not line.startswith(b"gun "))
+                self.assertEqual(non_weapon.rstrip(b"\n") + b"\n\n", config[:config.index(b"gun 0 ")])
+                self.assertEqual(set(before), {p.relative_to(root) for p in root.rglob("*") if p.is_file()})
+                for path, raw in before.items():
+                    if path != Path("data/config.script"):
+                        self.assertEqual(raw, (root / path).read_bytes())
+                self.assertEqual(identity["application_sha256"], digest(root / "duel6r"))
+            self.assertEqual(configured[0], configured[1])
+            verify_runtime(producer, identity)
+            self.assertEqual(before, {p.relative_to(producer): p.read_bytes() for p in producer.rglob("*") if p.is_file()})
+
+    def test_weapon_pool_accepts_supported_boundaries_and_full_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); self.weapon_runtime(root)
+            for weapons in ([0], [0, 16], list(range(17))):
+                with self.subTest(weapons=weapons):
+                    seed_startup_fixtures(root, {}, {"enabled_weapon_ids": weapons})
+                    directives = [line.split() for line in (root / "data/config.script").read_text().splitlines()
+                                  if line.startswith("gun ")]
+                    self.assertEqual([["gun", str(i), "true" if i in weapons else "false"] for i in range(17)], directives)
+
+    def test_invalid_weapon_pool_rejects_before_config_or_executable_changes(self):
+        invalid = (None, True, 16, "16", {}, (), [], [True], [False], [16.0], ["16"],
+                   [-1], [17], [0, 0], [16, 16], [[16]], [{}], list(range(18)))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); identity = self.weapon_runtime(root)
+            for weapons in invalid:
+                with self.subTest(weapons=weapons), self.assertRaises(ValueError):
+                    seed_startup_fixtures(root, {}, {"enabled_weapon_ids": weapons})
+                verify_runtime(root, identity)
+
+    def test_weapon_pool_cannot_coexist_with_legacy_switch_even_when_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); identity = self.weapon_runtime(root)
+            for value in (True, False, None):
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError, "mutually exclusive"):
+                    seed_startup_fixtures(root, {}, {"enabled_weapon_ids": [16], "enable_gun16": value})
+                verify_runtime(root, identity)
+
+    def test_absent_pool_preserves_default_and_existing_gun16_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); identity = self.weapon_runtime(root)
+            before = (root / "data/config.script").read_bytes()
+            for recipe in ({}, {"enable_gun16": False}):
+                seed_startup_fixtures(root, {}, recipe)
+                verify_runtime(root, identity)
+            seed_startup_fixtures(root, {}, {"enable_gun16": True})
+            self.assertEqual(before.replace(b"gun 16 false", b"gun 16 true", 1),
+                             (root / "data/config.script").read_bytes())
+            self.assertEqual(identity["application_sha256"], digest(root / "duel6r"))
 
 
 def retain_cli_failure(output):

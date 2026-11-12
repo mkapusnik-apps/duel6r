@@ -145,17 +145,13 @@ namespace Duel6 {
               playerHitSound(value.getSound().loadSample("sound/player/hit.wav")),
               playerDeathSound(value.getSound().loadSample("sound/player/death.wav")),
               bonusSound(value.getSound().loadSample("sound/player/pick-bonus.wav")),
-              waterSound(value.getSound().loadSample("sound/game/water-blue.wav")) {
-        skins.emplace_back(std::make_unique<PlayerSkin>(PlayerSkinColors(teamColor(0)),
-                                                        value.getTextureManager(), animations));
-        for (std::uint8_t team = 1; team <= 4; ++team) {
-            PlayerSkinColors colors(teamColor(team));
-            colors.set(PlayerSkinColors::HairTop, teamColor(team))
-                    .set(PlayerSkinColors::Trousers, teamColor(team))
-                    .set(PlayerSkinColors::HeadBand, teamColor(team))
-                    .setHeadBand(true);
-            skins.emplace_back(std::make_unique<PlayerSkin>(colors, value.getTextureManager(), animations));
-        }
+              waterSound(value.getSound().loadSample("sound/game/water-blue.wav")) {}
+
+    CanonicalWorldPresenter::~CanonicalWorldPresenter() { clearSkins(); }
+
+    void CanonicalWorldPresenter::clearSkins() {
+        for (auto &entry: skins) service.getTextureManager().dispose(entry.second.skin->getTexture());
+        skins.clear();
     }
 
     void CanonicalWorldPresenter::setCanonicalLevels(std::vector<std::string> levels) {
@@ -219,9 +215,20 @@ namespace Duel6 {
         }
         if (!state) return;
         if (presentedSession != state->sessionId) {
+            clearSkins();
             presentedSession = state->sessionId;
             highestPresentedEvent = 0;
             presentedEntities.clear();
+        }
+        for (auto entry = skins.begin(); entry != skins.end();) {
+            if (std::none_of(state->players.begin(), state->players.end(), [&](const auto &player) {
+                return player.playerId == entry->first && player.visible
+                    && player.lifeState != Network::Replication::LifeState::Departed
+                    && player.lifeState != Network::Replication::LifeState::Waiting;
+            })) {
+                service.getTextureManager().dispose(entry->second.skin->getTexture());
+                entry = skins.erase(entry);
+            } else ++entry;
         }
         for (const auto &event: events) {
             if (event.eventId <= highestPresentedEvent) continue;
@@ -292,8 +299,33 @@ namespace Duel6 {
 
     const PlayerSkin &CanonicalWorldPresenter::skinFor(
             const Network::Replication::PlayerState &player) const {
-        const std::size_t index = player.team > 0 && player.team < skins.size() ? player.team : 0;
-        return *skins[index];
+        const bool brown = player.temporaryMovementRemaining > 0;
+        auto found = skins.find(player.playerId);
+        if (found != skins.end() && found->second.appearance == player.appearance
+            && found->second.team == player.team && found->second.temporaryBrown == brown)
+            return *found->second.skin;
+        auto colors = PlayerSkinColors::fromAppearance(player.appearance);
+        if (player.team > 0 && player.team <= 4) {
+            if (colors.getHair() != PlayerSkinColors::Hair::Normal) colors.setHeadBand(true);
+            colors.set(PlayerSkinColors::HairTop, teamColor(player.team))
+                  .set(PlayerSkinColors::Trousers, teamColor(player.team))
+                  .set(PlayerSkinColors::HeadBand, teamColor(player.team));
+        }
+        if (brown) colors = PlayerSkinColors(Color(83, 44, 0));
+        auto skin = std::make_unique<PlayerSkin>(colors, service.getTextureManager(), animations);
+        if (found != skins.end()) {
+            service.getTextureManager().dispose(found->second.skin->getTexture());
+            found->second = {player.appearance, player.team, brown, std::move(skin)};
+        } else {
+            const auto texture = skin->getTexture();
+            try {
+                found = skins.emplace(player.playerId, CachedSkin{player.appearance, player.team, brown, std::move(skin)}).first;
+            } catch (...) {
+                service.getTextureManager().dispose(texture);
+                throw;
+            }
+        }
+        return *found->second.skin;
     }
 
     Animation CanonicalWorldPresenter::animationFor(

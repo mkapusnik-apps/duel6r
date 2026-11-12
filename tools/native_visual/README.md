@@ -32,11 +32,45 @@ missing files or changed hashes are accepted. Keep the identity file outside
 the flat runtime. Supply identities from the artifact producer, not a version
 banner or a guessed source revision. A rebuild has a new artifact identity.
 
-The tool copies the runtime per client. Only supported `data/persons.json`
-NAME fixtures are written: 1–15 unique names, each at most 64 UTF-8 bytes,
+The tool copies the runtime per client. Default `data/persons.json`
+NAME fixtures contain 1–15 unique names, each at most 64 UTF-8 bytes,
 all counters zero, default Elo 1000, no completed rounds. No arbitrary stats,
-profiles, levels, gameplay scripts, result snapshots, clock changes, debugger,
-preload or simulated network messages are used. Do not include secrets in recipes.
+levels, result snapshots, clock changes, debugger, preload or simulated network
+messages are used. Optional pre-start profile/gameplay fixtures are bounded below.
+Do not include secrets in recipes.
+
+## Optional disclosed pre-start fixtures
+
+An optional client `profile_fixtures` object maps new profile directory names to
+ordinary built-in `skin.json` objects. Names must be safe single path components;
+existing artifact profiles are never replaced. The controller writes only
+`skin.json` and copies the verified shipped `sample/sounds.json`. It copies no
+profile script or custom artwork. Native application parsing remains responsible
+for skin field validity.
+
+An optional recipe `enable_gun16: true` changes the one existing `gun 16 false`
+setting to `gun 16 true` in each mutable client copy before application startup.
+It never appends a duplicate setting. The default is unchanged.
+
+An optional recipe `enabled_weapon_ids` sets the ordinary pre-start weapon pool.
+It must be a nonempty list of unique integer IDs 0-16; booleans and out-of-range
+values reject. It cannot coexist with `enable_gun16`. The controller replaces only
+the mutable copy's existing `gun` directives with one explicit true/false directive
+for each of the 17 supported IDs, preserving other configuration. `[16]` enables
+only the shit thrower in every client copy, so both network installations retain
+matching gameplay configuration. Ammunition, effects, timers and projectiles are
+not changed or injected. The existing `enable_gun16` behavior remains unchanged
+when this option is absent. Producer input/inventory verification is unchanged;
+preserve the disclosed recipe and resulting configuration identity with evidence.
+
+The complete input runtime is still verified before copying, each copy is verified
+before these disclosed data changes, and the immutable input remains verified
+through operator batches and completion. No inventory entry or check is removed.
+The active client data differs from the producer bundle only by the existing name
+fixture and these explicitly requested profile/gameplay fixtures. Preserve the
+recipe with its existing hash/context receipts alongside the original producer
+identity. Freeze all data before starting a consumer; do not change it between
+consumers of the same acquisition.
 
 ## Finite recipes
 

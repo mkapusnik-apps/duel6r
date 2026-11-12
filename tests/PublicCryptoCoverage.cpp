@@ -187,7 +187,7 @@ int main(int argc, char **argv) {
                     dependencies.password = fixture;
                     const auto content = Network::CompatibilityManifestBuilder(root.string()).build();
                     require(content.valid(), "actual scoped reconnect compatibility");
-                    auto compatibility = Network::makeLocalAdmissionRequest(1, content.manifest, {"Scoped fixture"});
+                    auto compatibility = Network::makeLocalAdmissionRequest(1, content.manifest, {"Scoped fixture"}, {PlayerAppearance{}});
                     compatibility.expectedHostingKind = Network::HostingKind::Dedicated;
                     for (unsigned caseId = 0; caseId < 4; ++caseId) {
                         auto selected = caseId == 0 ? old : current;

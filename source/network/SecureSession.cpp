@@ -162,7 +162,9 @@ namespace Duel6::Network {
         mutable std::mutex mutex;
         RecordBudget incoming, outgoing;
         SecureSessionLimits limits;
+        const Clock::time_point began = Clock::now();
         Clock::time_point deadline;
+        SecureFailureDiagnostic firstError;
         std::uint64_t received = 0, sent = 0;
         bool contextsInitialized = false, initialized = false, established = false, failed = false;
 
@@ -230,6 +232,28 @@ namespace Duel6::Network {
                 || received >= limits.plaintextBytesPerDirection || sent >= limits.plaintextBytesPerDirection
                 || incoming.allowance(1, limits.recordsPerDirection) == 0
                 || outgoing.allowance(1, limits.recordsPerDirection) == 0;
+        }
+        void latchFailure(int tlsResult = 0) {
+            if (firstError.category != SecureFailureCategory::None) return;
+            // errno is only the value observed on return, not an inferred socket
+            // cause: the SDK can fail without performing an OS operation.
+            firstError.observedErrno = tlsResult ? errno : 0;
+            const auto now = Clock::now();
+            firstError.category = tlsResult ? SecureFailureCategory::Tls
+                : !initialized ? SecureFailureCategory::ContextUnavailable
+                : now >= deadline ? SecureFailureCategory::LifetimeLimit
+                : incoming.allowance(1, limits.recordsPerDirection) == 0
+                    || outgoing.allowance(1, limits.recordsPerDirection) == 0 ? SecureFailureCategory::RecordLimit
+                : received >= limits.plaintextBytesPerDirection || sent >= limits.plaintextBytesPerDirection
+                    ? SecureFailureCategory::PlaintextLimit : SecureFailureCategory::ContextUnavailable;
+            firstError.tlsResult = tlsResult;
+            firstError.monotonicMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+            firstError.ageMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now - began).count();
+            firstError.lifetimeMilliseconds = limits.lifetime.count();
+            firstError.receivedRecords = incoming.records; firstError.sentRecords = outgoing.records;
+            firstError.recordLimit = limits.recordsPerDirection;
+            firstError.receivedPlaintext = received; firstError.sentPlaintext = sent;
+            firstError.plaintextLimit = limits.plaintextBytesPerDirection;
         }
         static int collectEntropy(void *context, unsigned char *output, std::size_t size) {
             auto &self = *static_cast<Impl *>(context);
@@ -300,6 +324,7 @@ namespace Duel6::Network {
         std::ptrdiff_t result(int value) {
             if (value >= 0) return value;
             if (value == MBEDTLS_ERR_SSL_WANT_READ || value == MBEDTLS_ERR_SSL_WANT_WRITE) return -2;
+            latchFailure(value); // Preserve raw result/counters BEFORE flattening or teardown.
             failed = true; // Never process a second forgery attempt with these keys.
             return value == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY ? 0 : -1;
         }
@@ -323,18 +348,20 @@ namespace Duel6::Network {
                 return impl->established;
             }
             if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) {
+                impl->latchFailure(result);
                 impl->failed = true; return false;
             }
             lock.unlock();
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
         std::lock_guard<std::mutex> lock(impl->mutex);
+        impl->latchFailure();
         impl->failed = true; return false;
     }
     std::ptrdiff_t SecureSession::receive(void *data, std::size_t size,
                                          const std::function<void(std::size_t)> &accepted) {
         std::lock_guard<std::mutex> lock(impl->mutex);
-        if (!impl->established || impl->exhausted()) return -1;
+        if (!impl->established || impl->exhausted()) { impl->latchFailure(); return -1; }
         size = std::min<std::size_t>(size, impl->limits.plaintextBytesPerDirection - impl->received);
         const auto count = impl->result(mbedtls_ssl_read(&impl->session, static_cast<unsigned char *>(data), size));
         if (count > 0) {
@@ -347,7 +374,7 @@ namespace Duel6::Network {
     }
     std::ptrdiff_t SecureSession::send(const void *data, std::size_t size) {
         std::lock_guard<std::mutex> lock(impl->mutex);
-        if (!impl->established || impl->exhausted()) return -1;
+        if (!impl->established || impl->exhausted()) { impl->latchFailure(); return -1; }
         size = std::min<std::size_t>(size, impl->limits.plaintextBytesPerDirection - impl->sent);
         const auto count = impl->result(mbedtls_ssl_write(&impl->session, static_cast<const unsigned char *>(data), size));
         if (count > 0) impl->sent += static_cast<std::uint64_t>(count);
@@ -365,5 +392,9 @@ namespace Duel6::Network {
     bool SecureSession::usable() const {
         std::lock_guard<std::mutex> lock(impl->mutex);
         return impl->established && !impl->exhausted();
+    }
+    SecureFailureDiagnostic SecureSession::firstFailure() const {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        return impl->firstError;
     }
 }

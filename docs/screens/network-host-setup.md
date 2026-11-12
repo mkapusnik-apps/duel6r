@@ -126,7 +126,7 @@ The current linked UX specification owns unified host settings, control grouping
 - The host must be able to select any established keyboard preset or detected supported controller preset for each owned local player.
 - The setup must permit the same control preset for more than one owned local player.
 - Controller detection and connection changes must preserve the established local device behavior.
-- A selected person must not imply that the person's selected-profile appearance will appear in network play.
+- A selected person's colors, hair, and headband must be resolved by the initiating client under NET-VIS-018–024, without adding profile UI or changing person/control selection.
 - A profile or cosmetic difference must not create a setup warning or prevent Start session.
 - A required default network visual resource failure must use the existing required-resource failure behavior and must not load peer content as a fallback.
 - The invalid host-manifest reason and disabled Retry reason must remain readable without color, sound, or transient motion.

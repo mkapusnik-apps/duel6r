@@ -14,6 +14,7 @@
 #include "source/server/AuthoritativeMatchSerialization.h"
 #include "source/server/AuthoritativeReplication.h"
 #include "tests/TestHarness.h"
+#include "tests/AppearanceFixtures.h"
 #include "source/PresentationClock.h"
 #include "source/ArenaAnimationClock.h"
 
@@ -2595,6 +2596,84 @@ D6R_TEST_CASE("REP-005..008 client accepts fresh lower admitted identities in up
     const auto reuse = lobbyCreationUpdate(4, 5, initial, initial.participants.back(), initial.players.back());
     D6R_REQUIRE(client.apply(reuse) == R::ApplyResult::ResynchronizationRequired);
     D6R_REQUIRE_EQ(4u, client.version());
+}
+
+D6R_TEST_CASE("NET-VIS appearance-only lobby delta and recovery preserve all bounded values atomically") {
+    auto state = lobbyState();
+    state.players[0].appearance = Duel6::Test::appearance(1);
+    state.players[1].appearance = Duel6::Test::appearance(2);
+    R::AuthoritativeStateReplicator host;
+    D6R_REQUIRE(host.initialize(state));
+    R::ReplicatedState incremental;
+    D6R_REQUIRE(incremental.apply(*host.fullSnapshot()) == R::ApplyResult::Applied);
+    // Isolate value equality/codec behavior here; owner mutation policy is
+    // exercised separately through the real service's name/appearance edit.
+    state.players[1].appearance = Duel6::Test::appearance(3);
+    const auto update = host.publish(state);
+    D6R_REQUIRE(update && update->players.size() == 1);
+    const auto delta = R::deserializeReplicationFrame(R::serializeReplicationUpdate(*update));
+    D6R_REQUIRE(delta && incremental.apply(*delta->update) == R::ApplyResult::Applied);
+    const auto snapshot = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*host.fullSnapshot()));
+    R::ReplicatedState recovered;
+    D6R_REQUIRE(snapshot && recovered.apply(*snapshot->snapshot) == R::ApplyResult::Applied);
+    for (unsigned index = 0; index < 2; ++index) {
+        D6R_REQUIRE(state.players[index].appearance == incremental.state()->players[index].appearance);
+        D6R_REQUIRE(state.players[index].appearance == recovered.state()->players[index].appearance);
+        D6R_REQUIRE_EQ(state.players[index].ownerParticipantId, recovered.state()->players[index].ownerParticipantId);
+    }
+    const auto before = R::serializeReplicationSnapshot(*host.fullSnapshot());
+    std::vector<std::uint8_t> appearanceBytes;
+    for (const auto &color: state.players[0].appearance.colors)
+        appearanceBytes.insert(appearanceBytes.end(), color.begin(), color.end());
+    appearanceBytes.push_back(state.players[0].appearance.hair);
+    appearanceBytes.push_back(state.players[0].appearance.headBand);
+    const auto location = std::search(before.begin(), before.end(), appearanceBytes.begin(), appearanceBytes.end());
+    D6R_REQUIRE(location != before.end());
+    for (const auto offset: {30u, 31u}) {
+        auto malformed = before;
+        malformed[std::distance(before.begin(), location) + offset] = 255;
+        D6R_REQUIRE(!R::deserializeReplicationFrame(malformed));
+    }
+    state.players[0].appearance.hair = 3;
+    D6R_REQUIRE(!R::validateCanonicalState(state));
+    D6R_REQUIRE(!host.publish(state));
+    D6R_REQUIRE_EQ(before, R::serializeReplicationSnapshot(*host.fullSnapshot()));
+    auto invalid = *update; invalid.baseline = incremental.version(); invalid.version = invalid.baseline + 1;
+    invalid.players[0].value->appearance.hair = 255;
+    const auto retained = incremental.retainedState()->players[1].appearance;
+    D6R_REQUIRE(incremental.apply(invalid) != R::ApplyResult::Applied);
+    D6R_REQUIRE(incremental.retainedState()->players[1].appearance == retained);
+    auto bytes = before;
+    for (unsigned oldVersion: {6u, 7u}) {
+        bytes[4] = oldVersion;
+        D6R_REQUIRE(!R::deserializeReplicationFrame(bytes));
+    }
+}
+
+D6R_TEST_CASE("NET-VIS current brown effect and base appearance survive full delta and recovery without a new timer") {
+    auto state = activeState();
+    state.players[0].appearance = Duel6::Test::appearance(2);
+    state.players[0].temporaryMovementRemaining = 10 * 65536;
+    R::AuthoritativeStateReplicator host;
+    D6R_REQUIRE(host.initialize(state));
+    R::ReplicatedState client;
+    D6R_REQUIRE(client.apply(*host.fullSnapshot()) == R::ApplyResult::Applied);
+    state.phaseTime += 60;
+    state.players[0].temporaryMovementRemaining = 9 * 65536;
+    const auto update = host.publish(state);
+    D6R_REQUIRE(update && client.apply(*update) == R::ApplyResult::Applied);
+    client.requireResynchronization();
+    const auto decoded = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*host.fullSnapshot()));
+    D6R_REQUIRE(decoded && client.apply(*decoded->snapshot) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(9 * 65536, client.state()->players[0].temporaryMovementRemaining);
+    D6R_REQUIRE(client.state()->players[0].appearance == state.players[0].appearance);
+    state.phaseTime += 540;
+    state.players[0].temporaryMovementRemaining = 0;
+    const auto expiry = host.publish(state);
+    D6R_REQUIRE(expiry && client.apply(*expiry) == R::ApplyResult::Applied);
+    D6R_REQUIRE_EQ(0, client.state()->players[0].temporaryMovementRemaining);
+    D6R_REQUIRE(client.state()->players[0].appearance == Duel6::Test::appearance(2));
+    D6R_REQUIRE(client.takePresentationEvents().empty());
 }
 
 D6R_TEST_CASE("REP complete snapshot and lifecycle delta converge atomically to the same state") {

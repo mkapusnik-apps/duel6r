@@ -50,6 +50,17 @@ namespace Duel6::Network {
         virtual bool pending() const = 0;
     };
 
+    // Read-only first-error receipt for local diagnostics. Never contains peer
+    // bytes/identities or secrets, and retrieving it never enters the TLS SDK.
+    enum class SecureFailureCategory { None, ContextUnavailable, LifetimeLimit, RecordLimit, PlaintextLimit, Tls };
+    struct SecureFailureDiagnostic {
+        SecureFailureCategory category = SecureFailureCategory::None;
+        int tlsResult = 0, observedErrno = 0;
+        std::int64_t monotonicMicroseconds = 0, ageMilliseconds = 0, lifetimeMilliseconds = 0;
+        std::uint64_t receivedRecords = 0, sentRecords = 0, recordLimit = 0;
+        std::uint64_t receivedPlaintext = 0, sentPlaintext = 0, plaintextLimit = 0;
+    };
+
     class SecureSession final {
     public:
         static bool supported(bool hardwarePermitted = true);
@@ -60,13 +71,14 @@ namespace Duel6::Network {
         SecureSession &operator=(const SecureSession &) = delete;
         bool handshake(std::chrono::steady_clock::time_point deadline, const std::function<bool()> &cancelled);
         // Positive byte count, zero EOF, -1 failure, -2 retry. No library diagnostic
-        // or peer-controlled data crosses this boundary.
+        // or peer-controlled data crosses the I/O result boundary.
         std::ptrdiff_t receive(void *buffer, std::size_t size,
                                const std::function<void(std::size_t)> &accepted = {});
         std::ptrdiff_t send(const void *buffer, std::size_t size);
         bool pending() const;
         bool expired() const;
         bool usable() const;
+        SecureFailureDiagnostic firstFailure() const;
     private:
         class Impl;
         std::unique_ptr<Impl> impl;

@@ -41,6 +41,7 @@
 #include "source/network/SessionLifecycle.h"
 #undef private
 #include "tests/TestHarness.h"
+#include "tests/AppearanceFixtures.h"
 #include "tests/CanonicalMotionTrace.h"
 #include "source/Player.h"
 #include "source/Game.h"
@@ -184,7 +185,7 @@ private:
 std::vector<PlayerDefinition> roster(std::size_t count = 4) {
     std::vector<PlayerDefinition> result;
     for (std::size_t i = 0; i < count; ++i)
-        result.push_back({i + 1, i + 101, "Player " + std::to_string(i + 1), static_cast<std::uint8_t>(i)});
+        result.push_back({i + 1, i + 101, "Player " + std::to_string(i + 1), static_cast<std::uint8_t>(i), Duel6::Test::appearance(i)});
     return result;
 }
 
@@ -865,6 +866,7 @@ D6R_TEST_CASE("NET-ADM production waiting snapshots input reservation cancellati
     auto snapshot = controller.currentSnapshot();
     D6R_REQUIRE(snapshot && R::validateCanonicalState(snapshot->state));
     D6R_REQUIRE(snapshot->state.players.back().lifeState == R::LifeState::Waiting);
+    D6R_REQUIRE(snapshot->state.players.back().appearance == players.back().appearance);
     R::ReplicatedState observer;
     const auto decoded = R::deserializeReplicationFrame(R::serializeReplicationSnapshot(*snapshot));
     D6R_REQUIRE(decoded && observer.apply(*decoded->snapshot) == R::ApplyResult::Applied);
@@ -881,6 +883,7 @@ D6R_TEST_CASE("NET-ADM production waiting snapshots input reservation cancellati
     snapshot = controller.currentSnapshot();
     D6R_REQUIRE(snapshot && observer.apply(*snapshot) == R::ApplyResult::Applied);
     D6R_REQUIRE(snapshot->state.players.back().lifeState == R::LifeState::Alive);
+    D6R_REQUIRE(snapshot->state.players.back().appearance == players.back().appearance);
     players.push_back(roster(3)[2]);
     participants.push_back({3, false, R::ConnectionState::Connected, false, {103}});
     D6R_REQUIRE(controller.updateReplicationLobby(participants, players, requested));
@@ -1831,10 +1834,36 @@ D6R_TEST_CASE("NET-ADM real first-round arrival preserves existing world and mod
     }
 }
 
+D6R_TEST_CASE("NET-VIS cosmetic configurations do not consume gameplay randomness or change canonical simulation") {
+    ProductionCanonicalResourceRoot resources;
+    const auto requested = ProductionCanonicalFixture::canonicalConfig(2, resources.path());
+    auto firstPlayers = roster(2), secondPlayers = firstPlayers;
+    for (unsigned index = 0; index < secondPlayers.size(); ++index)
+        secondPlayers[index].appearance = Duel6::Test::appearance(index + 17);
+    const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
+    D6R_REQUIRE(content.valid());
+    auto firstDependencies = CanonicalMatchRuntime::createDependencies(requested, firstPlayers, content);
+    auto secondDependencies = CanonicalMatchRuntime::createDependencies(requested, secondPlayers, content);
+    // Establish the process-wide weapon registry before either world starts;
+    // sequential adapter initialization must not change the compared inputs.
+    D6R_REQUIRE(firstDependencies.contentPreflight(content.manifest));
+    D6R_REQUIRE(secondDependencies.contentPreflight(content.manifest));
+    AuthoritativeMatch first(firstDependencies), second(secondDependencies);
+    D6R_REQUIRE_EQ(OutcomeCode::None, first.start(requested, firstPlayers, content.manifest).code);
+    D6R_REQUIRE_EQ(OutcomeCode::None, second.start(requested, secondPlayers, content.manifest).code);
+    for (unsigned tick = 0; tick < 180; ++tick) {
+        D6R_REQUIRE_EQ(first.currentStateDigest(), second.currentStateDigest());
+        D6R_REQUIRE_EQ(first.randomDecisionCount(), second.randomDecisionCount());
+        D6R_REQUIRE_EQ(first.randomDecisionDigest(), second.randomDecisionDigest());
+        D6R_REQUIRE(first.advanceOneTick()); D6R_REQUIRE(second.advanceOneTick());
+    }
+}
+
 D6R_TEST_CASE("NET-ADM reviewed live arrival can ready and start a second match without configuration mutation") {
     ProductionCanonicalResourceRoot resources;
     auto requested = ProductionCanonicalFixture::canonicalConfig(1, resources.path());
     auto players = roster(2);
+    for (unsigned index = 0; index < players.size(); ++index) players[index].appearance = Duel6::Test::appearance(index);
     const auto content = Duel6::Network::CompatibilityManifestBuilder(resources.path(), {}).build();
     D6R_REQUIRE(content.valid());
     auto runtime = std::make_shared<CanonicalMatchRuntime>(requested, players, content.manifest, content.content);
@@ -1849,7 +1878,8 @@ D6R_TEST_CASE("NET-ADM reviewed live arrival can ready and start a second match 
     D6R_REQUIRE_EQ(OutcomeCode::None, controller.start(requested, players, content.manifest).code);
     const auto firstMatch = controller.currentSnapshot()->state.matchId;
     for (int tick = 0; tick < 125; ++tick) D6R_REQUIRE(controller.advanceOneTick());
-    players = roster(3);
+    players.push_back(roster(3).back());
+    players.back().appearance = Duel6::Test::appearance(2);
     participants.push_back({3, false, R::ConnectionState::Connected, false, {103}});
     D6R_REQUIRE(controller.updateReplicationLobby(participants, players, requested));
     const auto arrival = controller.currentSnapshot()->state;
@@ -1869,6 +1899,11 @@ D6R_TEST_CASE("NET-ADM reviewed live arrival can ready and start a second match 
         reconnectPayloads.push_back(std::move(payload)); return Duel6::Network::SendResult::Accepted;
     }));
     const auto reconnected = deliveredStates(reconnectPayloads).back();
+    for (const auto &player: players) {
+        const auto found = std::find_if(reconnected.players.begin(), reconnected.players.end(),
+            [&](const auto &value) { return value.playerId == player.playerId; });
+        D6R_REQUIRE(found != reconnected.players.end() && found->appearance == player.appearance);
+    }
     const auto resumed = std::find_if(reconnected.effects.begin(), reconnected.effects.end(), [](const auto &effect) {
         return effect.type == "player-arrival";
     });
@@ -1894,6 +1929,7 @@ D6R_TEST_CASE("NET-ADM reviewed live arrival can ready and start a second match 
     for (std::size_t index = 0; index < players.size(); ++index) {
         D6R_REQUIRE_EQ(players[index].playerId, second.players[index].playerId);
         D6R_REQUIRE_EQ(players[index].participantId, second.players[index].ownerParticipantId);
+        D6R_REQUIRE(players[index].appearance == second.players[index].appearance);
     }
 }
 

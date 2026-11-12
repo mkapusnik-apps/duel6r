@@ -87,6 +87,7 @@ namespace Duel6::Server::Authoritative {
             R::PlayerState player;
             player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
             player.rosterPosition = entry.rosterOrder; player.displayName = entry.displayName;
+            player.appearance = entry.appearance;
             player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
             state.players.push_back(std::move(player));
         }
@@ -132,6 +133,7 @@ namespace Duel6::Server::Authoritative {
                 R::PlayerState player;
                 player.playerId = entry.playerId; player.ownerParticipantId = entry.participantId;
                 player.rosterPosition = entry.rosterOrder; player.displayName = entry.displayName;
+                player.appearance = entry.appearance;
                 player.life = MaximumLife; player.lifeState = R::LifeState::Alive;
                 if (retainedResult) {
                     const auto row = std::find_if(retainedResult->players.begin(), retainedResult->players.end(),
@@ -347,6 +349,7 @@ namespace Duel6::Server::Authoritative {
                 R::PlayerState player;
                 player.playerId = source.playerId; player.ownerParticipantId = owner->participantId;
                 player.rosterPosition = owner->rosterOrder; player.displayName = owner->displayName;
+                player.appearance = owner->appearance;
                 player.team = static_cast<std::uint8_t>(source.team);
                 player.lifeState = source.departed ? R::LifeState::Departed : source.waiting ? R::LifeState::Waiting
                                                    : (source.alive ? R::LifeState::Alive : R::LifeState::Dead);

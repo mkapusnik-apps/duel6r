@@ -110,7 +110,7 @@ The retained-result variant [NET-04-R](../design/wireframes/NET-04/NET-04-R.svg)
 - Each participant must be able to assign established keyboard and detected supported controller presets only to that participant's owned local players.
 - The lobby must permit the same local control preset for more than one player owned by the same participant.
 - A control change must keep the established controller-rescan, detection, and in-round non-reassignment behavior.
-- A profile or cosmetic difference must not change readiness, show a compatibility warning, or block Start match.
-- The lobby must not imply selected-profile appearance parity for the following match.
+- Differences between installed profiles or cosmetic assets must not change readiness, show a compatibility warning, or block Start match. Accepted person changes still clear readiness under the existing rules.
+- Person replacement and accepted colors, hair, and headband must follow NET-VIS-018–024 atomically. The lobby adds no profile selector, preview, or appearance-only action.
 
 Planned representative screenshot: [`SS-018`](../screenshots/README.md#ss-018).

@@ -187,7 +187,7 @@ D6R_TEST_CASE("Darwin production host adapter preserves readiness stop cancel an
         D6R_REQUIRE(guest.start({"localhost", port.number}));
         D6R_REQUIRE(guest.waitForConnected(5s));
         D6R_REQUIRE(guest.connection()->send(Network::serializeAdmissionRequest(
-            Network::makeLocalAdmissionRequest(1, content.manifest))) == Network::SendResult::Accepted);
+            Network::makeLocalAdmissionRequest(1, content.manifest, {"Adapter"}, {PlayerAppearance{}}))) == Network::SendResult::Accepted);
         Network::TransportFrame offer;
         D6R_REQUIRE(await([&] { return guest.connection()->receive(offer); }));
         D6R_REQUIRE(!Network::deserializeAdmissionOffer(offer.payload).playerIds.empty());

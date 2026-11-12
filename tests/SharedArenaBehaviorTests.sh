@@ -11,6 +11,8 @@ resource_dir="${RESOURCE_DIR:-${build_dir}}"
 test_root="${TEST_ROOT:-${build_dir}/shared-arena-behavior}"
 display="${DISPLAY:-:98}"
 image_assertions="${workspace_dir}/tests/SharedArenaImageAssertions.py"
+# Mode identity excludes the arrows' valid pressed/released feedback.
+mode_geometry="180x24+960+204"
 
 fail() {
     echo "shared-arena-behavior: $*" >&2
@@ -111,7 +113,7 @@ PY
 }
 
 crop_mode() {
-    convert "$1" -crop 240x36+934+180 +repage "$2"
+    convert "$1" -crop "$mode_geometry" +repage "$2"
 }
 
 crop_team_settings() {
@@ -292,21 +294,31 @@ PY
         (( i == 2 )) && break
         import -window root "${scenario_dir}/mode-step-before.png"
         xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-        wait_region "${scenario_dir}/mode-step-before.png" "${scenario_dir}/mode-step-after.png" 240x36+934+180 different
+        wait_region "${scenario_dir}/mode-step-before.png" "${scenario_dir}/mode-step-after.png" "$mode_geometry" different
     done
     non_team_settings_crop="${scenario_dir}/reference-0-settings.png"
     teams_mode_crop="${scenario_dir}/reference-2-mode.png"
     assert_images_same "$non_team_settings_crop" "${scenario_dir}/reference-1-settings.png" "non-Team modes hide Team controls"
     assert_images_differ "$non_team_settings_crop" "${scenario_dir}/reference-2-settings.png" "Teams controls become visible"
     xdotool mousemove 1157 217 mousedown 1 sleep 0.08 mouseup 1
-    sleep .1 # allow an intentionally inert action to pass one input/render cycle
-    import -window root "${scenario_dir}/past-teams.png"
+    # An unchanged label alone could be a pre-click frame. The subsequent
+    # checkbox change witnesses processed input/rendering without another mode
+    # click or holding an arrow through its autorepeat interval. Sample mode
+    # identity from that SAME frame, then restore the original settings.
+    local friendly_fire_geometry="24x24+932+276"
+    xdotool mousemove 950 283 click 1
+    wait_region "${scenario_dir}/reference-2.png" "${scenario_dir}/past-teams.png" "$friendly_fire_geometry" different
     crop_mode "${scenario_dir}/past-teams.png" "${scenario_dir}/past-teams-crop.png"
     assert_images_same "$teams_mode_crop" "${scenario_dir}/past-teams-crop.png" "Teams is the final primary mode"
+    xdotool mousemove 950 283 click 1
+    wait_region "${scenario_dir}/reference-2.png" "${scenario_dir}/past-teams-restored.png" "$friendly_fire_geometry" same
+    crop_conditional_settings "${scenario_dir}/past-teams-restored.png" "${scenario_dir}/past-teams-restored-settings.png"
+    assert_images_same "${scenario_dir}/reference-2-settings.png" "${scenario_dir}/past-teams-restored-settings.png" \
+        "boundary probe restores original Team settings"
     for ((i = 2; i > mode_index; i--)); do
         import -window root "${scenario_dir}/mode-step-before.png"
         xdotool mousemove 949 217 mousedown 1 sleep 0.08 mouseup 1
-        wait_region "${scenario_dir}/mode-step-before.png" "${scenario_dir}/mode-step-after.png" 240x36+934+180 different
+        wait_region "${scenario_dir}/mode-step-before.png" "${scenario_dir}/mode-step-after.png" "$mode_geometry" different
     done
 
     import -window root "${scenario_dir}/primary-mode-selected.png"
@@ -530,7 +542,7 @@ PY
     [[ "$score_closed" == true ]] || fail "$score_assertion"
 
     xdotool key --window "$window_id" Shift+Escape
-    wait_region "${scenario_dir}/mode-selected.png" "${scenario_dir}/after-gameplay-return.png" 240x36+934+180 same
+    wait_region "${scenario_dir}/mode-selected.png" "${scenario_dir}/after-gameplay-return.png" "$mode_geometry" same
     if (( mode_index == 2 )); then
         import -window root "${scenario_dir}/after-gameplay-return.png"
         crop_team_settings "${scenario_dir}/after-gameplay-return.png" \

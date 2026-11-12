@@ -46,6 +46,7 @@ D6R_TEST_CASE("retired proxy option cannot enable an alternate dedicated channel
 D6R_TEST_CASE("common Password settings updates contain no password while initial owned startup IPC retains it") {
     namespace H = Duel6::Network::HostComposition;
     H::Setup setup; setup.localPlayerNames = {"Host"};
+    setup.localPlayerAppearances = {Duel6::PlayerAppearance{}};
     const std::string value = u8" private-é-only ";
     const std::vector<std::uint8_t> needle(value.begin(), value.end());
     setup.password = std::make_shared<Duel6::Network::SessionPassword>(value);

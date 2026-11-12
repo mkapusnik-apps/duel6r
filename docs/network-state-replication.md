@@ -45,7 +45,7 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 
 ### Session, lobby, and match state
 
-- **REP-013** Replicated session state must identify the host, admitted participants, connection state, readiness, player ownership, and authoritative roster order.
+- **REP-013** Replicated session state must identify the host, admitted participants, connection state, readiness, player ownership, authoritative roster order, and accepted base appearance for every current player slot under NET-VIS-018–024, including lobby and waiting slots without actors.
 - **REP-014** Replicated match state must include the selected mode, applicable team settings, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
 - **REP-015** Replicated match state must identify the current phase as lobby, active round, round summary, final summary, or ended.
 - **REP-016** Replicated progression must include the current round number, completed-round count, phase timing, and applicable round-end countdown.
@@ -76,11 +76,11 @@ Local gameplay behavior is in [`features.md`](features.md). This document must n
 ### Default network presentation
 
 - **REP-PRES-001** Replicated canonical state must contain the gameplay type and state values required by `NET-VIS-004`.
-- **REP-PRES-002** Replicated canonical state must not contain a profile identity, skin identity, animation-resource identity, or visual-resource identity for selected-profile appearance parity.
-- **REP-PRES-003** A client must map replicated movement, action, entity type, and visual gameplay state to the default network visual set.
+- **REP-PRES-002** Replicated state must carry the service-accepted bounded appearance values defined by NET-VIS-018–024, bound to player identity. It must not carry a profile identity, skin/resource selector, path, file, script, or custom asset. These values remain presentation-only and must not affect canonical gameplay or results.
+- **REP-PRES-003** A client must map the accepted base appearance, replicated movement, action, entity type, and visual gameplay state to the built-in network visual set. Temporary brown appearance uses the authoritative remaining effect state under NET-VIS-008, not a locally restarted effect timer.
 - **REP-PRES-004** Presentation code must treat replicated canonical state as read-only input.
 - **REP-PRES-005** Presentation code must not create or advance another gameplay simulation.
-- **REP-PRES-006** A full snapshot and an equivalent incremental state must select the same default network visuals.
+- **REP-PRES-006** A full snapshot and an equivalent incremental state must select the same base appearance and current network visuals. Reconnect/resynchronization must restore accepted values without local profile lookup or rerandomization; person replacement and appearance must update atomically under NET-VIS-021.
 - **REP-PRES-007** Replicated state must not contain a canonical fallback-background selection field.
 - **REP-PRES-008** A client must derive a fallback background under `NET-VIS-012` through `NET-VIS-017` from existing replicated identities and its eligible background list.
 - **REP-PRES-009** Reconnect and resynchronization must restore the same fallback background when the replicated identities and eligible background list remain equal.
@@ -91,6 +91,8 @@ This includes authoritative water type and surface, player hit and weapon-pick p
 ## Entity lifecycle
 
 ### Arena presentation wire fields
+
+The wire layout below records the arena-presentation baseline, not an alternate appearance-disabled compatibility profile. The selected-person appearance extension must follow the mandatory exact-release/schema transition in [compatibility and admission](network-compatibility-and-admission.md#admission-version-and-release-contract); developer owns alignment of this wire reference and the published constants with the implementation.
 
 Replication frame version 7 is paired with admission release ID `duel6r-network-r6`.
 Earlier release IDs are rejected during admission as a network-release mismatch;
@@ -254,7 +256,7 @@ event-count, per-event/text payload accounting and history limits unchanged.
 ## Acceptance criteria
 
 - **REP-AC-001 — Stable identities:** Every replicated match, round, player, world entity, and event follows REP-005 through REP-012.
-- **REP-AC-002 — Complete state:** A full snapshot contains all applicable session, lobby, match, round, world, score, message, effect, result, and default-network-presentation input state. It keeps the result values in REP-017 distinct. It does not require a selected-profile appearance identity.
+- **REP-AC-002 — Complete state:** A full snapshot contains all applicable session, lobby, match, round, world, score, message, effect, result, and network-presentation input state, including accepted bounded appearances for current player slots without actors. It keeps the result values in REP-017 distinct. It contains no profile/resource identity or file.
 - **REP-AC-003 — Initial construction:** Before admission success, a client validates one complete current lobby or match snapshot against clock calibration, with exact confirmed participant and ordered owned-player identities. Waiting admission exposes no owned active actor; eligible spawn produces one actor per player without early or duplicate creation.
 - **REP-AC-004 — Reconnect restoration:** A reconnected client receives the current complete lobby, match, round-summary, or final-summary state without rewind.
 - **REP-AC-005 — Lifecycle:** Entity creation, update, removal, round transition, and full-snapshot replacement follow REP-031 through REP-037. Waiting identity/ownership remains separate from round-bound bodies; Leave/expiry cancels spawn, reconnect/resynchronization cannot spawn early or duplicate, and final active waiting cannot add a round.
@@ -264,12 +266,12 @@ event-count, per-event/text payload accounting and history limits unchanged.
 - **REP-AC-009 — Recovery failure:** A failed resynchronization affects only that client and follows the existing reconnect journey without pausing the match.
 - **REP-AC-010 — Read-only authority:** A client cannot change canonical score, hit, pickup, death, winner, random, or progression state through replication.
 - **REP-AC-011 — Transport truth:** Replication uses the approved reliable ordered transport and makes no unsupported loss, duplication, or reordering claim.
-- **REP-AC-012 — Presentation continuity:** Replicated state presents the shared arena with deterministic default visuals, solo active play without a false victory, Connected waiting feedback and textual Waiting roster marker, score overlays, transitions, final summary, and retained lobby result. Waiting has no living/winner representation; authoritative spawn clears feedback. Presentation uses no second simulation and invents no champion.
+- **REP-AC-012 — Presentation continuity:** Replicated state presents the shared arena with accepted selected-person appearance and built-in visuals, solo active play without a false victory, Connected waiting feedback and textual Waiting roster marker, score overlays, transitions, final summary, and retained lobby result. Waiting has no living/winner representation; authoritative spawn clears feedback. Presentation uses no second simulation and invents no champion.
 - **REP-AC-013 — Safety:** Replication respects existing payload, queue, bandwidth, progress, redaction, and connection-isolation limits.
 - **REP-AC-014 — Local independence:** Local Play remains unchanged and does not start or require replication.
 - **REP-AC-015 — Scope truth:** Completion of issue #34 alone must not support a playable-network or release-readiness claim.
-- **REP-PRES-AC-001 — Deterministic default visuals:** A full snapshot and equivalent incremental state select the same built-in player skin, animation, and entity visuals on each client of the supported release.
-- **REP-PRES-AC-002 — Profile exclusion:** Replication does not require or provide profile, skin, animation-resource, or visual-resource identities for selected-profile appearance parity.
+- **REP-PRES-AC-001 — Deterministic visuals:** A full snapshot and equivalent incremental state select the same accepted base appearance, built-in animation, entity visuals, and active temporary brown appearance on each client of the supported release, including after recovery.
+- **REP-PRES-AC-002 — Appearance boundary:** Replication provides only the bounded appearance values in NET-VIS-020, not profile/resource identities, files, assets, or scripts. Invalid values retain the last complete accepted state under REP-065–067 and NET-VIS-023.
 - **REP-PRES-AC-003 — Read-only presentation:** A client presents replicated state without mutating it or creating another gameplay simulation.
 - **REP-PRES-AC-004 — Background derivation:** Equal replicated session, match, round, and level logical identities and equal eligible background lists select the same presentation-only fallback background from a full snapshot, equivalent incremental state, reconnect, or resynchronization. Replication adds no canonical background-selection field.
 - **REP-PRES-AC-005 — Arena presentation state:** Full and incremental state provide the authoritative water type, status quantities, action states, effect age, and phase information needed for `PRES-ARENA-AC-001`–`PRES-ARENA-AC-004`. Recovery restores current animation and burn completion without replaying expired effects or changing canonical gameplay.

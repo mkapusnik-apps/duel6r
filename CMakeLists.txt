@@ -673,6 +673,7 @@ set(D6R_CANONICAL_GAMEPLAY_SOURCES
         source/Player.cpp
         source/PlayerEventListener.cpp
         source/PlayerAnimations.cpp
+        source/PlayerSkinColors.cpp
         source/Round.cpp
         source/ShotList.cpp
         source/Sprite.cpp

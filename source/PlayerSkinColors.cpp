@@ -28,6 +28,10 @@
 #include "json/JsonParser.h"
 #include "PlayerSkinColors.h"
 #include "math/Math.h"
+#include "DataException.h"
+#include "Defines.h"
+#include "File.h"
+#include <filesystem>
 
 namespace Duel6 {
     namespace {
@@ -94,6 +98,41 @@ namespace Duel6 {
         colors.setHair(root.getOrDefault("hair", Json::Value::makeNumber(0)).asInt());
         colors.setHeadBand(root.getOrDefault("headBand", Json::Value::makeBoolean(false)).asBoolean());
         return colors;
+    }
+
+    PlayerAppearance PlayerSkinColors::appearance() const {
+        PlayerAppearance result;
+        for (Size index = 0; index < result.colors.size(); ++index) {
+            const auto &value = color[index];
+            if (value.getAlpha() != 255) D6_THROW(DataException, "Base player appearance must be opaque");
+            result.colors[index] = {value.getRed(), value.getGreen(), value.getBlue()};
+        }
+        result.hair = static_cast<std::uint8_t>(hair);
+        result.headBand = headBand;
+        return result;
+    }
+
+    PlayerAppearance PlayerSkinColors::resolveLocalAppearance(const std::string &name,
+                                                             const std::string &profilesRoot) {
+        // Only an initiating CLI client's own selection uses this path. Enumerate
+        // exact local names rather than interpreting a selected name as a path.
+        // A gameplay-only CLI bundle has no matched profiles when this optional
+        // tree is absent. Errors in an existing matched profile still propagate.
+        if (!std::filesystem::exists(profilesRoot)) return makeRandom().appearance();
+        for (const auto &entry: File::listDirectory(profilesRoot, ""))
+            if (entry == name) return load(profilesRoot + "/" + entry + "/", D6_FILE_PROFILE_SKIN).appearance();
+        return makeRandom().appearance();
+    }
+
+    PlayerSkinColors PlayerSkinColors::fromAppearance(const PlayerAppearance &appearance) {
+        if (!appearance.valid()) D6_THROW(DataException, "Invalid player appearance");
+        PlayerSkinColors result;
+        for (Size index = 0; index < appearance.colors.size(); ++index) {
+            const auto &value = appearance.colors[index];
+            result.set(static_cast<BodyPart>(index), Color(value[0], value[1], value[2]));
+        }
+        result.setHair(appearance.hair).setHeadBand(appearance.headBand);
+        return result;
     }
 
     PlayerSkinColors PlayerSkinColors::makeRandom() {

@@ -57,7 +57,7 @@ namespace Duel6::Network::Replication {
                    && left.bonusDuration == right.bonusDuration && left.reloadDuration == right.reloadDuration
                    && left.hudIndicators == right.hudIndicators && left.width == right.width
                    && left.height == right.height && left.roundKills == right.roundKills
-                   && left.animation == right.animation;
+                   && left.animation == right.animation && left.appearance == right.appearance;
         }
 
         bool entityEqual(const WorldEntityState &left, const WorldEntityState &right) {
@@ -1388,7 +1388,7 @@ namespace Duel6::Network::Replication {
                 if (estimate) *estimate = bytes;
                 return true;
             };
-            if (!add(state.participants.size() * 192) || !add(state.players.size() * 650)
+            if (!add(state.participants.size() * 192) || !add(state.players.size() * 682)
                 || !add(state.entities.size() * 256) || !add(state.score.players.size() * 192)
                 || !add(state.effects.size() * 256) || !add(eventCount * 160)
                 || !add(eventTextBytes) || !add(state.result.serialized.size())) return false;
@@ -1512,7 +1512,7 @@ namespace Duel6::Network::Replication {
             if (!uniqueNonzero(state.players, [](const auto &value) { return value.playerId; }, &playerIds)) return false;
             for (const auto &player: state.players) {
                 constexpr std::int64_t MaximumDuration = INT64_C(86400) * 65536;
-                if (!validPlayerAnimation(player.animation)) return false;
+                if (!validPlayerAnimation(player.animation) || !player.appearance.valid()) return false;
                 if (player.animation.weaponVisible && ((player.lifeState != LifeState::Alive && player.lifeState != LifeState::Departed)
                     || player.heldWeapon.empty() || player.animation.pose == PlayerPose::Pick)) return false;
                 for (std::size_t index = 0; index < player.hudIndicators.size(); ++index) {

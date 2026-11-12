@@ -22,6 +22,8 @@
 #include "../network/StateReplication.h"
 #include "../network/StateReplicationProtocol.h"
 
+namespace Duel6::Server { class AdmissionRuntimeClient; }
+
 namespace Duel6::Client {
     enum class NetworkJourney { Inactive, Starting, Cancelling, Lobby, Match, Summary,
                                 Reconnecting, Failure, HostEnded };
@@ -39,6 +41,7 @@ namespace Duel6::Client {
         std::string name;
         const PlayerControls *controls = nullptr;
         std::string controlDescription;
+        PlayerAppearance appearance;
     };
 
     struct NetworkRuntimeSnapshot {
@@ -93,6 +96,8 @@ namespace Duel6::Client {
         // Durable, secret-free admission event. Survives recovery/terminal/reset
         // snapshots until the UI consumes it and erases editable Password state.
         bool takeConfirmedAdmission();
+        // A durable recovery result, even if the UI missed the reconnect frames.
+        std::optional<std::vector<NetworkLocalPlayer>> takeRestoredLocalPlayers();
         void reset();
         void retryPublication();
 
@@ -105,6 +110,10 @@ namespace Duel6::Client {
         std::map<Network::Replication::Identity, std::size_t> ownedPlayerBindings;
         std::deque<std::vector<std::uint8_t>> pendingGuestCommands;
         std::deque<std::vector<std::uint8_t>> pendingHostCommands;
+        bool restoringOwnedConfiguration = false;
+        std::optional<std::vector<NetworkLocalPlayer>> restoredLocalPlayers;
+        // Reuse the admission adapter seam for deterministic queue-loss checks.
+        std::function<std::unique_ptr<Server::AdmissionRuntimeClient>()> guestClientFactory;
         bool pendingHostEnd = false;
         bool gameplayInputSuppressed = false;
         std::unique_ptr<Network::Input::ClientCommandSession> hostInput;

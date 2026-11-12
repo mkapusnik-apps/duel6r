@@ -51,12 +51,17 @@ namespace Duel6::Client {
             if (!selection.validation().empty()) return false;
         }
         std::vector<std::uint8_t> setupPayload;
-        try { setupPayload = Network::HostComposition::serializeSetup(setup); }
+        auto resolvedSetup = setup;
+        resolvedSetup.localPlayerAppearances.clear();
+        for (const auto &player: localPlayers) resolvedSetup.localPlayerAppearances.push_back(player.appearance);
+        try { setupPayload = Network::HostComposition::serializeSetup(resolvedSetup); }
         catch (...) { return false; }
         if (localPlayers.size() != setup.localPlayerNames.size()
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
-                return Network::Trust::validParticipantName(player.name);
+                return Network::Trust::validParticipantName(player.name) && player.appearance.valid();
             })) return false;
+        for (std::size_t index = 0; index < localPlayers.size(); ++index)
+            if (localPlayers[index].name != setup.localPlayerNames[index]) return false;
         reset();
         HostServiceDependencies dependencies;
         passwordRequired = setup.password && setup.password->required();
@@ -92,7 +97,7 @@ namespace Duel6::Client {
                                       std::string expectedSessionId, std::optional<bool> expectedDedicated) {
         if (localPlayers.empty() || localPlayers.size() > Network::MaxNetworkPlayers
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
-                return Network::Trust::validParticipantName(player.name);
+                return Network::Trust::validParticipantName(player.name) && player.appearance.valid();
             })) return false;
         reset();
         {
@@ -107,8 +112,13 @@ namespace Duel6::Client {
                                   password = std::move(password), expectedSessionId = std::move(expectedSessionId)] {
             Server::ServerConfig config; config.admissionClient = true; config.listenEndpoint = endpoint;
             config.resourcePath = resourcePath; config.localPlayers = static_cast<std::uint8_t>(players.size());
-            for (const auto &player: players) config.localPlayerNames.push_back(player.name);
+            for (const auto &player: players) {
+                config.localPlayerNames.push_back(player.name);
+                config.localPlayerAppearances.push_back(player.appearance);
+            }
             Server::AdmissionRuntimeDependencies dependencies;
+            dependencies.clientFactory = guestClientFactory;
+            dependencies.productionReplicationProtocol = true;
             dependencies.sessionPassword = password;
             dependencies.secureLimits = sessionLimits;
             dependencies.expectedHostingKind = expectedDedicated
@@ -181,6 +191,11 @@ namespace Duel6::Client {
                 std::lock_guard<std::mutex> lock(mutex);
                 if (current.journey == NetworkJourney::Cancelling) return;
                 if (journey == Network::Lifecycle::GuestJourney::Reconnecting) {
+                    if (!restoringOwnedConfiguration) {
+                        // Resolve enqueue versus commit from the fresh recovery
+                        // snapshot before replaying commands on the next binding.
+                        restoringOwnedConfiguration = true;
+                    }
                     if (current.journey == NetworkJourney::Reconnecting
                         && current.reconnectSeconds && seconds)
                         current.reconnectSeconds = std::min(*current.reconnectSeconds, *seconds);
@@ -249,6 +264,48 @@ namespace Duel6::Client {
         if (current.publicSession)
             current.host = current.localParticipantId != 0 && current.localParticipantId == state.hostParticipantId;
         else if (current.host) current.localParticipantId = state.hostParticipantId;
+        if (!cancelling && restoringOwnedConfiguration && !presentation.reconnecting
+            && !presentation.resynchronizing) {
+            auto restored = players;
+            const auto owner = std::find_if(state.participants.begin(), state.participants.end(), [&](const auto &entry) {
+                return entry.participantId == current.localParticipantId
+                    && entry.connection == Network::Replication::ConnectionState::Connected;
+            });
+            bool complete = owner != state.participants.end()
+                && owner->ownedPlayerIds.size() == players.size() && ownedPlayerBindings.size() == players.size();
+            std::vector<bool> found(players.size(), false);
+            for (const auto &slot: state.players) {
+                const auto binding = ownedPlayerBindings.find(slot.playerId);
+                if (binding == ownedPlayerBindings.end()) continue;
+                if (slot.ownerParticipantId != current.localParticipantId || binding->second >= restored.size()) {
+                    complete = false;
+                    continue;
+                }
+                auto &local = restored[binding->second];
+                local.name = slot.displayName;
+                local.appearance = slot.appearance;
+                found[binding->second] = true;
+            }
+            if (complete && std::all_of(found.begin(), found.end(), [](bool value) { return value; })) {
+                const bool abandonedEdit = !std::equal(players.begin(), players.end(), restored.begin(),
+                    [](const auto &pending, const auto &accepted) {
+                        return pending.name == accepted.name && pending.appearance == accepted.appearance;
+                    });
+                // Abandon person edits and votes based on that selection, but
+                // retain readiness invalidation for effective local controls.
+                // Filtering keeps those notifications in their original order.
+                if (abandonedEdit) {
+                    pendingGuestCommands.erase(std::remove_if(pendingGuestCommands.begin(), pendingGuestCommands.end(),
+                        [](const auto &payload) {
+                            const auto action = Network::Lifecycle::deserializeParticipantAction(payload);
+                            return !action || action->kind != Network::Lifecycle::ParticipantActionKind::ConfigurationChanged;
+                        }), pendingGuestCommands.end());
+                }
+                players = restored;
+                restoredLocalPlayers = std::move(restored);
+                restoringOwnedConfiguration = false;
+            }
+        }
         if (current.localParticipantId != 0) confirmedAdmissionPending = true;
         if (!cancelling) {
             current.journey = journeyFor(state); current.status = "Connected";
@@ -516,25 +573,27 @@ namespace Duel6::Client {
         std::lock_guard<std::mutex> lock(mutex);
         if (localPlayers.size() != players.size()
             || !std::all_of(localPlayers.begin(), localPlayers.end(), [](const auto &player) {
-                return Network::Trust::validParticipantName(player.name);
+                return Network::Trust::validParticipantName(player.name) && player.appearance.valid();
             })) return;
         players = std::move(localPlayers);
         sampledActions.assign(players.size(), 0);
     }
     void NetworkSessionRuntime::ownedPersonsChanged() {
         std::vector<std::string> names;
+        std::vector<PlayerAppearance> appearances;
         {
             std::lock_guard<std::mutex> lock(mutex);
             for (const auto &player: players) {
-                if (!Network::Trust::validParticipantName(player.name)) return;
+                if (!Network::Trust::validParticipantName(player.name) || !player.appearance.valid()) return;
                 names.push_back(player.name);
+                appearances.push_back(player.appearance);
             }
             if (!supervisor) {
-                pendingGuestCommands.push_back(Network::HostComposition::serializeOwnedPersons(names));
+                pendingGuestCommands.push_back(Network::HostComposition::serializeOwnedPersons(names, appearances));
                 return;
             }
         }
-        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeOwnedPersons(names)); }
+        try { if (supervisor) enqueueHostCommand(Network::HostComposition::serializeOwnedPersons(names, appearances)); }
         catch (...) {}
     }
     void NetworkSessionRuntime::localConfigurationChanged() {
@@ -586,6 +645,13 @@ namespace Duel6::Client {
         return confirmed;
     }
 
+    std::optional<std::vector<NetworkLocalPlayer>> NetworkSessionRuntime::takeRestoredLocalPlayers() {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto restored = std::move(restoredLocalPlayers);
+        restoredLocalPlayers.reset();
+        return restored;
+    }
+
     void NetworkSessionRuntime::reset() {
         // Request controller departure on normal application teardown. An unreachable
         // service still ends it at the unchanged reservation deadline.
@@ -605,6 +671,7 @@ namespace Duel6::Client {
         std::lock_guard<std::mutex> lock(mutex);
         current = {}; players.clear(); sampledActions.clear(); ownedPlayerBindings.clear();
         pendingGuestCommands.clear(); pendingHostCommands.clear();
+        restoringOwnedConfiguration = false; restoredLocalPlayers.reset();
         pendingHostEnd = false;
         gameplayInputSuppressed = false;
         hostInput.reset(); hostPresentation.reset(); deferredHostPresentation.reset();

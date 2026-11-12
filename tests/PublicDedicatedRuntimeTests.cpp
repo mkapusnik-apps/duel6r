@@ -185,6 +185,7 @@ int main(int argc, char **argv) {
                 return row.sessionId == original && row.players == 2 && row.phase == "lobby"; }); }, 5s), "authoritative lobby publication");
             Network::HostComposition::Setup setup;
             setup.localPlayerNames = {controller.snapshot().host && &controller == &first ? "Controller" : "Guest"};
+            setup.localPlayerAppearances.resize(1);
             setup.fixedLevel = "levels/arena.json"; setup.roundLimit = 1; setup.quickLiquid = true;
             setup.assistance = !controller.snapshot().canonical->settings.assistance;
             require(controller.updateHostSetup(setup), "bound controller setup");
@@ -241,7 +242,7 @@ int main(int argc, char **argv) {
             Network::TcpClient offeredGuest(transport);
             require(offeredGuest.start(endpoint) && offeredGuest.waitForConnected(5s), "R1 actual guest TLS");
             auto connection = offeredGuest.connection(); require(connection != nullptr, "R1 actual guest connection");
-            auto request = Network::makeLocalAdmissionRequest(1, content.manifest, {"Deferred guest"});
+            auto request = Network::makeLocalAdmissionRequest(1, content.manifest, {"Deferred guest"}, {PlayerAppearance{}});
             request.expectedSessionId = original.sessionId;
             require(connection->send(Network::serializeAdmissionRequest(request)) == Network::SendResult::Accepted, "R1 request while controller connected");
             std::optional<Network::AdmissionOfferPayload> offer;
@@ -295,6 +296,7 @@ int main(int argc, char **argv) {
             const bool advance = scenario == "attack-advance";
             H::Setup setup;
             setup.localPlayerNames = {"Controller"}; setup.fixedLevel = "levels/arena.json";
+            setup.localPlayerAppearances.resize(1);
             setup.quickLiquid = summary || advance; setup.roundLimit = advance ? 2 : 1;
             setup.assistance = !first.snapshot().canonical->settings.assistance;
             require(first.updateHostSetup(setup), "legitimate setup");
@@ -389,7 +391,11 @@ int main(int argc, char **argv) {
             require(pump([&] { return first.snapshot().journey == J::Lobby; }, 12s), "review first admission");
             const auto session = first.snapshot().canonical->sessionId;
             const auto controller = first.snapshot().localParticipantId;
-            require(second.join(endpoint, argv[2], {{"Guest"}}, password(), {}, true), "review guest start");
+            const bool recoveredNotice = scenario.find("-recovered") != std::string::npos;
+            const std::vector<Client::NetworkLocalPlayer> guestSlots = recoveredNotice
+                ? std::vector<Client::NetworkLocalPlayer>{{"Guest one"}, {"Guest two"}}
+                : std::vector<Client::NetworkLocalPlayer>{{"Guest"}};
+            require(second.join(endpoint, argv[2], guestSlots, password(), {}, true), "review guest start");
             const bool admitted = pump([&] { return second.snapshot().journey == J::Lobby
                 && first.snapshot().canonical->participants.size() == 2; }, 12s);
             if (!admitted) failureContext(std::filesystem::path(argv[2]), "review-guest-admission", first, second, observer);
@@ -402,6 +408,7 @@ int main(int argc, char **argv) {
             if (match || summary) {
                 Network::HostComposition::Setup setup;
                 setup.localPlayerNames = {"Controller"};
+                setup.localPlayerAppearances.resize(1);
                 setup.fixedLevel = "levels/arena.json";
                 setup.roundLimit = 1; setup.quickLiquid = summary;
                 // The lobby can already have this round limit/Quick Liquid
@@ -439,7 +446,7 @@ int main(int argc, char **argv) {
                     // ordered release and controller observation; never restart.
                     const auto deadline = std::chrono::steady_clock::now() + 90s;
                     const bool observed = pumpUntil([&] {
-                        if (!summaryReturn) return second.snapshot().journey == J::Summary;
+                        if (!summaryReturn && !recoveredNotice) return second.snapshot().journey == J::Summary;
                         const auto controllerState = first.snapshot(), guestState = second.snapshot();
                         const auto complete = [session](const auto &state) {
                             return state.journey == J::Summary && state.canonical
@@ -463,13 +470,95 @@ int main(int argc, char **argv) {
             const auto phase = second.snapshot().journey;
             const auto root = std::filesystem::path(argv[2]);
             auto request = [&](const std::string &action, unsigned target) {
-                { std::ofstream out(root / "action.tmp"); out << target << ' ' << action << ' ' << session; }
+                { std::ofstream out(root / "action.tmp"); out << target << ' ' << action << ' ' << session;
+                  if (target == 0) out << ' ' << second.snapshot().localParticipantId; }
+                std::cout << "client-receipt version=2 event=action-published action=" << action << " target-alias=" << target
+                    << " mono-us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count() << '\n';
                 std::filesystem::rename(root / "action.tmp", root / "action");
                 const bool acknowledged = pump([&] { return std::filesystem::exists(root / "acted"); }, 5s);
                 if (!acknowledged) failureContext(root, "action-marker", first, second, observer);
                 require(acknowledged, "fixture action acknowledgement");
                 std::filesystem::remove(root / "acted");
             };
+            if (recoveredNotice) {
+                namespace R = Network::Replication;
+                const auto before = second.snapshot();
+                require(before.canonical && before.canonical->result.available, "recovery requires completed result");
+                const auto guest = before.localParticipantId;
+                const auto owner = std::find_if(before.canonical->participants.begin(), before.canonical->participants.end(),
+                    [&](const auto &p) { return p.participantId == guest; });
+                require(owner != before.canonical->participants.end() && owner->ownedPlayerIds.size() == 2,
+                        "recovery requires both owned slots");
+                const auto owned = owner->ownedPlayerIds;
+                // Use the existing opaque relay loss/reconnect hold. The whole
+                // restoration must finish inside this original bounded window.
+                const auto restoreDeadline = std::chrono::steady_clock::now() + 12s;
+                request("recovery", 2);
+                require(pumpUntil([&] { return second.snapshot().journey == J::Reconnecting; }, restoreDeadline),
+                        "summary guest did not enter ambiguous recovery");
+                require(second.snapshot().reconnectSeconds && *second.snapshot().reconnectSeconds <= 30,
+                        "summary recovery lost original reconnect deadline");
+                unsigned restoreStage = 0;
+                const bool restored = pumpUntil([&] {
+                    restoreStage = 0;
+                    std::ifstream proof(root / "peer-restored-summary");
+                    std::uint64_t provenSession = 0, provenGuest = 0, version = 0; unsigned bridge = 0;
+                    if (!(proof >> provenSession >> provenGuest >> bridge >> version)
+                        || provenSession != session || provenGuest != guest || bridge <= 2 || version == 0) return false;
+                    restoreStage = 1;
+                    const auto state = second.snapshot(), host = first.snapshot();
+                    if (state.journey != J::Summary || !state.canonical || !host.canonical
+                        || state.localParticipantId != guest || state.host || !host.host
+                        || host.localParticipantId != controller || state.canonical->sessionId != session
+                        || state.canonical->hostParticipantId != controller || state.reconnectSeconds
+                        || !state.presentation.canonicalStateCurrent || state.presentation.reconnecting
+                        || state.presentation.resynchronizing || !state.failure.empty()) return false;
+                    restoreStage = 2;
+                    const auto currentOwner = std::find_if(state.canonical->participants.begin(), state.canonical->participants.end(),
+                        [&](const auto &p) { return p.participantId == guest; });
+                    if (currentOwner == state.canonical->participants.end()
+                        || currentOwner->connection != R::ConnectionState::Connected
+                        || currentOwner->ownedPlayerIds != owned || !state.canonical->result.available
+                        || state.canonical->result.serialized != before.canonical->result.serialized) return false;
+                    restoreStage = 3;
+                    for (const auto id: owned) {
+                        const auto oldSlot = std::find_if(before.canonical->players.begin(), before.canonical->players.end(),
+                            [id](const auto &p) { return p.playerId == id; });
+                        const auto slot = std::find_if(state.canonical->players.begin(), state.canonical->players.end(),
+                            [id](const auto &p) { return p.playerId == id; });
+                        if (oldSlot == before.canonical->players.end() || slot == state.canonical->players.end()
+                            || slot->ownerParticipantId != guest || slot->displayName != oldSlot->displayName
+                            || slot->appearance != oldSlot->appearance) return false;
+                    }
+                    // Both actual clients must agree on the current restored
+                    // canonical state, not merely retain a pre-loss Summary.
+                    restoreStage = 4;
+                    const auto comparable = [](R::CanonicalState value) {
+                        // Full snapshots and incrementally reconstructed states
+                        // can enumerate entities differently. Compare every
+                        // entity/value by its stable ID, not vector position.
+                        std::sort(value.entities.begin(), value.entities.end(),
+                            [](const auto &a, const auto &b) { return a.entityId < b.entityId; });
+                        return R::serializeReplicationSnapshot({1, std::move(value), 1});
+                    };
+                    return comparable(*state.canonical) == comparable(*host.canonical);
+                }, restoreDeadline);
+                if (!restored) {
+                    const auto state = second.snapshot();
+                    std::cerr << "client-receipt version=2 event=restore-prerequisite stage=" << restoreStage
+                        << " current=" << state.presentation.canonicalStateCurrent
+                        << " reconnecting=" << state.presentation.reconnecting
+                        << " resynchronizing=" << state.presentation.resynchronizing
+                        << " countdown-present=" << bool(state.reconnectSeconds) << '\n';
+                    failureContext(root, "summary-guest-restoration", first, second, observer);
+                }
+                require(restored, "authenticated same-session/participant/slots/result/current-state summary restoration");
+                std::cout << "client-receipt version=2 event=summary-restoration-verified owned-slots=" << owned.size()
+                    << " mono-us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count() << '\n';
+                std::cout << "PASS authenticated guest summary restoration: same session/participant, two owned slots, result and current state\n";
+            }
             if (summaryReturn) {
                 require(first.snapshot().canonical->result.available && second.snapshot().canonical->result.available,
                         "dedicated summary lost completed result: " + peerSummaryStatus());
@@ -525,7 +614,7 @@ int main(int argc, char **argv) {
                 const bool wrong = scenario.find("wrong") != std::string::npos;
                 const bool eof = scenario.find("eof") != std::string::npos;
                 const bool maintenance = scenario.find("maintenance") != std::string::npos;
-                request(eof ? "eof" : wrong ? "wrong" : maintenance ? "maintenance" : "controller", 2);
+                request(eof ? "eof" : wrong ? "wrong" : maintenance ? "maintenance" : "controller", eof ? 2 : 0);
                 if (wrong || eof) {
                     if (eof) require(pump([&] { return second.snapshot().journey == J::Reconnecting; }, 5s), "EOF did not remain ambiguous recovery");
                     pump([] { return false; }, 500ms);

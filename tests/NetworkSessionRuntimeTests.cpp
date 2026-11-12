@@ -33,8 +33,12 @@
 #endif
 
 #include "tests/TestHarness.h"
+#include "tests/AppearanceFixtures.h"
 #include "source/client/HostServiceSupervisor.h"
+#include "source/server/HeadlessServer.h"
 #include "source/DataException.h"
+#include "source/IoException.h"
+#include "source/json/JsonException.h"
 #define private public
 #include "source/Font.h"
 #undef private
@@ -97,6 +101,106 @@ namespace {
     }
 
 #ifndef _WIN32
+    // Use the existing production adapter factory without changing HeadlessServer's
+    // access declarations or bypassing its real secure transport/reconnect path.
+    struct AdmissionDependenciesMember {
+        using Type = Server::AdmissionRuntimeDependencies Server::HeadlessServer::*;
+        friend Type admissionDependenciesMember(AdmissionDependenciesMember);
+    };
+    template<typename Tag, typename Tag::Type Member>
+    struct AdmissionMemberAccess {
+        friend typename Tag::Type admissionDependenciesMember(Tag) { return Member; }
+    };
+    template struct AdmissionMemberAccess<AdmissionDependenciesMember, &Server::HeadlessServer::runtimeDependencies>;
+
+    struct OwnedEditLoss {
+        std::atomic<bool> armed{false}, enqueued{false}, release{false}, discarded{false};
+        std::atomic<unsigned> clients{0};
+        std::mutex mutex;
+        std::vector<Network::Lifecycle::ParticipantActionKind> acceptedActions;
+    };
+
+    class LostOwnedEditConnection final : public Server::AdmissionRuntimeConnection {
+    public:
+        LostOwnedEditConnection(std::shared_ptr<Server::AdmissionRuntimeConnection> connection,
+                                std::shared_ptr<OwnedEditLoss> loss)
+            : connection(std::move(connection)), loss(std::move(loss)) {}
+        Network::SendResult send(std::vector<std::uint8_t> payload) override {
+            const auto message = Network::HostComposition::deserialize(payload);
+            if (message && message->kind == Network::HostComposition::Kind::UpdateOwnedPersons
+                && loss->armed.exchange(false)) {
+                // Accepted into this connection's test transport queue, but never
+                // forwarded to the actual service. Release only after the UI has
+                // queued a readiness action based on this uncommitted selection.
+                queuedEdit = std::move(payload);
+                loss->enqueued = true;
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                while (!loss->release && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                return Network::SendResult::Accepted;
+            }
+            const auto action = Network::Lifecycle::deserializeParticipantAction(payload);
+            const auto result = connection->send(std::move(payload));
+            if (result == Network::SendResult::Accepted && action) {
+                std::lock_guard<std::mutex> lock(loss->mutex);
+                loss->acceptedActions.push_back(action->kind);
+            }
+            return result;
+        }
+        Network::SendResult sendSensitive(std::vector<std::uint8_t> payload) override {
+            return connection->sendSensitive(std::move(payload));
+        }
+        Network::AdmissionAcceptanceEnqueueResult enqueueAdmissionAcceptance(
+                std::vector<std::uint8_t> payload, Network::AdmissionAttemptGate &attempt,
+                const std::function<bool()> &cancelled, const Network::Trust::Clock &now,
+                Network::TransportTimePoint deadline) override {
+            return connection->enqueueAdmissionAcceptance(std::move(payload), attempt, cancelled, now, deadline);
+        }
+        bool receive(Network::TransportFrame &frame) override {
+            if (!queuedEdit.empty()) {
+                // HeadlessServer has returned from send and acknowledged enqueue
+                // by now. Drop that queue and close only this owned connection.
+                queuedEdit.clear();
+                connection->requestClose();
+                loss->discarded = true;
+            }
+            return connection->receive(frame);
+        }
+        Network::ClientState state() const override { return connection->state(); }
+        Network::TransportTimePoint acceptedAt() const override { return connection->acceptedAt(); }
+        Network::TransportTimePoint terminalAt() const override { return connection->terminalAt(); }
+        bool permitAdmissionAcceptance() override { return connection->permitAdmissionAcceptance(); }
+        void revokeAdmissionAcceptance() override { connection->revokeAdmissionAcceptance(); }
+        void markAdmissionSucceeded() override { connection->markAdmissionSucceeded(); }
+        void requestClose() override { connection->requestClose(); }
+    private:
+        std::shared_ptr<Server::AdmissionRuntimeConnection> connection;
+        std::shared_ptr<OwnedEditLoss> loss;
+        std::vector<std::uint8_t> queuedEdit;
+    };
+
+    class LostOwnedEditClient final : public Server::AdmissionRuntimeClient {
+    public:
+        LostOwnedEditClient(std::unique_ptr<Server::AdmissionRuntimeClient> client,
+                            std::shared_ptr<OwnedEditLoss> loss)
+            : client(std::move(client)), loss(std::move(loss)) { ++this->loss->clients; }
+        bool start(const Network::Endpoint &endpoint) override { return client->start(endpoint); }
+        bool waitForConnected(std::chrono::milliseconds timeout) override { return client->waitForConnected(timeout); }
+        Network::ClientState state() const override { return client->state(); }
+        Network::TransportFailure failure() const override { return client->failure(); }
+        std::shared_ptr<Server::AdmissionRuntimeConnection> connection() const override {
+            if (!wrapped && client->connection())
+                wrapped = std::make_shared<LostOwnedEditConnection>(client->connection(), loss);
+            return wrapped;
+        }
+        void cancel() override { client->cancel(); }
+        void close() override { client->close(); }
+    private:
+        std::unique_ptr<Server::AdmissionRuntimeClient> client;
+        std::shared_ptr<OwnedEditLoss> loss;
+        mutable std::shared_ptr<Server::AdmissionRuntimeConnection> wrapped;
+    };
+
     std::uint16_t unusedLoopbackPort() {
         const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
         D6R_REQUIRE(descriptor >= 0);
@@ -357,6 +461,7 @@ D6R_TEST_CASE("issue-38 host composition framing is deterministic for every UI a
     Network::HostComposition::Setup setup;
     for (unsigned index = 0; index < Network::MaxNetworkPlayers; ++index)
         setup.localPlayerNames.push_back(std::string(63, 'A' + index) + char('a' + index));
+    setup.localPlayerAppearances.resize(setup.localPlayerNames.size());
     setup.fixedLevel = std::string(60, 'a') + '/' + std::string(59, 'b') + '/'
                        + std::string(59, 'c') + '/' + std::string(59, 'd');
     D6R_REQUIRE_EQ(240u, setup.fixedLevel.size());
@@ -754,6 +859,7 @@ namespace {
             original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager()};
         NetworkMenu menu{service, application.gameResources, {}, [] {}};
         ReviewMenuFixture() {
+            menu.resolveAppearance = [](const auto &) { return PlayerAppearance{}; };
             font.load("data/font.ttf", application.console);
             video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
             const auto &controls = service.getControlsManager().get(0);
@@ -3676,6 +3782,7 @@ D6R_TEST_CASE("dedicated controller uses current whole-row settings and guests c
     f.lobby(true); menu.runtime.current.publicSession = true;
     menu.runtime.current.canonical->settings.mode = "Team deathmatch";
     menu.hostSetup.localPlayerNames = {"Ada"}; menu.hostSetup.roundLimit = 99;
+    menu.hostSetup.localPlayerAppearances = {menu.localPlayers[0].appearance};
     f.click(590, 312); // Same Round-limit row as the player-hosted layout.
     D6R_REQUIRE_EQ(8, menu.focus); D6R_REQUIRE_EQ(1u, menu.hostSetup.roundLimit);
     D6R_REQUIRE_EQ(1u, menu.runtime.pendingGuestCommands.size());
@@ -3699,6 +3806,7 @@ D6R_TEST_CASE("UX-NET-04 settings preserve whole-row press wrap toggles traversa
     f.lobby();
     menu.runtime.current.canonical->settings.mode = "Team deathmatch";
     menu.hostSetup.localPlayerNames = {"Ada"};
+    menu.hostSetup.localPlayerAppearances = {menu.localPlayers[0].appearance};
     menu.hostSetup.roundLimit = 99;
     menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
     f.click(590, 312); // Existing round row: press once, regardless of subregion.
@@ -4034,6 +4142,7 @@ D6R_TEST_CASE("NET-DIR NET-PASS password setup preserves complete UTF8 input and
     Network::HostComposition::Setup setup;
     setup.localPlayerNames = {"Host"};
     setup.password = std::make_shared<Network::SessionPassword>(menu.password);
+    setup.localPlayerAppearances.resize(1);
     const auto decoded = Network::HostComposition::deserialize(Network::HostComposition::serializeSetup(setup));
     D6R_REQUIRE(decoded && decoded->setup && decoded->setup->password);
     D6R_REQUIRE_EQ(menu.password, std::string(decoded->setup->password->value()));
@@ -4232,6 +4341,7 @@ D6R_TEST_CASE("PR83 capture Application K2 endpoint text holds do not invoke Bac
             SDLK_a, SDLK_d, SDLK_w, SDLK_s, SDLK_q, SDLK_1, SDLK_2);
     menu.localPlayers = {{"Alice", k2.get(), "K2: WSAD"}};
     menu.availablePersons = {"Alice", "Bob"};
+    menu.resolveAppearance = [](const auto &) { return PlayerAppearance{}; };
     const auto key = [&](SDL_Keycode code, bool down, bool repeat = false) {
         SDL_Event event{}; event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
         event.key.type = event.type; event.key.keysym.sym = code; event.key.repeat = repeat;
@@ -4311,6 +4421,7 @@ D6R_TEST_CASE("PR83 latest Application mapped keyboard independent controller an
     auto k2 = PlayerControls::keyboardControls("K2: WSAD", application.input,
             SDLK_a, SDLK_d, SDLK_w, SDLK_s, SDLK_q, SDLK_1, SDLK_2);
     menu.availablePersons = {"Alice", "Bob", "Charlie"};
+    menu.resolveAppearance = [](const auto &) { return PlayerAppearance{}; };
     menu.localPlayers = {{"Alice", k2.get(), "K2: WSAD"}};
     menu.runtime.players = menu.localPlayers;
     menu.runtime.sampledActions.resize(1);
@@ -4587,8 +4698,9 @@ D6R_TEST_CASE("PR83 real runtime End drains update from lobby and active match a
         Client::NetworkSessionRuntime host, guest, unused;
         const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
         Network::HostComposition::Setup setup;
-        setup.localPlayerNames = {"Host"};
-        setup.fixedLevel = "levels/duel_01.json";
+    setup.localPlayerNames = {"Host"};
+    setup.localPlayerAppearances.resize(1);
+    setup.fixedLevel = "levels/duel_01.json";
         D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR,
                                   setup, {player("Host")}));
         D6R_REQUIRE(pumpRuntimes(host, guest, unused, 10s, [&] {
@@ -4956,6 +5068,110 @@ namespace {
         adapter(scene);
         ArenaRenderer::render(application.service->getVideo().getRenderer(), application.service->getFont(), scene);
     }
+}
+
+D6R_TEST_CASE("NET-VIS selected appearance uploads local-equivalent multicolor artwork and restores Team after brown") {
+    char name[] = "duel6r-appearance-render-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    auto &original = *application.service;
+    Test::RecordingRenderer recording;
+    recording.retainTextureImages = true;
+    TextureManager textures(recording);
+    AppService service(original.getFont(), original.getConsole(), textures, original.getVideo(),
+        original.getInput(), original.getControlsManager(), original.getSound(), original.getScriptManager());
+    CanonicalWorldPresenter presenter(service, application.gameResources);
+    PlayerAnimations animations(application.gameResources.getPlayerAnimation());
+    const auto equalPixels = [&](Texture expected, Texture actual) {
+        const auto &a = recording.textureImages.at(expected), &b = recording.textureImages.at(actual);
+        D6R_REQUIRE_EQ(a.getWidth(), b.getWidth()); D6R_REQUIRE_EQ(a.getHeight(), b.getHeight());
+        D6R_REQUIRE_EQ(a.getDepth(), b.getDepth());
+        std::set<std::uint32_t> opaqueColors;
+        for (Size index = 0; index < a.getWidth() * a.getHeight() * a.getDepth(); ++index) {
+            D6R_REQUIRE(a.at(index) == b.at(index));
+            const auto &color = b.at(index);
+            if (color.getAlpha() == 255) opaqueColors.insert((std::uint32_t(color.getRed()) << 16)
+                | (std::uint32_t(color.getGreen()) << 8) | color.getBlue());
+        }
+        return opaqueColors.size();
+    };
+    for (unsigned variant = 0; variant < 6; ++variant) {
+        Network::Replication::PlayerState actor;
+        actor.playerId = variant + 101; actor.appearance = Test::appearance(variant);
+        const auto base = PlayerSkinColors::fromAppearance(actor.appearance);
+        D6R_REQUIRE(base.appearance() == actor.appearance);
+        D6R_REQUIRE(base.get(PlayerSkinColors::HeadBandOuter) == base.get(PlayerSkinColors::HeadBand).scale(.90f));
+        PlayerSkin local(base, textures, animations);
+        const auto network = presenter.skinFor(actor).getTexture();
+        D6R_REQUIRE(equalPixels(local.getTexture(), network) >= 8);
+        D6R_REQUIRE_EQ(network, presenter.skinFor(actor).getTexture()); // No per-frame uploads.
+        for (std::uint8_t team = 1; team <= 4; ++team) {
+            actor.team = team;
+            auto expected = base;
+            const auto color = TEAMS[team - 1].color;
+            if (expected.getHair() != PlayerSkinColors::Hair::Normal) expected.setHeadBand(true);
+            expected.set(PlayerSkinColors::Trousers, color).set(PlayerSkinColors::HairTop, color)
+                .set(PlayerSkinColors::HeadBand, color);
+            PlayerSkin localTeam(expected, textures, animations);
+            D6R_REQUIRE(equalPixels(localTeam.getTexture(), presenter.skinFor(actor).getTexture()) >= 6);
+            actor.temporaryMovementRemaining = 10 * 65536;
+            PlayerSkin localBrown(PlayerSkinColors(Color(83, 44, 0)), textures, animations);
+            equalPixels(localBrown.getTexture(), presenter.skinFor(actor).getTexture());
+            actor.temporaryMovementRemaining = 65536;
+            const auto retainedBrown = presenter.skinFor(actor).getTexture();
+            D6R_REQUIRE_EQ(retainedBrown, presenter.skinFor(actor).getTexture());
+            actor.temporaryMovementRemaining = 0;
+            equalPixels(localTeam.getTexture(), presenter.skinFor(actor).getTexture());
+            D6R_REQUIRE(presenter.skinFor(actor).getColors().get(PlayerSkinColors::Face)
+                == base.get(PlayerSkinColors::Face));
+            textures.dispose(localTeam.getTexture()); textures.dispose(localBrown.getTexture());
+        }
+        textures.dispose(local.getTexture());
+    }
+    D6R_REQUIRE_EQ(std::size_t(6), recording.textureImages.size());
+    Network::Replication::CanonicalState removed; removed.sessionId = 1;
+    presenter.update(0, &removed, {});
+    D6R_REQUIRE(recording.textureImages.empty());
+}
+
+D6R_TEST_CASE("NET-VIS initiating menu resolves only actual person changes and retains randomized selections") {
+    char name[] = "duel6r-appearance-selection-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    unsigned resolutions = 0;
+    menu.resolveAppearance = [&](const auto &) { return Test::appearance(++resolutions); };
+    menu.availablePersons = {"Same"}; menu.localPlayers = {player("Same")};
+    menu.localPlayers[0].appearance = Test::appearance(5);
+    menu.runtime.players = menu.localPlayers;
+    menu.cyclePerson(0, 1);
+    D6R_REQUIRE_EQ(0u, resolutions);
+    D6R_REQUIRE(menu.localPlayers[0].appearance == Test::appearance(5));
+    menu.availablePersons.push_back("Replacement");
+    menu.cyclePerson(0, 1);
+    D6R_REQUIRE_EQ(1u, resolutions);
+    const auto accepted = menu.localPlayers[0].appearance;
+    menu.cycleControl(0, 1); menu.cycleControl(0, -1);
+    D6R_REQUIRE_EQ(1u, resolutions);
+    D6R_REQUIRE(menu.localPlayers[0].appearance == accepted);
+    D6R_REQUIRE_EQ(std::string("Replacement"), menu.localPlayers[0].name);
+    // Actual local profile resolution and round-trip retain local shading rules.
+    const auto profile = PlayerSkinColors::load("profiles/sample/", "skin.json");
+    D6R_REQUIRE(PlayerSkinColors::resolveLocalAppearance("sample", "profiles") == profile.appearance());
+    const auto randomized = PlayerSkinColors::resolveLocalAppearance("No matching profile", "profiles");
+    D6R_REQUIRE(randomized.valid());
+    D6R_REQUIRE(PlayerSkinColors::fromAppearance(randomized).appearance() == randomized);
+    const auto root = std::filesystem::temp_directory_path()
+        / ("duel6r-appearance-cli-" + std::to_string(::getpid()));
+    D6R_REQUIRE(std::filesystem::create_directory(root));
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ignored; std::filesystem::remove_all(root, ignored); }
+    } cleanup{root};
+    const auto profiles = root / "profiles";
+    D6R_REQUIRE(PlayerSkinColors::resolveLocalAppearance("CLI owner", profiles.string()).valid());
+    std::filesystem::create_directories(profiles / "Matched");
+    D6R_REQUIRE_THROW(PlayerSkinColors::resolveLocalAppearance("Matched", profiles.string()), IoException);
+    { std::ofstream invalid(profiles / "Matched" / "skin.json"); invalid << "not JSON"; }
+    D6R_REQUIRE_THROW(PlayerSkinColors::resolveLocalAppearance("Matched", profiles.string()), JsonException);
 }
 
 D6R_TEST_CASE("Shared arena texture-free default body timing matches every shipped semantic clip") {
@@ -6537,7 +6753,10 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
         if (index < 14) menu.localPlayers.push_back({"Host " + std::to_string(index), controls.back().get(), "QA"});
     }
     menu.hostSetup.localPlayerNames.clear();
-    for (const auto &slot : menu.localPlayers) menu.hostSetup.localPlayerNames.push_back(slot.name);
+    for (const auto &slot : menu.localPlayers) {
+        menu.hostSetup.localPlayerNames.push_back(slot.name);
+        menu.hostSetup.localPlayerAppearances.push_back(slot.appearance);
+    }
     menu.hostSetup.mode = "Team deathmatch";
     menu.hostSetup.teamCount = 4;
     menu.hostSetup.friendlyFire = true;
@@ -6704,6 +6923,280 @@ D6R_TEST_CASE("PR83 menu Team preferences converge then fourteen host slots and 
     }
 }
 
+D6R_TEST_CASE("NET-VIS committed person recovery preserves ordered control and readiness commands") {
+    Client::NetworkSessionRuntime runtime;
+    runtime.current.localParticipantId = 17;
+    auto committed = player("Committed B"); committed.appearance = Test::appearance(4);
+    runtime.players = {committed}; runtime.ownedPlayerBindings = {{301, 0}};
+    auto state = canonical(91, Network::Replication::Phase::Lobby);
+    state.participants = {{17, false, Network::Replication::ConnectionState::Connected, false, {301}}};
+    Network::Replication::PlayerState slot;
+    slot.playerId = 301; slot.ownerParticipantId = 17;
+    slot.displayName = committed.name; slot.appearance = committed.appearance;
+    state.players = {slot};
+    runtime.current.canonical = state;
+    runtime.localConfigurationChanged(); runtime.setReady(true);
+    const auto pending = runtime.pendingGuestCommands;
+    runtime.current.journey = Client::NetworkJourney::Reconnecting;
+    runtime.restoringOwnedConfiguration = true;
+    runtime.applyCanonical(state);
+    D6R_REQUIRE_EQ(pending, runtime.pendingGuestCommands);
+    const auto restored = runtime.takeRestoredLocalPlayers();
+    D6R_REQUIRE(restored && restored->front().name == committed.name);
+    D6R_REQUIRE(restored->front().appearance == committed.appearance);
+    D6R_REQUIRE(!runtime.takeRestoredLocalPlayers());
+    runtime.reset();
+    D6R_REQUIRE(!runtime.restoringOwnedConfiguration && !runtime.takeRestoredLocalPlayers());
+}
+
+namespace {
+void verifyLostOwnedEditRecovery(bool changeControl) {
+    using namespace std::chrono_literals;
+    // Keep the real secure adapter owner alive through both admission/reconnect.
+    Server::HeadlessServer adapterOwner(Server::ServerConfig{});
+    const auto factory = (adapterOwner.*admissionDependenciesMember(AdmissionDependenciesMember{})).clientFactory;
+    const auto loss = std::make_shared<OwnedEditLoss>();
+    char name[] = "duel6r-owned-edit-recovery-tests"; char *arguments[] = {name};
+    Application application(1, arguments);
+    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
+    Client::NetworkSessionRuntime host, observer;
+    auto &guest = menu.runtime;
+    guest.guestClientFactory = [factory, loss] {
+        return std::make_unique<LostOwnedEditClient>(factory(), loss);
+    };
+    unsigned resolutions = 0;
+    // These names have no matched profile. Distinct deterministic draws model
+    // the random branch and make an accidental second resolution observable.
+    menu.resolveAppearance = [&](const auto &) { return Test::appearance(++resolutions); };
+    auto a = player("Unmatched A"), c = player("Unmatched C");
+    a.appearance = menu.resolveAppearance(a.name); c.appearance = menu.resolveAppearance(c.name);
+    const auto &controls = application.service->getControlsManager().get(0);
+    a.controls = &controls; a.controlDescription = controls.getDescription();
+    menu.localPlayers = {a, c};
+    menu.availablePersons = {a.name, "Unmatched B", c.name, "Unmatched D"};
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    auto h = player("Recovery Host"), o = player("Recovery Observer");
+    h.appearance = Test::appearance(8); o.appearance = Test::appearance(9);
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {h.name}; setup.fixedLevel = "levels/duel_16.json";
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {h}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 10s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, menu.localPlayers));
+    D6R_REQUIRE(observer.join(endpoint, D6R_TEST_RESOURCE_DIR, {o}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 10s, [&] {
+        return guest.snapshot().journey == Client::NetworkJourney::Lobby
+            && observer.snapshot().journey == Client::NetworkJourney::Lobby
+            && host.snapshot().canonical->players.size() == 4;
+    }));
+    const auto participant = guest.snapshot().localParticipantId;
+    const auto hostParticipant = host.snapshot().localParticipantId;
+    const auto observerParticipant = observer.snapshot().localParticipantId;
+    const auto slotFor = [](const auto &snapshot, const auto &name) {
+        const auto found = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
+            [&](const auto &slot) { return slot.displayName == name; });
+        D6R_REQUIRE(found != snapshot.canonical->players.end()); return *found;
+    };
+    const auto originalA = slotFor(host.snapshot(), a.name);
+    const auto originalC = slotFor(host.snapshot(), c.name);
+    host.moveRosterPlayer(originalA.playerId, 1);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        return slotFor(guest.snapshot(), a.name).rosterPosition != originalA.rosterPosition;
+    }));
+    host.setReady(true); observer.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        return participantReady(host.snapshot(), hostParticipant)
+            && participantReady(host.snapshot(), observerParticipant)
+            && !participantReady(host.snapshot(), participant);
+    }));
+
+    loss->armed = true;
+    menu.cyclePerson(0, 1); // Optimistic editor B, with an uncommitted new draw.
+    D6R_REQUIRE_EQ(std::string("Unmatched B"), menu.localPlayers[0].name);
+    D6R_REQUIRE_EQ(3u, resolutions);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 3s, [&] { return loss->enqueued.load(); }));
+    if (changeControl) {
+        D6R_REQUIRE(application.service->getControlsManager().getNumAvailable() > 1);
+        menu.cycleControl(0, 1); // Effective controls survive even when the person edit does not.
+        D6R_REQUIRE(menu.localPlayers[0].controls != a.controls);
+        D6R_REQUIRE(menu.localPlayers[0].controlDescription != a.controlDescription);
+    }
+    const auto retainedControls = menu.localPlayers[0];
+    guest.setReady(true); // Must not replay readiness based on the discarded edit.
+    {
+        std::lock_guard<std::mutex> lock(guest.mutex);
+        D6R_REQUIRE_EQ(changeControl ? 3u : 2u, guest.pendingGuestCommands.size());
+        const auto edit = Network::HostComposition::deserialize(guest.pendingGuestCommands.front());
+        D6R_REQUIRE(edit && edit->kind == Network::HostComposition::Kind::UpdateOwnedPersons);
+        if (changeControl) {
+            const auto changed = Network::Lifecycle::deserializeParticipantAction(guest.pendingGuestCommands[1]);
+            D6R_REQUIRE(changed && changed->kind == Network::Lifecycle::ParticipantActionKind::ConfigurationChanged);
+        }
+        const auto ready = Network::Lifecycle::deserializeParticipantAction(guest.pendingGuestCommands.back());
+        D6R_REQUIRE(ready && ready->kind == Network::Lifecycle::ParticipantActionKind::Ready);
+    }
+    loss->release = true;
+    // Deliberately do not call menu.update: reconnect may complete between UI
+    // frames. The accepted configuration must still be delivered durably.
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 10s, [&] {
+        std::lock_guard<std::mutex> lock(guest.mutex);
+        return loss->discarded && guest.restoredLocalPlayers
+            && guest.current.journey == Client::NetworkJourney::Lobby;
+    }));
+    D6R_REQUIRE(loss->clients >= 2);
+    D6R_REQUIRE_EQ(participant, guest.snapshot().localParticipantId);
+    D6R_REQUIRE_EQ(std::string("Unmatched B"), menu.localPlayers[0].name);
+    D6R_REQUIRE(slotFor(host.snapshot(), a.name).appearance == a.appearance);
+    D6R_REQUIRE(slotFor(observer.snapshot(), c.name).appearance == c.appearance);
+
+    menu.availablePersons = {a.name};
+    menu.cyclePerson(0, 1); // Original A is now a genuine no-op, not a new draw Y.
+    D6R_REQUIRE_EQ(a.name, menu.localPlayers[0].name);
+    D6R_REQUIRE(menu.localPlayers[0].appearance == a.appearance);
+    D6R_REQUIRE_EQ(c.name, menu.localPlayers[1].name);
+    D6R_REQUIRE(menu.localPlayers[1].appearance == c.appearance);
+    D6R_REQUIRE_EQ(retainedControls.controls, menu.localPlayers[0].controls);
+    D6R_REQUIRE_EQ(retainedControls.controlDescription, menu.localPlayers[0].controlDescription);
+    D6R_REQUIRE_EQ(3u, resolutions);
+    D6R_REQUIRE_EQ(std::vector<std::string>({a.name, c.name}), menu.hostSetup.localPlayerNames);
+    D6R_REQUIRE_EQ(std::vector<PlayerAppearance>({a.appearance, c.appearance}), menu.hostSetup.localPlayerAppearances);
+    if (changeControl) {
+        D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+            return everyParticipantReady(host.snapshot(), false)
+                && everyParticipantReady(guest.snapshot(), false)
+                && everyParticipantReady(observer.snapshot(), false);
+        }));
+    }
+    D6R_REQUIRE(!pumpRuntimes(host, guest, observer, 250ms, [] { return false; }));
+    D6R_REQUIRE(guest.snapshot().journey == Client::NetworkJourney::Lobby);
+    D6R_REQUIRE(!participantReady(host.snapshot(), participant));
+    D6R_REQUIRE_EQ(!changeControl, participantReady(host.snapshot(), hostParticipant));
+    D6R_REQUIRE_EQ(!changeControl, participantReady(host.snapshot(), observerParticipant));
+    {
+        std::lock_guard<std::mutex> lock(guest.mutex);
+        D6R_REQUIRE(guest.pendingGuestCommands.empty());
+        D6R_REQUIRE(guest.players[0].appearance == a.appearance);
+        D6R_REQUIRE_EQ(retainedControls.controls, guest.players[0].controls);
+        D6R_REQUIRE_EQ(retainedControls.controlDescription, guest.players[0].controlDescription);
+    }
+    {
+        std::lock_guard<std::mutex> lock(loss->mutex);
+        const std::vector<Network::Lifecycle::ParticipantActionKind> expected = changeControl
+            ? std::vector{Network::Lifecycle::ParticipantActionKind::ConfigurationChanged}
+            : std::vector<Network::Lifecycle::ParticipantActionKind>{};
+        D6R_REQUIRE_EQ(expected, loss->acceptedActions);
+    }
+    if (changeControl) {
+        guest.setReady(true); // A new vote follows, never precedes, retained control invalidation.
+        D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+            return participantReady(host.snapshot(), participant)
+                && !participantReady(host.snapshot(), hostParticipant)
+                && !participantReady(host.snapshot(), observerParticipant);
+        }));
+        std::lock_guard<std::mutex> lock(loss->mutex);
+        D6R_REQUIRE_EQ(std::vector({Network::Lifecycle::ParticipantActionKind::ConfigurationChanged,
+                                   Network::Lifecycle::ParticipantActionKind::Ready}), loss->acceptedActions);
+    }
+
+    menu.availablePersons = {c.name, "Unmatched D"};
+    menu.cyclePerson(1, 1); // Editing another slot must not resend stale B/Y.
+    const auto d = menu.localPlayers[1];
+    D6R_REQUIRE_EQ(4u, resolutions);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        const auto snapshot = observer.snapshot();
+        return std::any_of(snapshot.canonical->players.begin(), snapshot.canonical->players.end(), [&](const auto &slot) {
+            return slot.playerId == originalC.playerId && slot.displayName == d.name && slot.appearance == d.appearance;
+        }) && everyParticipantReady(snapshot, false);
+    }));
+    for (const auto *runtime: {&host, &guest, &observer}) {
+        const auto snapshot = runtime->snapshot();
+        const auto restoredA = slotFor(snapshot, a.name);
+        D6R_REQUIRE_EQ(originalA.playerId, restoredA.playerId);
+        D6R_REQUIRE_EQ(participant, restoredA.ownerParticipantId);
+        D6R_REQUIRE(restoredA.appearance == a.appearance);
+        D6R_REQUIRE(slotFor(snapshot, h.name).appearance == h.appearance);
+        D6R_REQUIRE(slotFor(snapshot, o.name).appearance == o.appearance);
+        D6R_REQUIRE(snapshot.journey == Client::NetworkJourney::Lobby);
+    }
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Inactive
+            && guest.snapshot().journey == Client::NetworkJourney::HostEnded;
+    }));
+}
+}
+
+D6R_TEST_CASE("NET-VIS lost enqueued person edit restores accepted random appearance before other owned edits") {
+    verifyLostOwnedEditRecovery(false);
+}
+
+D6R_TEST_CASE("NET-VIS lost person edit retains actual control change readiness invalidation and command order") {
+    verifyLostOwnedEditRecovery(true);
+}
+
+D6R_TEST_CASE("NET-VIS real owned configuration retains no-op appearance and rejects independent edits without changing peers") {
+    using namespace std::chrono_literals;
+    Client::NetworkSessionRuntime host, guest, observer;
+    const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
+    auto hostPlayer = player("Appearance Host"), guestPlayer = player("Appearance Guest"), observerPlayer = player("Appearance Observer");
+    hostPlayer.appearance = Test::appearance(1); guestPlayer.appearance = Test::appearance(2);
+    observerPlayer.appearance = Test::appearance(3);
+    Network::HostComposition::Setup setup;
+    setup.localPlayerNames = {hostPlayer.name}; setup.fixedLevel = "levels/duel_16.json";
+    D6R_REQUIRE(host.startHost(endpoint, D6R_RUNTIME_TEST_SERVER, D6R_TEST_RESOURCE_DIR, setup, {hostPlayer}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 10s, [&] { return host.snapshot().journey == Client::NetworkJourney::Lobby; }));
+    D6R_REQUIRE(guest.join(endpoint, D6R_TEST_RESOURCE_DIR, {guestPlayer}));
+    D6R_REQUIRE(observer.join(endpoint, D6R_TEST_RESOURCE_DIR, {observerPlayer}));
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 10s, [&] {
+        return observer.snapshot().journey == Client::NetworkJourney::Lobby
+            && host.snapshot().canonical->players.size() == 3 && guest.snapshot().canonical
+            && guest.snapshot().canonical->players.size() == 3;
+    }));
+    const auto slotFor = [](const auto &snapshot, auto participant) {
+        const auto found = std::find_if(snapshot.canonical->players.begin(), snapshot.canonical->players.end(),
+            [&](const auto &slot) { return slot.ownerParticipantId == participant; });
+        D6R_REQUIRE(found != snapshot.canonical->players.end()); return *found;
+    };
+    const auto participant = guest.snapshot().localParticipantId;
+    const auto original = slotFor(guest.snapshot(), participant);
+    D6R_REQUIRE(original.appearance == guestPlayer.appearance);
+    guest.setReady(true);
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] { return participantReady(host.snapshot(), participant); }));
+    guest.ownedPersonsChanged(); // Exact no-op must not clear readiness or reroll.
+    D6R_REQUIRE(!pumpRuntimes(host, guest, observer, 150ms, [] { return false; }));
+    D6R_REQUIRE(participantReady(host.snapshot(), participant));
+    D6R_REQUIRE(slotFor(host.snapshot(), participant).appearance == original.appearance);
+    guest.localConfigurationChanged();
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] { return !participantReady(host.snapshot(), participant); }));
+    D6R_REQUIRE(slotFor(host.snapshot(), participant).appearance == original.appearance);
+    guestPlayer.name = "Replaced Appearance Guest"; guestPlayer.appearance = Test::appearance(5);
+    guest.rebindLocalPlayers({guestPlayer}); guest.ownedPersonsChanged();
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        const auto slot = slotFor(observer.snapshot(), participant);
+        return slot.displayName == guestPlayer.name && slot.appearance == guestPlayer.appearance;
+    }));
+    const auto replaced = slotFor(host.snapshot(), participant);
+    D6R_REQUIRE_EQ(original.playerId, replaced.playerId); D6R_REQUIRE_EQ(original.ownerParticipantId, replaced.ownerParticipantId);
+    auto independent = guestPlayer.appearance; independent.colors[8][0] ^= 255;
+    {
+        std::lock_guard<std::mutex> lock(guest.mutex);
+        guest.pendingGuestCommands.push_back(Network::HostComposition::serializeOwnedPersons({guestPlayer.name}, {independent}));
+    }
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 3s, [&] {
+        return guest.snapshot().journey == Client::NetworkJourney::Reconnecting;
+    }));
+    D6R_REQUIRE(slotFor(host.snapshot(), participant).appearance == guestPlayer.appearance);
+    D6R_REQUIRE(slotFor(observer.snapshot(), participant).appearance == guestPlayer.appearance);
+    D6R_REQUIRE(slotFor(observer.snapshot(), host.snapshot().localParticipantId).appearance == hostPlayer.appearance);
+    D6R_REQUIRE(host.snapshot().journey == Client::NetworkJourney::Lobby);
+    D6R_REQUIRE(observer.snapshot().journey == Client::NetworkJourney::Lobby);
+    host.endSession();
+    D6R_REQUIRE(pumpRuntimes(host, guest, observer, 5s, [&] {
+        return host.snapshot().journey == Client::NetworkJourney::Inactive && observer.snapshot().journey == Client::NetworkJourney::HostEnded;
+    }));
+}
+
 D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionRuntime participants preserve team lobby composition and survive authenticated reconnect probes") {
     using namespace std::chrono_literals;
     Client::NetworkSessionRuntime host;
@@ -6711,11 +7204,15 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
     Client::NetworkSessionRuntime second;
     const Network::Endpoint endpoint{"127.0.0.1", unusedLoopbackPort()};
 
-    const std::vector<Client::NetworkLocalPlayer> hostPlayers{player("Håkon"), player("Zoë")};
-    const std::vector<Client::NetworkLocalPlayer> firstPlayers{player("Jiří"), player("Renée")};
-    const std::vector<Client::NetworkLocalPlayer> secondPlayers{player("Søren"), player("Łukasz")};
+    const auto configured = [](std::string name, unsigned variant) {
+        auto value = player(std::move(name)); value.appearance = Test::appearance(variant); return value;
+    };
+    const std::vector<Client::NetworkLocalPlayer> hostPlayers{configured("Håkon", 0), configured("Zoë", 1)};
+    const std::vector<Client::NetworkLocalPlayer> firstPlayers{configured("Jiří", 2), configured("Renée", 3)};
+    const std::vector<Client::NetworkLocalPlayer> secondPlayers{configured("Søren", 4), configured("Łukasz", 5)};
     Network::HostComposition::Setup setup;
     setup.localPlayerNames = {hostPlayers[0].name, hostPlayers[1].name};
+    setup.localPlayerAppearances = {hostPlayers[0].appearance, hostPlayers[1].appearance};
     setup.mode = "Team deathmatch";
     setup.teamCount = 2;
     setup.fixedLevel = "levels/duel_01.json";
@@ -6749,8 +7246,17 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
     D6R_REQUIRE(!hostLobby.canonical->settings.friendlyFire);
 
     std::vector<std::pair<Network::Replication::Identity, Network::Replication::Identity>> immutableSlots;
+    std::map<Network::Replication::Identity, PlayerAppearance> expectedAppearances;
     for (const auto &slot: hostLobby.canonical->players)
         immutableSlots.emplace_back(slot.playerId, slot.ownerParticipantId);
+    for (const auto *owners: {&hostPlayers, &firstPlayers, &secondPlayers})
+        for (const auto &owned: *owners) {
+            const auto slot = std::find_if(hostLobby.canonical->players.begin(), hostLobby.canonical->players.end(),
+                [&](const auto &value) { return value.displayName == owned.name; });
+            D6R_REQUIRE(slot != hostLobby.canonical->players.end());
+            D6R_REQUIRE(slot->appearance == owned.appearance);
+            expectedAppearances.emplace(slot->playerId, owned.appearance);
+        }
     std::sort(immutableSlots.begin(), immutableSlots.end());
     const auto requireImmutableSixSlots = [&](const Client::NetworkRuntimeSnapshot &snapshot) {
         D6R_REQUIRE(sixPlayerLobby(snapshot));
@@ -6759,6 +7265,8 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
             slots.emplace_back(slot.playerId, slot.ownerParticipantId);
         std::sort(slots.begin(), slots.end());
         D6R_REQUIRE(slots == immutableSlots);
+        for (const auto &slot: snapshot.canonical->players)
+            D6R_REQUIRE(slot.appearance == expectedAppearances.at(slot.playerId));
     };
     const auto ownedPlayerIds = [](const Client::NetworkRuntimeSnapshot &snapshot,
                                    Network::Replication::Identity participantId) {
@@ -6858,6 +7366,8 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
         return names[firstPlayerIds[0]] == "Guest Renamed One"
                && names[firstPlayerIds[1]] == "Guest Renamed Two";
     }));
+    expectedAppearances[firstPlayerIds[0]] = PlayerAppearance{};
+    expectedAppearances[firstPlayerIds[1]] = PlayerAppearance{};
     requireImmutableSixSlots(host.snapshot());
 
     readyEveryone();
@@ -6942,7 +7452,7 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
     invalidNonTeam.friendlyFire = false;
     auto invalidNonTeamPayload = Network::HostComposition::serializeSetupUpdate(invalidNonTeam);
     std::size_t teamOffset = 9;
-    for (const auto &name: invalidNonTeam.localPlayerNames) teamOffset += 2 + name.size();
+    for (const auto &name: invalidNonTeam.localPlayerNames) teamOffset += 2 + name.size() + 32;
     teamOffset += 2 + invalidNonTeam.mode.size();
     D6R_REQUIRE(teamOffset < invalidNonTeamPayload.size());
     invalidNonTeamPayload[teamOffset] = 2;
@@ -6950,6 +7460,7 @@ D6R_TEST_CASE("NET-AC-004 NET-AC-006 NET-AC-009 NET-AC-017 three NetworkSessionR
 
     auto slotChanging = setup;
     slotChanging.localPlayerNames.resize(1);
+    slotChanging.localPlayerAppearances.resize(1);
     rejectHostCommandWithoutMutation(Network::HostComposition::serializeSetupUpdate(slotChanging));
     rejectHostCommandWithoutMutation(Network::HostComposition::serializeRosterMove(
             (std::numeric_limits<Network::Replication::Identity>::max)(), 1));
