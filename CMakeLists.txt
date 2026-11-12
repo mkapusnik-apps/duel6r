@@ -299,6 +299,8 @@ set(D6R_SOURCES
         source/Menu.h
         source/NetworkMenu.cpp
         source/NetworkMenu.h
+        source/NetworkRoundSummary.cpp
+        source/NetworkRoundSummary.h
         source/msdir.c
         source/msdir.h
         source/Orientation.h
@@ -357,6 +359,7 @@ set(D6R_SOURCES
         source/World.cpp
         source/World.h
         source/WorldRenderer.cpp
+        source/RoundSummaryCounter.cpp
         source/FinalSummaryPresentation.cpp
         source/WorldRenderer.h
 

@@ -18,6 +18,8 @@ The host starts this screen from `NET-04` after all participants are ready and c
 
 The [common arena presentation contract](play-fullscreen.md#common-arena-presentation-contract) owns `PRES-ARENA-001`–`PRES-ARENA-012` and `PRES-ARENA-AC-001`–`PRES-ARENA-AC-005`. It applies to live play, both round-end phases, waiting views, and retained or restored arena context. Network settings, ownership, input, timing, solo/waiting rules, and outcome authority remain unchanged. Whole final-screen presentation follows [SUMMARY-VIEW](overlay-game-over.md#common-final-screen-contract), not the active-round or non-final score overlay.
 
+Non-final round-summary content follows [UI-RND-011–013 and AC-RND-001](../features.md#status-ranking-and-shared-arena-view). [NET-05-R](../design/screens/NET-05.md#non-final-round-summary-parity) uses Local Play OVER-02 as its appearance reference while retaining this screen's network status, outcome/countdown, navigation, and role-specific controls. This change excludes the final-round delay and NET-06.
+
 ## Representative layout
 
 - Fill the client with one undivided arena showing the complete level and all currently spawned players, including a one-player hosted round. Waiting roster entries have no actor.
@@ -37,7 +39,7 @@ The [common arena presentation contract](play-fullscreen.md#common-arena-present
 - The arena must remain the primary visual region.
 - The existing ranking, round progress, event text, and player status must remain above world imagery.
 - A compact network status region must align to the bottom edge of the client.
-- The network status region must keep a 16 px inset from the left, right, and bottom client edges.
+- The network status region must keep a 16 px inset from the left, right, and bottom client edges during live play. Non-final limited-round summaries alone use the [NET-05-R counter/footer layout](../design/screens/NET-05.md#non-final-round-summary-parity), preserving the side insets while raising status/actions above the bottom-center counter.
 - The network status region must use standard 16 px gameplay text.
 - The network status region must use a flat translucent `info-surface` behind `info-text`.
 - The network status region must keep 4 px of clear inner space around its text.

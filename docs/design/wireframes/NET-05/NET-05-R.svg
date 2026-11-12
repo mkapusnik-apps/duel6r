@@ -1,40 +1,49 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1080" viewBox="0 0 1280 1080">
   <title>NET-05-R — Non-final round result</title>
-  <desc>Existing non-final round-result panel above one shared arena at 1280 by 900. Fixed round progress and SCORE heading, bounded ranking, separate outcome and countdown, and existing host actions. The first-second active and final-five-second frozen phases use the same layout. Top-left diagram coordinates.</desc>
+  <desc>Non-final network round result using the Local Play OVER-02 score core at 1280 by 900. Round progress is centered at the complete client bottom with a small inset, outside the SCORE and K A D K/D PTS panel. Existing network status/actions sit above the reserved counter. Top-left diagram coordinates; low-fidelity allocation, not production colors or exact measured bounds.</desc>
   <rect width="1280" height="1080" fill="white"/>
   <g fill="none" stroke="black">
     <rect x="1" y="1" width="1278" height="898"/>
-    <rect x="247" y="40" width="786" height="310"/>
-    <path d="M263 72H1017 M263 104H1017"/>
-    <rect x="271" y="112" width="738" height="154"/>
-    <path d="M271 278H1009"/>
+    <rect x="376" y="296" width="528" height="308"/>
+    <rect x="378" y="298" width="524" height="304"/>
+    <rect x="371" y="328" width="538" height="36"/>
+    <path d="M392 416H888 M392 448H888 M392 480H888"/>
     <path d="M50 590H180V530H300V640H480 M830 620H960V555H1225"/>
-    <rect x="912" y="782" width="168" height="34"/>
-    <rect x="1096" y="782" width="168" height="34"/>
-    <rect x="910" y="780" width="172" height="38" stroke-width="2"/>
-    <rect x="16" y="844" width="1248" height="40"/>
+    <rect x="912" y="738" width="168" height="34"/>
+    <rect x="1096" y="738" width="168" height="34"/>
+    <rect x="910" y="736" width="172" height="38" stroke-width="2"/>
+    <rect x="16" y="788" width="1248" height="40"/>
+    <rect x="528" y="844" width="224" height="40"/>
     <path d="M16 924H1264" stroke-dasharray="5 5"/>
   </g>
+  <g fill="black" font-family="sans-serif" font-size="32">
+    <text x="640" y="876" text-anchor="middle">Rounds: 1|2</text>
+    <text x="640" y="357" text-anchor="middle">---SCORE---</text>
+  </g>
+  <g fill="black" font-family="sans-serif" font-size="20">
+    <text x="556" y="406">K</text><text x="620" y="406">A</text><text x="684" y="406">D</text>
+    <text x="750" y="406">K/D</text><text x="850" y="406">PTS</text>
+    <text x="392" y="440">Maple</text><text x="568" y="440" text-anchor="end">1</text>
+    <text x="632" y="440" text-anchor="end">0</text><text x="696" y="440" text-anchor="end">0</text>
+    <text x="798" y="440" text-anchor="end">1.00</text><text x="888" y="440" text-anchor="end">2</text>
+    <text x="392" y="472">Oak • Dead</text><text x="568" y="472" text-anchor="end">0</text>
+    <text x="632" y="472" text-anchor="end">0</text><text x="696" y="472" text-anchor="end">1</text>
+    <text x="798" y="472" text-anchor="end">0.00</text><text x="888" y="472" text-anchor="end">0</text>
+  </g>
   <g fill="black" font-family="sans-serif" font-size="16">
-    <text x="850" y="63">Rounds: 1|2</text>
-    <text x="594" y="94">---SCORE---</text>
-    <text x="289" y="141">Rank / Player or team / Points / Existing state cues</text>
-    <text x="289" y="174">1. Ada                         2</text>
-    <text x="289" y="204">2. Bruno                      0</text>
-    <text x="289" y="247">[Diagram annotation: additional ranking rows scroll here]</text>
-    <text x="279" y="308">Round outcome: Ada</text>
-    <text x="710" y="308">Round frozen • Next round in 4s</text>
-    <text x="279" y="334">Existing ranking position when scrolling is needed</text>
-    <text x="420" y="450">ONE UNDIVIDED SHARED ARENA</text>
-    <text x="930" y="805">Advance round</text><text x="1110" y="805">End session</text>
-    <text x="24" y="862">Host • LAN session • Connected</text>
-    <text x="825" y="862">Session only scores • Optional scripts disabled</text>
+    <text x="392" y="582">[Annotation: existing ranking position if rows overflow]</text>
+    <text x="376" y="652">Round outcome: Maple</text>
+    <text x="376" y="678">Round frozen • Next round in 4s</text>
+    <text x="420" y="200">ONE SHARED ARENA / LOCAL WINNER CURTAIN</text>
+    <text x="930" y="761">Advance round</text><text x="1110" y="761">End session</text>
+    <text x="24" y="806">Host • LAN session • Connected</text>
+    <text x="825" y="806">Session only scores • Optional scripts disabled</text>
   </g>
   <g fill="black" font-family="sans-serif" font-size="14">
     <text x="16" y="954">ANNOTATIONS — representative values are illustrative; capture an actual authoritative outcome.</text>
-    <text x="16" y="981">Read progress → score heading → ranking → outcome / phase → existing session actions.</text>
-    <text x="16" y="1008">First-second variant: World active • 1s. Later phase: frozen with automatic next-round countdown.</text>
-    <text x="16" y="1035">Guest variant retains Leave session without Advance round. Final rounds use NET-06, not this variant.</text>
-    <text x="16" y="1062">NET-05 / UX-NET-05-009–016. Long outcomes wrap above phase text and reduce the scrolling ranking height.</text>
+    <text x="16" y="981">OVER-02 counter: measured black backing, 8 px side / 4 px vertical inner space, centered, 16 px bottom inset.</text>
+    <text x="16" y="1008">Team variant: aggregate K/A/D/K/D/PTS, adjacent nested players, local team colors and 8 px group separators.</text>
+    <text x="16" y="1035">Remove old counter row. Status and action/waiting rows stack above it with 16 px clear gaps; body yields rows.</text>
+    <text x="16" y="1062">Guest: Leave only. First second: World active • 1s. Final delay/NET-06 and active Tab remain unchanged.</text>
   </g>
 </svg>

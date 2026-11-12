@@ -131,15 +131,11 @@ The following values come from renderer and GUI source.
 - The Players panel must keep each player next to that player's control assignment.
 - Gameplay overlays must use flat translucent fills without drop shadows.
 - The score summary must use two translucent rectangular layers and a solid blue heading strip.
-- A non-final limited-round summary must show its round-progress label in a dedicated row above the score heading strip.
+- A non-final limited-round summary must show its round-progress label outside the score panel at the bottom center of the complete client under [OVER-02's common counter layout](screens/overlay-round-over.md#layout-and-hierarchy).
 - The round-progress label must use the score-summary type and the score-summary heading-strip text color.
-- The round-progress label must align to the top-right of the score panel.
-- The right edge of the round-progress label must be 16 px inside the right bound of the translucent outer panel.
-- The progress row must start 32 px below the top bound of the translucent outer panel.
+- The counter must use measured flat black backing and the common small bottom margin defined by OVER-02, with no duplicate label or empty progress row left in the panel.
 - The score heading must remain aligned to the horizontal center of the score panel.
-- The progress row must use a 32 px row height.
-- The progress row must not use the solid blue fill of the score heading strip.
-- The score panel must keep the progress row and the score heading strip separate and legible.
+- The score panel, counter and existing network-only footer regions must remain separate and legible; [NET-05-R](design/screens/NET-05.md#non-final-round-summary-parity) owns the necessary non-final network footer offset.
 - A Team score overview must keep each team row directly adjacent to that team's nested player rows.
 - A Team score overview must use an 8 px separator band between adjacent team groups.
 - The separator band must contain a 2 px horizontal `team-group-separator` rule at its vertical center.
@@ -153,6 +149,8 @@ The following values come from renderer and GUI source.
 - A non-Team score overview must remain unchanged.
 - Final summary allocation, counter, completion notice, containment, and overflow must follow [Shared final presentation](#shared-final-presentation).
 - New documentation must not specify rounded corners, shadows, or gradients that the implementation does not provide. Blur is reserved for the approved full-client menu background.
+
+For non-final network round results, [NET-05-R](design/screens/NET-05.md#non-final-round-summary-parity) applies the Local Play OVER-02 score-panel appearance and content instead of the earlier grey network panel and points-only ranking. This bounded exception to unified network panel styling does not change active-round score access, the final-round delay, final results, or network action styling.
 
 ## Imagery and assets
 
@@ -548,7 +546,7 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - Target network UI must not offer discovery, matchmaking, Internet, NAT traversal, accounts, passwords, dedicated servers, join-in-progress, or host migration.
 - Live `NET-05` network status must use a compact, flat, translucent status region at the bottom of the client.
 - The status region must use `info-surface`, `info-text`, and the standard 16 px gameplay text.
-- The status region must keep a 16 px inset from the client edges.
+- The status region must keep a 16 px inset from the client edges during live play. Only non-final limited-round summaries use NET-05-R's raised status/footer allocation above the bottom-center counter.
 - The status region must keep 4 px of clear inner space around its text.
 - The status region must keep a minimum 16 px gap between its left and right content groups.
 - The left group must show participant role, `LAN session`, and connection state.
@@ -612,10 +610,9 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - Live ranking must remain available for every supported player count.
 - Event messages, player status, and score summaries must remain available in the shared arena view.
 - Round progress must remain available in the shared arena view except while a non-final limited-round summary panel is visible.
-- A non-final limited-round summary must show `Rounds: <played>|<total>` in a dedicated row above the solid blue score heading strip.
+- A non-final limited-round summary must show its existing `Rounds: <played>|<total>` counter in the common OVER-02 bottom-center placement.
 - The summary round-progress label must use the exact `Rounds: <played>|<total>` format.
-- The summary round-progress label must align to the panel top-right in the dedicated progress row.
-- The right edge of the summary round-progress label must be 16 px inside the right bound of the translucent outer panel.
+- The summary must not retain the old panel-top-right label or its dedicated row.
 - The summary round-progress label must include the round that has just ended in `<played>`.
 - The summary round-progress label must use the configured positive round limit in `<total>`.
 - A resumed match must use its accumulated played-round count in the summary round-progress label.

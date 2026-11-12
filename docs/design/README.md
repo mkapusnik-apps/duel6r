@@ -31,7 +31,7 @@ Network-capable experimental macOS uses existing NET-01 through NET-10 journeys.
 | NET-02 | [Host setup, common Password and hosted capacity](screens/NET-02.md) | NET-02/LA/LE use one Start session / Back row without static listing/direct-play or idle readiness text; unchanged NET-02-P |
 | NET-03 | [Common Password, selector-free Direct and bound setup](screens/NET-03.md) | NET-03-P removes the selector and restores ordinary Direct allocation; NET-03-E/B and connecting change affected text/annotations only |
 | NET-04 | [Current settings and dedicated role context](screens/NET-04.md) | [NET-04](wireframes/NET-04/NET-04.svg); [NET-04-R](wireframes/NET-04/NET-04-R.svg) |
-| NET-05 | [Local-reference parity and existing hosting/waiting status](screens/NET-05.md) | [NET-05](wireframes/NET-05/NET-05.svg); unchanged NET-05-W/C/S/R |
+| NET-05 | [Local-reference arena and non-final round-summary parity; existing hosting/waiting status](screens/NET-05.md) | [NET-05](wireframes/NET-05/NET-05.svg); [NET-05-R local-reference score table](wireframes/NET-05/NET-05-R.svg); unchanged NET-05-W/C/S |
 | NET-06 | [Network shared final binding](screens/NET-06.md) over the common final owning section | [NET-06](wireframes/NET-06/NET-06.svg) |
 | NET-07 | [Dedicated reconnect](screens/NET-07.md) over the current design-system owning section | Existing NET-07; NET-05-C for confirmation |
 | NET-08 | [Failure and recovery](screens/NET-08.md) | Existing NET-08 |
