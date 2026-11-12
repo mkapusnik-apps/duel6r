@@ -33,7 +33,8 @@ def descendants(pid):
         for task in tasks:
             try:
                 direct = [int(value) for value in (task / "children").read_text().split()]
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
+                # An enumerated task may exit before its children file is read.
                 continue
             for child in direct:
                 if child not in found:
