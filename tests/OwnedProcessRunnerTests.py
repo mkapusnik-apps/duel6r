@@ -15,7 +15,7 @@ import unittest
 from contextlib import nullcontext, redirect_stderr
 from types import SimpleNamespace
 from unittest.mock import patch
-from OwnedProcessRunner import main, observed_disappearance, pidfd_failure_context, reap, run_owned, signal_tree
+from OwnedProcessRunner import descendants, main, observed_disappearance, pidfd_failure_context, reap, run_owned, signal_tree
 
 RUNNER = Path(__file__).with_name("OwnedProcessRunner.py")
 
@@ -73,6 +73,35 @@ if child == 0:
 while not ((root / "departing").exists() and (root / "child").exists()): time.sleep(.005)
 (root / "ready").write_text(str(os.getpid()))
 '''
+
+
+class DescendantDiscoveryTests(unittest.TestCase):
+    def test_exited_task_children_read_preserves_other_owned_branches(self):
+        for error in (FileNotFoundError(errno.ENOENT, "vanished task"),
+                      ProcessLookupError(errno.ESRCH, "exited task")):
+            with self.subTest(errno=error.errno):
+                def tasks(path):
+                    return [path / path.parent.name]
+                def read_children(path):
+                    pid = int(path.parent.name)
+                    if pid == 300:
+                        raise error
+                    return {100: "200 300", 200: "400", 400: ""}[pid]
+                with patch.object(Path, "iterdir", tasks), patch.object(Path, "read_text", read_children):
+                    # Retain even the discovered vanished PID for the existing
+                    # pidfd/reaping path; continue enumerating the live branch.
+                    self.assertEqual({200, 300, 400}, descendants(100))
+
+    def test_other_children_read_errors_are_not_treated_as_disappearance(self):
+        for error in (PermissionError(errno.EACCES, "denied task children"),
+                      PermissionError(errno.EPERM, "forbidden task children"),
+                      OSError(errno.EIO, "task children I/O failure")):
+            with self.subTest(errno=error.errno), \
+                    patch.object(Path, "iterdir", return_value=[Path("/proc/100/task/100")]), \
+                    patch.object(Path, "read_text", side_effect=error):
+                with self.assertRaises(OSError) as caught:
+                    descendants(100)
+                self.assertIs(error, caught.exception)
 
 
 class OwnershipTests(unittest.TestCase):
