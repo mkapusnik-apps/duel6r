@@ -3161,7 +3161,11 @@ void realSecureClosingIntake(unsigned scenario) {
     D6R_REQUIRE(departing->connection->send(Network::Replication::serializeQualityProbe(100)) == Network::SendResult::Accepted);
     D6R_REQUIRE(schedule.await([&] { return schedule.publishParked; }));
     std::shared_ptr<Network::TcpConnection> target;
-    { std::lock_guard<std::mutex> lock(schedule.mutex); target = schedule.target; }
+    {
+        std::lock_guard<std::mutex> lock(schedule.mutex);
+        D6R_REQUIRE_EQ(probes + extra + 1, schedule.authenticatedBeforePark);
+        target = schedule.target;
+    }
     { std::lock_guard<std::mutex> lock(schedule.mutex); schedule.clientReadArmed = true; }
     D6R_REQUIRE(target->send(Network::Replication::serializeQualityResponse(100, 1)) == Network::SendResult::Accepted);
     D6R_REQUIRE(schedule.await([&] { return schedule.clientReadParked; }));
@@ -3172,11 +3176,28 @@ void realSecureClosingIntake(unsigned scenario) {
     // Never wait for writer completion/terminal while publication holds its lock.
     schedule.unblock();
     D6R_REQUIRE(handledClosingReply);
-    // The queued-tail assertions are already qualified. Complete the peer half
-    // close rather than racing the unchanged two-second writer drain deadline
-    // against this fixture's two-second retirement wait plus server polling.
-    departing->connection->requestClose();
-    D6R_REQUIRE(schedule.await([&] { return schedule.targetRetired; }));
+    // All scheduling hooks are released. Join the peer's bounded close before
+    // starting the host-retirement observation budget: requestClose alone only
+    // schedules the writer, whose independent drain deadline is also two seconds.
+    // Keep the host's authenticated queue intact for its normal intake path.
+    const auto peerCloseBegan = std::chrono::steady_clock::now();
+    departing->client->close();
+    const auto peerClosedAt = std::chrono::steady_clock::now();
+    const bool retired = schedule.await([&] { return schedule.targetRetired; });
+    const auto retirementObservedAt = std::chrono::steady_clock::now();
+    std::ostringstream closeDetail;
+    {
+        std::lock_guard<std::mutex> lock(schedule.mutex);
+        closeDetail << "peer-close-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(peerClosedAt - peerCloseBegan).count()
+                    << ";retirement-wait-ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(retirementObservedAt - peerClosedAt).count()
+                    << ";peer-state=" << static_cast<int>(departing->connection->state())
+                    << ";host-state=" << static_cast<int>(target->state())
+                    << ";authenticated-before-park=" << schedule.authenticatedBeforePark
+                    << ";closing-reply-failures=" << schedule.replyFailures
+                    << ";leaves-consumed=" << schedule.leavesConsumed;
+    }
+    if (!retired) Test::fail("host retires after completed peer close", __FILE__, __LINE__,
+            "scenario=" + std::to_string(scenario) + ';' + closeDetail.str());
     // Freeze only the finite intake/token batch, not the later canonical tick
     // that publishes its committed lifecycle outcome to the observer.
     schedule.frozenAt = 0;
@@ -3210,7 +3231,7 @@ void realSecureClosingIntake(unsigned scenario) {
         D6R_REQUIRE(row != after.players.end());
         D6R_REQUIRE_EQ(scenario == 0, row->lifeState == Network::Replication::LifeState::Departed);
     }
-    std::cout << detail.str() << '\n';
+    std::cout << detail.str() << ';' << closeDetail.str() << '\n';
     observer->client->close(); departing->client->close(); schedule.stop = true; host.join();
     D6R_REQUIRE_EQ(0, status);
 }
