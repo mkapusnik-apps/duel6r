@@ -862,6 +862,7 @@ if (MINGW)
 endif ()
 
 add_library(duel6r-network-scaffold STATIC ${D6R_NETWORK_SCAFFOLD_SOURCES})
+target_link_libraries(duel6r-network-scaffold PRIVATE duel6r-canonical-gameplay-core)
 if (D6R_DEDICATED_SERVICE)
     target_compile_definitions(duel6r-network-scaffold PUBLIC D6R_DEDICATED_SERVICE)
 endif ()
