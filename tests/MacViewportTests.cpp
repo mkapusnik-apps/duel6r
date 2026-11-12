@@ -263,14 +263,14 @@ D6R_TEST_CASE("Mac network pointer and F2 share entry setup browser and full dra
         clickLogical(app, 425, 352); // Entry: Join opens the browser.
         D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Browser);
         viewportWrites.clear(); network.render(); expectFullDrawable();
-        clickLogical(app, 422, 84); // Browser: Direct connect center (x296..548, y68..100).
+        clickLogical(app, 425, 48); // Browser: Direct connect center (x300..550, y32..64).
         D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Join);
         viewportWrites.clear(); network.render(); expectFullDrawable();
         network.keyEvent(KeyPressEvent(SDLK_ESCAPE, SysEvent::ButtonState::PRESSED, KMOD_NONE));
         clickLogical(app, 425, 352); // Return to the browser through Entry: Join.
         D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Browser);
         viewportWrites.clear(); network.render(); expectFullDrawable();
-        clickLogical(app, 690, 84); // Browser: distinct Back center (x564..816, y68..100).
+        clickLogical(app, 693, 48); // Browser: distinct Back center (x568..818, y32..64).
         D6R_REQUIRE(network.setupScreen == NetworkMenu::SetupScreen::Entry);
         D6R_REQUIRE(Context::getCurrent().is(network));
         viewportWrites.clear(); network.render(); expectFullDrawable();
