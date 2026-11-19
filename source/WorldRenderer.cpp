@@ -219,6 +219,7 @@ namespace Duel6 {
                     std::to_string(entry.deaths), Person::getKillsToDeathsRatio(entry.kills, entry.deaths),
                     std::to_string(entry.points)}, nested, separator, {}};
             if (!entry.entries.empty()) row.teamColor = entry.bcgColor;
+            row.identityColor = entry.fontColor;
             model.cumulative.rows.push_back(std::move(row));
         };
         for (std::size_t index = 0; index < ranking.entries.size(); ++index) {

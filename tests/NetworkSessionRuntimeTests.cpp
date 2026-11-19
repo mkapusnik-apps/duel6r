@@ -6178,7 +6178,8 @@ D6R_TEST_CASE("Shared final and retained overlays render the arena and restore e
         D6R_REQUIRE(fixture.text("End of Game"));
         D6R_REQUIRE(!fixture.text("Match is running"));
     }
-    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900},
+                          std::pair{1920, 1080}}) {
         fixture.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         menu.runtime.current.journey = Client::NetworkJourney::Summary;
         menu.confirmation = NetworkMenu::Confirmation::None;
@@ -6257,6 +6258,25 @@ D6R_TEST_CASE("Retained final tables carry sticky section and column metadata th
     // Exercise the actual action queue without opening a socket or directory.
     f.menu.runtime.current.publicSession = true;
     f.menu.runtime.current.journey = Client::NetworkJourney::Summary;
+    // Read the real retained-result adapter at both axes, including historical
+    // per-round player tables. Departed names remain neutral, never life-colored.
+    f.video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
+    const auto initial = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+    bool cumulative = false, perRound = false, settings = false;
+    for (int offset = 0; offset <= initial.bounds.vertical + 144; offset += 144) {
+        f.menu.finalScroll = {offset, 0};
+        const auto plan = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+        for (const auto &command: plan.commands) {
+            cumulative |= command.text == "Cumulative ranking";
+            perRound |= command.text == "ROUND 2 PLAYER RESULTS";
+            settings |= command.text == "Mode" && command.size == 16;
+            if (command.text.find("Historical ") == 0 && command.size == 32)
+                D6R_REQUIRE_EQ(Color::WHITE, command.color);
+            if (command.text == "---SCORE---") D6R_REQUIRE_EQ(32, command.size);
+        }
+    }
+    D6R_REQUIRE(cumulative); D6R_REQUIRE(perRound); D6R_REQUIRE(settings);
+    f.menu.finalScroll = {};
     f.menu.focus = 0; f.key(SDLK_RETURN);
     D6R_REQUIRE_EQ(1u, f.menu.runtime.pendingGuestCommands.size());
     const auto command = Network::HostComposition::deserialize(f.menu.runtime.pendingGuestCommands.front());
@@ -6354,6 +6374,16 @@ D6R_TEST_CASE("Local shared final retains established outcomes across later deat
         application.keyEvent(game, KeyPressEvent(SDLK_PAGEDOWN, SysEvent::ButtonState::PRESSED, 0));
         D6R_REQUIRE_EQ(0, game.getFinalScroll().vertical);
         round.gameOverWait = 0;
+        game.finalScroll = {std::numeric_limits<int>::max(), 0};
+        const auto styled = game.getWorldRenderer().finalSummaryPlan();
+        bool deadName = false;
+        for (const auto &command: styled.commands)
+            if (command.size == 32 && command.text.find("Final player ") == 0) {
+                D6R_REQUIRE_EQ(Color::RED, command.color);
+                deadName = true;
+            }
+        D6R_REQUIRE(deadName);
+        game.finalScroll = {};
         const auto completed = game.getWorldRenderer().finalSummaryPlan();
         D6R_REQUIRE(std::any_of(completed.commands.begin(), completed.commands.end(), [](const auto &command) {
             return command.text == "End of Game";

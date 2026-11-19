@@ -44,12 +44,16 @@ namespace Duel6::FinalSummaryPresentation {
         // True on team rows EXCEPT the first team. Never on nested players.
         bool teamSeparatorBefore = false;
         std::optional<Color> teamColor;
+        // Local ranking supplies life-state colors; historical network names
+        // remain neutral. Never derive this from rank or outcome membership.
+        Color identityColor{255};
     };
     struct Table {
         // Short section label; put all potentially long result metadata in cells.
         std::string title;
         std::vector<Column> columns;
         std::vector<Row> rows;
+        bool score = false; // Reference-style player statistics, not supporting detail.
     };
     struct Model {
         Scope scope = Scope::Local;
