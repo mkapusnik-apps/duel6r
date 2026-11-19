@@ -2,7 +2,7 @@
 
 Representative viewport: 1280 by 900 px with the last authoritative arena context. The same blocking panel overlays the last lobby, summary, or reconnect context without imposing a fixed 850 by 700 canvas.
 
-[![NET-09 — Confirmed intentional host-ended session](NET-09.svg)](NET-09.svg)
+[![NET-09 — Confirmed intentional host-ended session](../../design/wireframes/NET-09/NET-09.svg)](../../design/wireframes/NET-09/NET-09.svg)
 
 The [functional owner](../network-host-ended.md), [NET-09 presentation owner](../../design/screens/NET-09.md) and [unified intentional-end presentation](../../design.md#net-09--intentional-host-end-presentation) govern cause, retained context, copy and recovery. External annotations are not UI. The SVG preserves the existing terminal panel; the earlier planned/unimplemented status is historical.
 

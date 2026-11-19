@@ -4,7 +4,7 @@ Representative viewport: 1280 by 900 debug client.
 The panel size depends on name length, ranking row count, and Team group count.
 The screen has no mobile layout, so this single desktop wireframe covers the implemented centered overlay.
 
-[![OVER-01 — Active-round Team score overlay](OVER-01.svg)](OVER-01.svg)
+[![OVER-01 — Active-round Team score overlay](../../design/wireframes/OVER-01/OVER-01.svg)](../../design/wireframes/OVER-01/OVER-01.svg)
 
 Monochrome panel outlines represent the existing translucent white outer surface, blue inner surface and blue heading strip. External annotations are not UI. The [owning screen contract](../overlay-score-tab.md) and [design system](../../design.md) retain exact sizing calculations, production appearance and noninteractive overlay behavior; the SVG is schematic.
 

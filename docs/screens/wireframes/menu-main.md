@@ -44,7 +44,7 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 
 Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, and then select `Deathmatch`.
 
-[![MENU-01-A — Non-Team session setup](MENU-01-A.svg)](MENU-01-A.svg)
+[![MENU-01-A — Non-Team session setup](../../design/wireframes/MENU-01/MENU-01-A.svg)](../../design/wireframes/MENU-01/MENU-01-A.svg)
 
 `Num. of Team` and `Friendly Fire` must not appear in `MENU-01-A`.
 `Equalize` and `Shuffle` must not appear in `MENU-01-A`.
@@ -59,7 +59,7 @@ The Cora row must show the standard selected-row treatment.
 
 Representative setup: Select `Teams` with six selected players, `Num. of Team` set to `2`, Friendly Fire off, and Rounds `0`.
 
-[![MENU-01-B — Teams session setup](MENU-01-B.svg)](MENU-01-B.svg)
+[![MENU-01-B — Teams session setup](../../design/wireframes/MENU-01/MENU-01-B.svg)](../../design/wireframes/MENU-01/MENU-01-B.svg)
 
 The SVG's external team-color annotation identifies the required color sequence.
 The implementation does not need to add team-name text to each roster row.

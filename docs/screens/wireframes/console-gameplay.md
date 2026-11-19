@@ -4,7 +4,7 @@ Representative viewport: 1280 by 900 debug client.
 The console geometry matches CONS-01 and overlays the active shared arena frame.
 The screen has no mobile layout, so this single desktop wireframe covers the implemented overlay.
 
-[![CONS-02 — Console over active gameplay](CONS-02.svg)](CONS-02.svg)
+[![CONS-02 — Console over active gameplay](../../design/wireframes/CONS-02/CONS-02.svg)](../../design/wireframes/CONS-02/CONS-02.svg)
 
 The monochrome drawing preserves the console's opaque overlap, not a new arena layout or pause state. Colors and scrolling cues remain in the [owning screen contract](../console-gameplay.md) and [design system](../../design.md); external annotations are not UI.
 

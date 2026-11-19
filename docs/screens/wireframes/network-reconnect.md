@@ -2,7 +2,7 @@
 
 Representative viewport: 1280 by 900 px with retained arena context.
 
-[![NET-07 — Guest reconnect with 24 seconds remaining](NET-07.svg)](NET-07.svg)
+[![NET-07 — Guest reconnect with 24 seconds remaining](../../design/wireframes/NET-07/NET-07.svg)](../../design/wireframes/NET-07/NET-07.svg)
 
 The [functional owner](../network-reconnect.md), [NET-07 presentation owner](../../design/screens/NET-07.md) and [unified reconnect presentation](../../design.md#net-07--reconnect-presentation) retain authority. The background is `Last confirmed state`, not live client simulation; the authoritative match continues elsewhere. The SVG's external annotations explain Host/controller substitution, positive countdown and retained context without creating a new state or capture requirement. Earlier planned/unimplemented wording is historical.
 

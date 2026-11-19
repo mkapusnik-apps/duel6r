@@ -5,7 +5,7 @@ The background is the complete `MENU-01` layout, including the distinct four-act
 The strip uses message-dependent logical width, scales with the menu, and stays centered.
 The screen has no mobile layout, so this single desktop wireframe covers all implemented message variants.
 
-[![MENU-02 — Blocking message over the main menu](MENU-02.svg)](MENU-02.svg)
+[![MENU-02 — Blocking message over the main menu](../../design/wireframes/MENU-02/MENU-02.svg)](../../design/wireframes/MENU-02/MENU-02.svg)
 
 Monochrome shapes represent the existing message and menu surfaces. The external annotation region is not UI; production pink surface, red text and the 2 px black message frame remain governed by [docs/design.md](../../design.md).
 

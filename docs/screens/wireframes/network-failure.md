@@ -2,7 +2,7 @@
 
 Representative desktop context: 1920 by 1080 px with the scaled 850 by 700 retro canvas.
 
-[![NET-08 — Initial direct connection failure](NET-08.svg)](NET-08.svg)
+[![NET-08 — Initial direct connection failure](../../design/wireframes/NET-08/NET-08.svg)](../../design/wireframes/NET-08/NET-08.svg)
 
 The [functional owner](../network-failure.md) and [NET-08 presentation owner](../../design/screens/NET-08.md) govern exact copy, eligible actions, Password/security variants and selected-origin browser recovery. This SVG converts the existing direct `Host unreachable.` example; it does not replace the current implementation screenshot scenario or imply Retry eligibility for another failure. The earlier planned/unimplemented status is historical. Monochrome shapes and external annotations do not change production styling.
 

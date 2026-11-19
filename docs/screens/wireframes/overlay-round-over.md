@@ -7,7 +7,7 @@ The result retains the undivided shared arena and adds the animated winner-curta
 The bottom-center footer is the only visible round-count location in this state.
 The screen has no mobile layout, so this single desktop wireframe covers the target overlay.
 
-[![OVER-02 — Non-final Team round summary, round 3 of 5](OVER-02.svg)](OVER-02.svg)
+[![OVER-02 — Non-final Team round summary, round 3 of 5](../../design/wireframes/OVER-02/OVER-02.svg)](../../design/wireframes/OVER-02/OVER-02.svg)
 
 The monochrome drawing preserves the external counter, score panel and table relationships; the animated dark-red curtain and translucent production surfaces are described in external annotations and [docs/design.md](../../design.md). The [owning non-final screen contract](../overlay-round-over.md) retains authority over exact panel sizing calculations and footer clearance; the SVG is schematic.
 

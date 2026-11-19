@@ -4,7 +4,7 @@ Representative viewport: 1920 by 1080 px desktop client.
 The console sits against the top of the visible client area.
 The screen has no mobile layout. The [current screen contract](../console-menu.md) retains the `MENU-01` four-action footer below the console overlay.
 
-[![CONS-01 — Console over the main menu](CONS-01.svg)](CONS-01.svg)
+[![CONS-01 — Console over the main menu](../../design/wireframes/CONS-01/CONS-01.svg)](../../design/wireframes/CONS-01/CONS-01.svg)
 
 The SVG is monochrome; external annotations explain the existing opaque console and underlying session background without adding UI. Production styling remains in [docs/design.md](../../design.md).
 

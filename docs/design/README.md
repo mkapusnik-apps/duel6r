@@ -6,6 +6,8 @@ The [product inventory](../screens/README.md) owns screen identities, functional
 
 The [network-play contract](../network-play-first-release.md) owns NET-PUB and NET-ADM. The [join contract](../screens/network-join.md) owns NET-JOIN-PUB. The [trust policy](../network-trust-and-abuse-limits.md) and [lifecycle contract](../network-host-service-lifecycle.md) own TRU-PUB and HSL-PUB. The [directory contract](../network-host-directory.md) owns mixed player-hosted and dedicated listings and bound selection. The dedicated service is a headless variant of the existing hosted session. This integration adds no account, environment picker, provisioning task, compiled gameplay endpoint, menu, or product screen.
 
+Structural SVG wireframes are stored only at `docs/design/wireframes/<screen-ID>/<wireframe-ID>.svg`. Markdown wrappers remain at `docs/screens/wireframes/`, preserving their paths, anchors and semantic notes while embedding and directly linking to the canonical SVGs.
+
 ## Principles
 
 - The UI must keep Local Play and unrelated player-hosted journeys unchanged while applying the approved common Password input/correction procedure to both modes.
