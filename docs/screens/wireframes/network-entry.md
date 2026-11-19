@@ -1,27 +1,14 @@
 # NET-01 wireframe — Network entry
 
-Target representative viewport: 1920 by 1080 px. The 850 by 700 logical canvas uses the 135% scale cap over the persistent blurred and scrimmed menu background. This wireframe is planned for issue #38 and is not implemented.
+Representative desktop context: 1920 by 1080 px. The 850 by 700 logical canvas uses the 135% scale cap over the persistent blurred and scrimmed menu background. The SVG depicts logical-canvas relationships with external annotation space.
 
-```text
-┌────────────────────── 850 × 700 logical canvas ──────────────────────┐
-│                       [animated banner]                              │
-│                         NETWORK PLAY                                 │
-│                                                                      │
-│             Same machine or LAN                                     │
-│             Direct address and port                                 │
-│             Linux / Windows x86-64                                  │
-│             Player-hosted • Lobby 1–15 • Match 2–15                 │
-│             participants and players                                │
-│                                                                      │
-│                      [ Host ]                                        │
-│                      [ Join ]                                        │
-│                      [ Back ]                                        │
-└──────────────────────────────────────────────────────────────────────┘
-```
+[![NET-01 — Network entry modal](../../design/wireframes/NET-01/NET-01.svg)](../../design/wireframes/NET-01/NET-01.svg)
 
-- Focus order is Host, Join, Back. Every state and scope constraint is textual.
-- No unsupported discovery, Internet, account, dedicated-server, or matchmaking affordance appears.
+This reuses the current canonical SVG unchanged. The [functional owner](../network-entry.md) and [NET-01 presentation owner](../../design/screens/NET-01.md) define the compact Host/Join/Back modal over the actual menu, without the former explanatory scope/platform/limit text. Join opens NET-10; Direct connect remains there. The earlier full-task illustration and planned/unimplemented status are historical only.
+
+- Focus order is Host, Join, Back, with Host initially focused.
+- The modal adds no discovery, account, dedicated-administration or matchmaking action and does not receive endpoint fields.
 - Significant unavailable and return variants remain in the screen specification.
-- The panel uses the shared 24-logical-pixel inner margin, one centered equal-size action column, and at least 8 logical px between actions.
+- The current presentation owner defines the centered 380 by 210 logical px popup, 300 by 32 actions and 13 px action gaps. The older full-panel margin guidance does not override it.
 
 Planned representative screenshot: [`SS-015`](../../screenshots/README.md#ss-015).

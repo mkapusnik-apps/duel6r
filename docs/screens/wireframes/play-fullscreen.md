@@ -5,23 +5,9 @@ The client dimensions are fluid, but the overlay anchors remain screen-relative.
 The screen has no mobile layout, so this single desktop wireframe covers the shared arena layout.
 The layout applies to Deathmatch, Predator, and Team deathmatch with two through 15 players.
 
-```text
-┌──────────────────────────────── 1280 × 900 ────────────────────────────────────┐
-│ event messages                 [Rounds: current|max]        live ranking       │
-│ Player: event text                                          name | points       │
-│                                                                                │
-│  one undivided view · whole level · all players                                 │
-│  background texture · level walls · decorative sprites                         │
-│                                                                                │
-│       pickup                 ┌ name · ammo · bonus ┐                            │
-│                              ├ reload/air/bonus/HP ┤                            │
-│                player + gun └ round-kill points ──┘         projectile         │
-│                                                                                │
-│  elevator                 terrain routes                   explosion            │
-│                                                                                │
-│~~~~~~~~~~~~~~~~~~~~~~~~~~~~ translucent water ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~│
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+[![PLAY-01 — Existing local shared arena structure](../../design/wireframes/PLAY-01/PLAY-01.svg)](../../design/wireframes/PLAY-01/PLAY-01.svg)
+
+This reuses the current canonical SVG unchanged. The [PLAY-01 presentation owner](../../design/screens/PLAY-01.md) and [common arena contract](../play-fullscreen.md#common-arena-presentation-contract) govern world attachments, layering, status and temporal presentation. The schematic preserves relationships, not a replacement level or production appearance; external annotations are not UI.
 
 Start variant: blue-dark fade plus yellow spiked location rings.
 Optional variants: FPS at upper right, ranking hidden, round counter absent.

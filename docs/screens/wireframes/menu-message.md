@@ -1,23 +1,13 @@
 # MENU-02 wireframe — Menu blocking message
 
 Representative viewport: 1920 by 1080 px desktop client.
-The target background is the complete planned `MENU-01` layout, including the distinct four-action footer. Issue #28 does not implement it.
+The background is the complete `MENU-01` layout, including the distinct four-action footer, under the [current screen contract](../menu-message.md).
 The strip uses message-dependent logical width, scales with the menu, and stays centered.
 The screen has no mobile layout, so this single desktop wireframe covers all implemented message variants.
 
-```text
-┌──────────────────────────────── 1920 × 1080 ───────────────────────────────────┐
-│        blurred session gameplay still + 55% scrim around scaled MAIN MENU      │
-│                                                                                │
-│                                                                                │
-│   ┌───────────────────────────────────────────────────────────────────────┐    │
-│   │                    Really delete? (Y/N)                               │20px│
-│   └───────────────────────────────────────────────────────────────────────┘    │
-│                 pink surface · 2 px black frame · red text                     │
-│                                                                                │
-│                         unchanged menu remains visible                          │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+[![MENU-02 — Blocking message over the main menu](MENU-02.svg)](MENU-02.svg)
+
+Monochrome shapes represent the existing message and menu surfaces. The external annotation region is not UI; production pink surface, red text and the 2 px black message frame remain governed by [docs/design.md](../../design.md).
 
 The implementation must render short messages, including `Really delete? (Y/N)`, on one 20-logical-pixel high line.
 The implementation must calculate a short panel width from the complete message length.

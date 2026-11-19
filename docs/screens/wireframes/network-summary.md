@@ -1,23 +1,10 @@
 # NET-06 wireframe — Completed final three-round summary
 
-Target representative viewport: 1280 by 900 px. The final arena context remains behind the existing translucent summary language. This wireframe is planned for issue #38 and is not implemented.
+Representative viewport: 1280 by 900 px. The current common final shell retains the final arena context behind the shared curtain and translucent score surfaces.
 
-```text
-┌──────────────────────────── 1280 × 900 client ───────────────────────┐
-│                         final arena frame                            │
-│            ┌────────── NETWORK MATCH COMPLETE ──────────┐            │
-│            │ Session only                               │            │
-│            │ Not saved to local statistics or Elo       │            │
-│            │ Result state: Completed                    │            │
-│            │ Match outcome: final-round outcome         │            │
-│            │ Last completed round: 3 • outcome          │            │
-│            │ Match settings • seed • completed rounds   │            │
-│            │ Round results • level • orientation        │            │
-│            │ Cumulative ranking • final totals          │            │
-│            │ [ Return to lobby ] [ End session ]        │            │
-│            └─────────────────────────────────────────────┘            │
-└──────────────────────────────────────────────────────────────────────┘
-```
+[![NET-06 — Common final shell, network role variants](../../design/wireframes/NET-06/NET-06.svg)](../../design/wireframes/NET-06/NET-06.svg)
+
+This reuses the current canonical SVG unchanged. The [common final-screen contract](../overlay-game-over.md#common-final-screen-contract), [NET-06 presentation binding](../../design/screens/NET-06.md) and [shared final presentation](../../design.md#shared-final-presentation) supersede the legacy separate summary shell, heading/allocation example and planned/unimplemented status. Current required result content, outcome identity, navigation, role-specific actions and persistence meanings below remain binding under their owners. External annotations are not UI; no legacy menu/card shell is restored.
 
 - The exact `Session only` label is visible with the authoritative final results.
 - This screen presents only a `Completed` result.

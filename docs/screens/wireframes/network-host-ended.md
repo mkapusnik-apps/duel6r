@@ -1,19 +1,10 @@
 # NET-09 wireframe — Host-ended session overlay
 
-Target representative viewport: 1280 by 900 px with the last authoritative arena context. The same blocking panel overlays the last lobby, summary, or reconnect context without imposing a fixed 850 by 700 canvas. This wireframe is planned for issue #38 and is not implemented.
+Representative viewport: 1280 by 900 px with the last authoritative arena context. The same blocking panel overlays the last lobby, summary, or reconnect context without imposing a fixed 850 by 700 canvas.
 
-```text
-┌──────────────────────────── 1280 × 900 client ───────────────────────┐
-│                    last authoritative arena frame                    │
-│            ┌──────────── HOST ENDED SESSION ─────────────┐            │
-│            │ The host ended the session.                 │            │
-│            │ This session cannot be resumed.            │            │
-│            │ Session-only results were not saved to     │            │
-│            │ local statistics or Elo.                   │            │
-│            │ [ Return to Network ]                      │            │
-│            └─────────────────────────────────────────────┘            │
-└──────────────────────────────────────────────────────────────────────┘
-```
+[![NET-09 — Confirmed intentional host-ended session](NET-09.svg)](NET-09.svg)
+
+The [functional owner](../network-host-ended.md), [NET-09 presentation owner](../../design/screens/NET-09.md) and [unified intentional-end presentation](../../design.md#net-09--intentional-host-end-presentation) govern cause, retained context, copy and recovery. External annotations are not UI. The SVG preserves the existing terminal panel; the earlier planned/unimplemented status is historical.
 
 - The representative state uses only the fixed valid host-end copy shown above.
 - Intentional terminal outcome, no migration/resume, and no persistence are explicit text.

@@ -1,35 +1,20 @@
 # OVER-03 wireframe — Game-over summary
 
 Representative viewport: 1280 by 900 debug client.
+
+[![OVER-03 — Common final shell, local variant](../../design/wireframes/OVER-03/OVER-03.svg)](../../design/wireframes/OVER-03/OVER-03.svg)
+
+This reuses the current canonical SVG unchanged. The [common final-screen contract](../overlay-game-over.md#common-final-screen-contract), [OVER-03 presentation binding](../../design/screens/OVER-03.md) and [shared final presentation](../../design.md#shared-final-presentation) supersede the old oversized local illustration. They own the common arena-backed shell, separate outcomes and cumulative ranking, bounded result body, fixed counter and completion notice, and local-specific actions/navigation. External SVG annotations are not UI.
+
+<details>
+<summary>Historical illustration guidance — superseded, not current layout requirements</summary>
+
+The following notes retain the earlier illustration's context. Its top-center counter, backing overlap, oversized-panel allocation and Predator exclusion must not override the current owners linked above.
+
 The representative visual table is the oversized final limited four-team, 15-player variant over the undivided shared arena.
 The workflow is final and does not start another round.
 This material exit state has its own wireframe and evidence entry.
 The screen has no mobile layout, so this single desktop wireframe covers the target overlay.
-
-```text
-┌───────────────── undivided shared arena under dark red curtain ────────────────┐
-│ final outcome event                ┌───────────────────┐                        │
-│                                    │   Rounds: 1|1     │ ← 32 px final counter │
-│                                    └─────────┬─────────┘   measured backing     │
-│              ┌───────────────────────────────┴────────────┐ ← backing-only      │
-│              │                 ---SCORE---                 │   overlap allowed   │
-│              │                   K   A   D  K/D  PTS       │                    │
-│              │ Alpha          | team totals               │ ← team row         │
-│              │ four aligned nested player rows             │ ← one group         │
-│              │ ────────────────────────────────────────── │ ← 2 px rule / 8 px band
-│              │ Bravo + four aligned nested player rows     │                    │
-│              │ ────────────────────────────────────────── │ ← group boundary    │
-│              │ Charlie + four aligned nested player rows   │                    │
-│              │ ────────────────────────────────────────── │ ← group boundary    │
-│              │ Delta + three aligned nested player rows    │ ← no trailing band  │
-│              └────────────────────────────────────────────┘                    │
-│                                                                                │
-│                              clear gap ≥ 16 px                                  │
-│                         ┌──────────────────┐                                    │
-│                         │   End of Game    │ ← centered bottom notice           │
-│                         └──────────────────┘   bottom inset 16 px               │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
 
 The representative state uses a one-round limited Team match with 15 players across four teams.
 Alpha, Bravo, and Charlie each have four nested player rows.
@@ -62,5 +47,7 @@ The Deathmatch score table remains separator-free.
 Only the Team variant uses team-group separator bands.
 Predator, non-final, unlimited, and active-round overlays do not use this changed final-summary presentation.
 The final state does not show `Game Over`, `Exit`, or `Return to menu`.
+
+</details>
 
 Representative screenshot: [`SS-012`](../../screenshots/README.md#ss-012).

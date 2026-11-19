@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1040" viewBox="0 0 1280 1040" role="img" aria-labelledby="title desc">
+  <title id="title">OVER-01 — Active-round Team score overlay</title>
+  <desc id="desc">1280 by 900 client. A centered score panel overlays the continuing shared arena without a winner curtain. Four team groups each contain a team row and two adjacent nested player rows. Three eight-pixel bands contain centered two-pixel separator rules; no band follows the last team. The finite arena counter remains outside the score panel. There are no pointer actions or added scrolling controls.</desc>
+  <rect width="1280" height="1040" fill="white"/>
+  <g fill="none" stroke="black" stroke-width="2">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <path d="M40 380H230V410H40 M1050 610H1240V640H1050 M40 820H1240"/>
+    <path d="M40 790Q120 775 200 790T360 790T520 790T680 790T840 790T1000 790T1160 790H1240" stroke-dasharray="8 4"/>
+  </g>
+  <g font-family="sans-serif" font-size="18" fill="black">
+    <text x="20" y="32">Player: event text</text><text x="530" y="33">Rounds: 3|5</text><text x="1060" y="32">Live ranking</text>
+  </g>
+  <g id="score-panel">
+    <rect x="272" y="166" width="736" height="568" fill="white" stroke="black" stroke-width="2"/>
+    <rect x="280" y="174" width="720" height="552" fill="none" stroke="black"/>
+    <rect x="267" y="198" width="746" height="36" fill="white" stroke="black"/>
+    <g font-family="monospace" font-size="32" fill="black">
+      <text x="640" y="223" text-anchor="middle">---SCORE---</text>
+      <g text-anchor="end">
+        <text x="640" y="258">K</text><text x="704" y="258">A</text><text x="768" y="258">D</text><text x="880" y="258">K/D</text><text x="992" y="258">PTS</text>
+      </g>
+      <text x="288" y="290" font-weight="bold">Alpha</text><text x="312" y="322">Ada</text><text x="312" y="354">Amir</text>
+      <text x="288" y="394" font-weight="bold">Bravo</text><text x="312" y="426">Bea</text><text x="312" y="458">Ben</text>
+      <text x="288" y="498" font-weight="bold">Charlie</text><text x="312" y="530">Cora</text><text x="312" y="562">Cole</text>
+      <text x="288" y="602" font-weight="bold">Delta</text><text x="312" y="634">Diego</text><text x="312" y="666">Dina</text>
+      <g text-anchor="end">
+        <text x="640" y="290">4</text><text x="704" y="290">2</text><text x="768" y="290">3</text><text x="880" y="290">1.3</text><text x="992" y="290">12</text>
+        <text x="640" y="322">3</text><text x="704" y="322">1</text><text x="768" y="322">1</text><text x="880" y="322">3.0</text><text x="992" y="322">8</text>
+        <text x="640" y="354">1</text><text x="704" y="354">1</text><text x="768" y="354">2</text><text x="880" y="354">0.5</text><text x="992" y="354">4</text>
+        <text x="640" y="394">2</text><text x="704" y="394">2</text><text x="768" y="394">2</text><text x="880" y="394">1.0</text><text x="992" y="394">6</text>
+        <text x="640" y="426">1</text><text x="704" y="426">1</text><text x="768" y="426">1</text><text x="880" y="426">1.0</text><text x="992" y="426">3</text>
+        <text x="640" y="458">1</text><text x="704" y="458">1</text><text x="768" y="458">1</text><text x="880" y="458">1.0</text><text x="992" y="458">3</text>
+        <text x="640" y="498">2</text><text x="704" y="498">2</text><text x="768" y="498">2</text><text x="880" y="498">1.0</text><text x="992" y="498">6</text>
+        <text x="640" y="530">1</text><text x="704" y="530">1</text><text x="768" y="530">1</text><text x="880" y="530">1.0</text><text x="992" y="530">3</text>
+        <text x="640" y="562">1</text><text x="704" y="562">1</text><text x="768" y="562">1</text><text x="880" y="562">1.0</text><text x="992" y="562">3</text>
+        <text x="640" y="602">2</text><text x="704" y="602">2</text><text x="768" y="602">2</text><text x="880" y="602">1.0</text><text x="992" y="602">6</text>
+        <text x="640" y="634">1</text><text x="704" y="634">1</text><text x="768" y="634">1</text><text x="880" y="634">1.0</text><text x="992" y="634">3</text>
+        <text x="640" y="666">1</text><text x="704" y="666">1</text><text x="768" y="666">1</text><text x="880" y="666">1.0</text><text x="992" y="666">3</text>
+      </g>
+    </g>
+    <g fill="none" stroke="black" stroke-width="2">
+      <path d="M288 366H992 M288 470H992 M288 574H992"/>
+    </g>
+  </g>
+  <g font-family="sans-serif" font-size="18" fill="black">
+    <text x="20" y="932">ANNOTATIONS — not UI. Active shared arena continues; no winner curtain. Tab toggles the existing noninteractive overlay.</text>
+    <text x="20" y="960">Team rows touch their nested rows. Three 8 px bands contain centered 2 px rules with 3 px clear space on each side.</text>
+    <text x="20" y="988">No trailing band. Two/three teams use one/two bands; free-for-all and Predator keep their unchanged ranking structure.</text>
+    <text x="20" y="1016">Outlined surfaces stand for the existing translucent panels and blue heading. Names/values are illustrative; no new overflow recovery.</text>
+  </g>
+</svg>

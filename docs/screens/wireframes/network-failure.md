@@ -1,18 +1,10 @@
 # NET-08 wireframe — Host unreachable
 
-Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro canvas. This wireframe is planned for issue #38 and is not implemented.
+Representative desktop context: 1920 by 1080 px with the scaled 850 by 700 retro canvas.
 
-```text
-┌────────────────────── 850 × 700 logical canvas ──────────────────────┐
-│                         CONNECTION FAILED                            │
-│                                                                      │
-│ Host unreachable.                                                    │
-│ 192.168.1.24:27015                                                   │
-│ Check that the host session is running and the endpoint is correct.  │
-│                                                                      │
-│          [ Retry ] [ Edit setup ] [ Return to Network ]               │
-└──────────────────────────────────────────────────────────────────────┘
-```
+[![NET-08 — Initial direct connection failure](NET-08.svg)](NET-08.svg)
+
+The [functional owner](../network-failure.md) and [NET-08 presentation owner](../../design/screens/NET-08.md) govern exact copy, eligible actions, Password/security variants and selected-origin browser recovery. This SVG converts the existing direct `Host unreachable.` example; it does not replace the current implementation screenshot scenario or imply Retry eligibility for another failure. The earlier planned/unimplemented status is historical. Monochrome shapes and external annotations do not change production styling.
 
 - The screen names the confirmed reason.
 - A guest initial-connection failure preserves the locally entered endpoint context.

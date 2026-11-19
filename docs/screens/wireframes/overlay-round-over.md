@@ -7,29 +7,9 @@ The result retains the undivided shared arena and adds the animated winner-curta
 The bottom-center footer is the only visible round-count location in this state.
 The screen has no mobile layout, so this single desktop wireframe covers the target overlay.
 
-```text
-┌──────────── undivided shared arena under animated dark red curtain ────────────┐
-│ winner event text                                      [no arena round count]   │
-│                                                                                │
-│              ┌────────────────────────────────────────────┐                    │
-│              │                 ---SCORE---                 │ ← 36 px strip      │
-│              │                   K   A   D  K/D  PTS       │                    │
-│              │ Alpha          | team totals               │ ← team row           │
-│              │ Ada, Amir      | aligned nested rows        │ ← one group           │
-│              │ ────────────────────────────────────────── │ ← 2 px rule / 8 px band
-│              │ Bravo + two aligned nested player rows      │                    │
-│              │ ────────────────────────────────────────── │ ← group boundary      │
-│              │ Charlie + two aligned nested player rows    │                    │
-│              │ ────────────────────────────────────────── │ ← group boundary      │
-│              │ Delta + two aligned nested player rows      │ ← no trailing band    │
-│              └────────────────────────────────────────────┘                    │
-│                                                                                │
-│                     next-round input has no visible prompt                      │
-│                          ┌───────────────────┐                                 │
-│                          │    Rounds: 3|5    │ ← measured black backing         │
-│                          └───────────────────┘ ← 16 px above client bottom       │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+[![OVER-02 — Non-final Team round summary, round 3 of 5](OVER-02.svg)](OVER-02.svg)
+
+The monochrome drawing preserves the external counter, score panel and table relationships; the animated dark-red curtain and translucent production surfaces are described in external annotations and [docs/design.md](../../design.md). The [owning non-final screen contract](../overlay-round-over.md) retains authority over exact panel sizing calculations and footer clearance; the SVG is schematic.
 
 The external counter uses the exact format `Rounds: <played>|<total>`.
 The representative `3|5` value includes the completed round and the two rounds completed before resume.

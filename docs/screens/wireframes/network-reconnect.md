@@ -1,21 +1,10 @@
 # NET-07 wireframe — Guest reconnect at 24 seconds
 
-Target representative viewport: 1280 by 900 px with active arena context. This wireframe is planned for issue #38 and is not implemented.
+Representative viewport: 1280 by 900 px with retained arena context.
 
-```text
-┌──────────────────────────── 1280 × 900 client ───────────────────────┐
-│                 active match continues in background                 │
-│            ┌────────────── RECONNECTING ──────────────┐              │
-│            │ Reconnecting to 192.168.1.24:27015…      │              │
-│            │ 24 seconds remaining                     │              │
-│            │ Your player slots are reserved           │              │
-│            │ Match continues while you reconnect      │              │
-│            │ Reserved players receive no input and    │              │
-│            │ remain in play                           │              │
-│            │ [ Leave session ]                        │              │
-│            └───────────────────────────────────────────┘              │
-└──────────────────────────────────────────────────────────────────────┘
-```
+[![NET-07 — Guest reconnect with 24 seconds remaining](NET-07.svg)](NET-07.svg)
+
+The [functional owner](../network-reconnect.md), [NET-07 presentation owner](../../design/screens/NET-07.md) and [unified reconnect presentation](../../design.md#net-07--reconnect-presentation) retain authority. The background is `Last confirmed state`, not live client simulation; the authoritative match continues elsewhere. The SVG's external annotations explain Host/controller substitution, positive countdown and retained context without creating a new state or capture requirement. Earlier planned/unimplemented wording is historical.
 
 - The positive ceiling countdown, continued simulation, reserved-player behavior, and action consequence are textual; active reconnect never shows `0`.
 - `Leave session` opens `Leave session? Your reserved players will be removed now and reconnect will stop.` Confirm enters `NET-01`; Cancel preserves the original deadline.

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1040" viewBox="0 0 1280 1040" role="img" aria-labelledby="title desc">
+  <title id="title">PLAY-05 — Sudden-death rising water</title>
+  <desc id="desc">1280 by 900 undivided shared arena with two remaining players, raised water and a submerged player's air indicator. The water surface reduces the remaining safe space without a sudden-death banner, new action or another camera region. The dashed wave outline is a monochrome structural convention, not production water styling.</desc>
+  <rect width="1280" height="1040" fill="white"/>
+  <g fill="none" stroke="black" stroke-width="2">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <rect x="8" y="8" width="280" height="54"/><rect x="510" y="8" width="260" height="36"/><rect x="1020" y="8" width="252" height="100"/>
+    <path d="M50 380H420V410H50 M470 690H850V720H470Z M40 820H1240"/>
+    <circle cx="250" cy="307" r="10"/><path d="M238 321H262V355L270 380H258L250 360L242 380H230L238 355Z"/><rect x="262" y="329" width="40" height="8"/>
+    <circle cx="620" cy="617" r="10"/><path d="M608 631H632V665L640 690H628L620 670L612 690H600L608 665Z"/><rect x="632" y="639" width="40" height="8"/>
+    <rect x="580" y="590" width="100" height="10"/><rect x="581" y="591" width="39" height="8" fill="black"/>
+    <rect x="760" y="660" width="22" height="22"/>
+    <path d="M40 520Q120 505 200 520T360 520T520 520T680 520T840 520T1000 520T1160 520H1240V820H40Z" stroke-dasharray="8 4"/>
+    <path d="M80 790H340 M890 790H1190" stroke-dasharray="3 8"/>
+  </g>
+  <g font-family="sans-serif" font-size="18" fill="black">
+    <text x="20" y="32">Alice: event text</text><text x="530" y="33">Rounds: 1|3</text>
+    <text x="1032" y="32">Alice</text><text x="1248" y="32" text-anchor="end">8</text>
+    <text x="1032" y="60">Bruno</text><text x="1248" y="60" text-anchor="end">6</text>
+    <text x="224" y="280">Alice</text><text x="594" y="576">Bruno</text>
+  </g>
+  <g font-family="sans-serif" font-size="18" fill="black">
+    <text x="20" y="932">ANNOTATIONS — not UI. Dashed boundary: raised translucent water. Bruno is submerged; the nearby bar shows remaining air.</text>
+    <text x="20" y="960">Water rises in the existing timed discrete steps; safe space shrinks. All remaining players stay visible in the shared level.</text>
+    <text x="20" y="988">No sudden-death banner, stop/reversal control or textual hazard cue is added. Standard HUD and player controls remain available.</text>
+    <text x="20" y="1016">Water appearance, air/life rules and Quick Liquid timing remain in the owning contracts. A still does not specify animation speed.</text>
+  </g>
+</svg>

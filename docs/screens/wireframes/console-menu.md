@@ -2,22 +2,11 @@
 
 Representative viewport: 1920 by 1080 px desktop client.
 The console sits against the top of the visible client area.
-The screen has no mobile layout. This target wireframe includes the planned `MENU-01` four-action footer below the implemented console overlay.
+The screen has no mobile layout. The [current screen contract](../console-menu.md) retains the `MENU-01` four-action footer below the console overlay.
 
-```text
-┌──────────────────────────────── 1920 × 1080 ───────────────────────────────────┐
-│████████████████████ full-width console surface █████████████████████████████████│
-│ startup or command history                                                     │
-│ ...                                                                            │
-│ ... up to 15 visible history rows                                               │
-│================================================================================│ red
-│]_                                                                              │
-│──────────────────────────────── 3 px black edge ────────────────────────────────│
-│ blurred session still │ scaled/keylined three-panel menu │ blurred session still │
-│                                                                                │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+[![CONS-01 — Console over the main menu](CONS-01.svg)](CONS-01.svg)
+
+The SVG is monochrome; external annotations explain the existing opaque console and underlying session background without adding UI. Production styling remains in [docs/design.md](../../design.md).
 
 The console surface is `#EEDD00`.
 The input cursor blinks.

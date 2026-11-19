@@ -1,26 +1,17 @@
 # NET-05 wireframe — Six-player LAN Deathmatch
 
-Target representative viewport: 1280 by 900 px. The gameplay renderer fills the client with one undivided arena. This wireframe is planned for issue #38 and is not implemented.
+Representative viewport: 1280 by 900 px. The gameplay renderer fills the client with one undivided arena.
 
-```text
-┌──────────────────────────── 1280 × 900 client ───────────────────────┐
-│ events             Round 2 | 3              ranking: six players    │
-│                                                                      │
-│                 complete shared LAN arena                            │
-│       P1        P2          P3          P4       P5        P6        │
-│        terrain • hazards • pickups • shots • water                   │
-│                                                                      │
-│ Host • LAN session • Connected         Session only scores           │
-│ Network connection degraded.           Optional scripts disabled    │
-└──────────────────────────────────────────────────────────────────────┘
-```
+[![NET-05 — Local-reference network shared arena](../../design/wireframes/NET-05/NET-05.svg)](../../design/wireframes/NET-05/NET-05.svg)
+
+This reuses the current canonical SVG unchanged. The [functional owner](../network-match.md), [NET-05 presentation owner](../../design/screens/NET-05.md) and [arena parity rules](../../design.md#local-and-network-arena-parity) govern current world/HUD relationships and role/hosting status. Structural variants remain [NET-05-W waiting](../../design/wireframes/NET-05/NET-05-W.svg), [NET-05-C confirmation](../../design/wireframes/NET-05/NET-05-C.svg), [NET-05-S active score](../../design/wireframes/NET-05/NET-05-S.svg) and [NET-05-R non-final result](../../design/wireframes/NET-05/NET-05-R.svg). The earlier planned/unimplemented status is historical; schematic rows do not change the existing six-player representative or evidence obligations.
 
 - Existing arena, ranking, progress, event, and player-status presentation remains available.
 - Compact textual network status does not obscure play or create player-specific views.
 - Guest `Leave session` and host `End session` use consequence panels with Confirm and Cancel over this unchanged arena.
 - Every unexpected host failure remains in guest `NET-07` through the fixed deadline; only a valid intentional End session notice accepted through the established session uses `NET-09`.
 - Active-round batches evaluate one winner condition and may create `Session only • Interrupted • No winner`; non-final summaries preserve completed rounds before continue/interruption. Degraded-host-only continuation and other variants remain in the specification.
-- A round-result variant uses the existing summary language over this arena.
+- Non-final limited-round results use the Local Play OVER-02 score core and external bottom-center counter under [NET-05-R](../../design/screens/NET-05.md#non-final-round-summary-parity), retaining network outcome/countdown, ranking navigation and role-specific controls.
 - The round-result variant shows `World active • 1s` before `Round frozen • Next round in 5s`.
 - The countdown advances automatically.
 - Only the host sees enabled `Advance round` and `End session` actions.
@@ -29,7 +20,7 @@ Target representative viewport: 1280 by 900 px. The gameplay renderer fills the 
 - Compact status states that optional scripts are disabled and results are session-only.
 - The degraded-network state is a variant of this wireframe and is not a new screen.
 - The representative variant shows the exact persistent text `Network connection degraded.` while complete canonical updates continue.
-- The bottom status region uses a 16 px client-edge inset and standard 16 px gameplay text.
+- During live play, the bottom status region uses a 16 px client-edge inset and standard 16 px gameplay text. Non-final limited-round summaries alone raise status/actions above the bottom-center counter under the NET-05-R footer layout, retaining side insets.
 - The bottom status region keeps 4 px of clear inner space around its text.
 - The left status group contains role, LAN scope, connection state, and the degraded indication.
 - The right status group contains result scope and script policy.
