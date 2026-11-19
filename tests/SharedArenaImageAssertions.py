@@ -399,9 +399,11 @@ def assert_shared_final_body(data, label, players, teams, scroll=0):
     body_left = (WIDTH - panel_width) // 2 + 16
     viewport_left = body_left + 16
     viewport_width = panel_width - 72
-    # Existing native fixtures use short names, K/A/D/K/D/PTS and the complete
-    # "Player / team" heading. Width includes padding and five 16px pipe glyphs.
-    table_width = 544
+    # Short fixture names fit under "Player / team". Each numeric cell reserves
+    # a pipe and padding (32px). Person preserves the leading space in " 0.00",
+    # so K/D needs 112px, not the 96px of an unpadded "0.00": total width 560px.
+    name_width = len("Player / team") * 16 + 16
+    table_width = name_width + 3 * (16 + 32) + len(" 0.00") * 16 + 32 + len("PTS") * 16 + 32
     left = viewport_left + (viewport_width - table_width) // 2
     right = left + table_width
     header = fraction(region_pixels(data, body_left, 24, body_left + 100, 52),

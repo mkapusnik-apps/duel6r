@@ -356,7 +356,7 @@ class SharedFinalTests(unittest.TestCase):
 
     def test_final_classifier_rejects_missing_notice_rows_and_nonfinal_shell(self):
         for missing, box in (("notice", (536, 836, 208, 48)),
-                             ("row", (364, 234, 224, 32)),
+                             ("row", (356, 234, 224, 32)),
                              ("title", (50, 18, 1180, 40))):
             with self.subTest(missing=missing):
                 frame = self.completed_frame()
@@ -372,7 +372,7 @@ class SharedFinalTests(unittest.TestCase):
                 offset = (row * images.WIDTH + x) * 3
                 frame[offset:offset + width * 3] = bytes(color) * width
         fill(50, 18, 1180, 40, (0, 0, 255))
-        left, width = 364, 544
+        left, width = 356, 560
         fill(left, 166, width, 36, (0, 0, 255))
         self.paint_text(frame, "---SCORE---", left + (width - 176) // 2, 166, "blue")
         y = 234 - scroll
@@ -406,7 +406,7 @@ class SharedFinalTests(unittest.TestCase):
     def test_missing_row_is_rejected(self):
         frame = self.frame(15, 0)
         for y in range(234, 266):
-            offset = (y * images.WIDTH + 364) * 3
+            offset = (y * images.WIDTH + 356) * 3
             frame[offset:offset + 224 * 3] = bytes(224 * 3)
         with self.assertRaisesRegex(AssertionError, "identity row missing"):
             images.assert_shared_final_body(frame, "missing", 15, 0)
@@ -414,15 +414,15 @@ class SharedFinalTests(unittest.TestCase):
     def test_missing_separator_is_rejected(self):
         frame = self.frame()
         for y in range(397, 399):
-            offset = (y * images.WIDTH + 364) * 3
-            frame[offset:offset + 544 * 3] = bytes(544 * 3)
+            offset = (y * images.WIDTH + 356) * 3
+            frame[offset:offset + 560 * 3] = bytes(560 * 3)
         with self.assertRaisesRegex(AssertionError, "separator"):
             images.assert_shared_final_body(frame, "missing", 15, 4)
 
     def test_a_small_swatch_cannot_replace_the_full_team_row(self):
         frame = self.frame()
-        ScoreClosureTests.paint_box(frame, 364, 234, 544, 32, (0, 0, 0))
-        ScoreClosureTests.paint_box(frame, 372, 239, 12, 10, (255, 0, 0))
+        ScoreClosureTests.paint_box(frame, 356, 234, 560, 32, (0, 0, 0))
+        ScoreClosureTests.paint_box(frame, 364, 239, 12, 10, (255, 0, 0))
         with self.assertRaisesRegex(AssertionError, "team fill missing"):
             images.assert_shared_final_body(frame, "missing", 15, 4)
 
