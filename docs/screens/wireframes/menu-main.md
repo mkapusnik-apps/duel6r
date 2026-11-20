@@ -14,8 +14,8 @@ Both wireframes show one consolidated Persons list in place of the separate Elo 
 The non-Team representative state uses eight saved people and eight selected players.
 The Teams representative state may use six selected players because player count does not change this refinement.
 The screen specification defines ranked, unranked, roster-member, and selection variants.
-The current implementation captures must use the implemented three-action footer.
-The four-action footer remains a target variant for issue #38.
+The current four-action footer follows the [owning screen contract](../menu-main.md).
+Earlier three-action implementation and capture guidance is historical only.
 Both conditional-layout wireframes remain necessary because a mode change changes the visible Players panel controls and the Game Settings layout.
 Both wireframes show the Persons list expanded by one standard list row and the person-name row lowered by the same amount.
 Both wireframes show `Detect All` for batch controller detection and `D` for row-level detection.
@@ -44,33 +44,7 @@ Each footer button uses `y=630`, a width of 150 px, and a height of 50 px.
 
 Representative setup: Select `Teams`, set `Num. of Team` to `4`, set `Friendly Fire` on, and then select `Deathmatch`.
 
-```text
-┌──────────────────────────── 1920 × 1080 client ────────────────────────────┐
-│                blurred gameplay still + 55% black scrim                   │
-│        ┌──────────────────── 850 × 700 canvas ────────────────────┐        │
-│        │                   [animated banner 200×95]                │        │
-│        │                         version <runtime>                 │        │
-│        │                                                          │        │
-│        │┌────────── PERSONS 315 ──────────┐5px┌───────── PLAYERS 8 / 315 ─────────┐5px┌ GAME SETTINGS 190 ┐│
-│        ││Rank │ Name          │ Elo  │ Trend  ││name │ controller │ D ││Mode Deathmatch││
-│        ││01   │ Alice         │ 1264 │ +18    ││Alice│ K1: Arrows │ D ││☑ Assistance  ││
-│        ││02   │ Bruno         │ 1218 │ -7     ││Bruno│ K1: Arrows │ D ││☑ Quick Liquid ││
-│        ││     │ Cora          │      │        ││                      ││☑ Burnable Trees││
-│        ││     │ Diego         │      │        ││                      ││Rounds [3___]  ││
-│        ││     │ Erin … Hana   │      │        ││… 6 more roster rows  ││               ││
-│        ││     │ additional standard list row    ││                      ││               ││
-│        ││[person name________________] [Add]   │                      ││               ││
-│        ││[Remove]                       [>>] │[<<]              [Detect All]││               ││
-│        │└─────────────────────────────────────┘└──────────────────────┘└───────────────┘│
-│        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
-│        │┌──────────────── persistent statistics table ───────────────────┐│
-│        ││ compact rows; horizontal content remains inside the canvas     ││
-│        │└────────────────────────────────────────────────────────────────┘│
-│        │[Play (F1)] [Network (F2)] [Clear (F3)] [Quit (ESC)]              │
-│        └──────────────────────────────────────────────────────────────────┘
-│                same session-selected background remains visible           │
-└───────────────────────────────────────────────────────────────────────────┘
-```
+[![MENU-01-A — Non-Team session setup](../../design/wireframes/MENU-01/MENU-01-A.svg)](../../design/wireframes/MENU-01/MENU-01-A.svg)
 
 `Num. of Team` and `Friendly Fire` must not appear in `MENU-01-A`.
 `Equalize` and `Shuffle` must not appear in `MENU-01-A`.
@@ -85,38 +59,17 @@ The Cora row must show the standard selected-row treatment.
 
 Representative setup: Select `Teams` with six selected players, `Num. of Team` set to `2`, Friendly Fire off, and Rounds `0`.
 
-```text
-┌──────────────────────────── 1920 × 1080 client ────────────────────────────┐
-│                blurred gameplay still + 55% black scrim                   │
-│        ┌──────────────────── 850 × 700 canvas ────────────────────┐        │
-│        │                   [animated banner 200×95]                │        │
-│        │                         version <runtime>                 │        │
-│        │┌────────── PERSONS 315 ──────────┐5px┌───────── PLAYERS 6 / 315 ─────────┐5px┌ GAME SETTINGS 190 ┐│
-│        ││Rank │ Name          │ Elo  │ Trend  ││Alice  Alpha red  │ D ││Mode Teams      ││
-│        ││01   │ Alice         │ 1264 │ +18    ││Bruno  Bravo green│ D ││Num. of Team [2]││
-│        ││02   │ Bruno         │ 1218 │ -7     ││                      ││☐ Friendly Fire ││
-│        ││     │ Cora          │      │        ││                      ││☑ Assistance    ││
-│        ││     │ Diego         │      │        ││                      ││☑ Quick Liquid  ││
-│        ││     │ Erin … Hana   │      │        ││… rows repeat colors  ││☑ Burnable Trees││
-│        ││     │ additional standard list row    ││                      ││               ││
-│        ││[person name________________] [Add]   │                      ││Rounds [value]  ││
-│        ││[Remove]                       [>>] │[<<] [Equalize] [Shuffle] [Detect All]│             ││
-│        │└─────────────────────────────────────┘└──────────────────────┘└────────────────┘│
-│        │ Name | Elo | Pts | Win | Kill | Assist | Pen | Death | K/D | Shot | Acc. | GmTm | Dmg│
-│        │┌──────────────── persistent statistics table ───────────────────┐│
-│        │└────────────────────────────────────────────────────────────────┘│
-│        │[Play (F1)] [Network (F2)] [Clear (F3)] [Quit (ESC)]              │
-│        └──────────────────────────────────────────────────────────────────┘
-└───────────────────────────────────────────────────────────────────────────┘
-```
+[![MENU-01-B — Teams session setup](../../design/wireframes/MENU-01/MENU-01-B.svg)](../../design/wireframes/MENU-01/MENU-01-B.svg)
 
-The team names in this text wireframe identify the required color sequence.
+The SVG's external team-color annotation identifies the required color sequence.
 The implementation does not need to add team-name text to each roster row.
 All seven visible Game Settings controls must stay inside the existing panel bounds.
 The controls must use one compact vertical stack without overlap.
 Selection feedback remains a documented state variant.
 
 ## Component and state notes
+
+The SVGs use monochrome structural shapes and external annotations. Production colors, typography, bevels and background treatment remain owned by [docs/design.md](../../design.md); the conversion adds no UI labels or controls.
 
 - The blurred, scrimmed gameplay still must remain visible on each side of the scaled canvas at the representative viewport.
 - The canvas and all internal content and bevels must scale uniformly to 135%; pointer mapping must use the inverse transform.
@@ -200,8 +153,7 @@ Selection feedback remains a documented state variant.
 - The footer captions must put the action before the shortcut.
 - Footer button widths, three internal gaps, and two outer margins must remain equal as specified above at every uniformly scaled viewport.
 - `Play (F1)` remains the independent local-only action; `Network (F2)` is a distinct target action leading to `NET-01`.
-- Issue #28 specifies this footer layout but does not implement it. The current application still has the three-action footer.
-- The current representative screenshot must use the three-action footer and must not wait for issue #38.
+- Historical footer status: issue #28 specified this layout before issue #38 implemented the Network action. The former three-action capture restriction no longer defines current presentation.
 - The banner must use `resources/textures/menu/` and may animate.
 - The version must use the current runtime value and must not use the Stitch sample value.
 - Sample names and statistics must not become hard-coded UI content.
@@ -232,4 +184,4 @@ The PR #62 Teams and non-Team artifacts are historical because they show `<<` in
 The current PR #69 Teams and non-Team artifacts conform at assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
 The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
-Issue #38 must replace these screenshots when it implements the target footer variant.
+Historical capture instruction: issue #38 was to replace these screenshots when it implemented the target footer variant. The linked screenshot manifest owns current artifact status and provenance.

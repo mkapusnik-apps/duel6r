@@ -1,26 +1,10 @@
 # NET-04 wireframe — Host waiting in lobby
 
-Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro canvas. Representative data is 3 participants, 6 players, and one unready guest. This wireframe is planned for issue #38 and is not implemented.
+Representative desktop context: 1920 by 1080 px with the scaled 850 by 700 retro canvas. The existing representative scenario below uses 3 participants, 6 players and one unready guest; the canonical SVG uses schematic example rows, not a replacement capture fixture.
 
-```text
-┌────────────────────── 850 × 700 logical canvas ──────────────────────┐
-│ NETWORK LOBBY • Host • 192.168.1.24:27015                            │
-│ 3 participants • 6 players                                          │
-│ ┌ PARTICIPANTS / AUTHORITATIVE ROSTER ┐ ┌ HOST MATCH SETTINGS ────┐ │
-│ │ Role  Connection  Readiness  Owned   │ │ Deathmatch              │ │
-│ │ Host  Connected   Ready      2       │ │ Level plan / rounds     │ │
-│ │ Guest Connected   Ready      2       │ │ Roster order controls   │ │
-│ │ Guest Connected   Not ready  2       │ │ Assist / Liquid / Trees │ │
-│ │ Roster: 1 Ada • Host • Keyboard [edit]│ │                        │ │
-│ │         2 Cora • Guest 1 • Control 1 │ │                        │ │
-│ │         … 6 Emi • Guest 2 • Keyboard │ │                        │ │
-│ └─────────────────────────────────────┘ └──────────────────────────┘ │
-│                                                                      │
-│ [ Ready ] [ Start match — disabled ] [ End session ]                 │
-│ Waiting for Guest 2 to be ready                                     │
-│ Optional scripts are disabled for network play.                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
+[![NET-04 — Current lobby structure](../../design/wireframes/NET-04/NET-04.svg)](../../design/wireframes/NET-04/NET-04.svg)
+
+This reuses the current canonical SVG unchanged. The [functional owner](../network-lobby.md) and [NET-04 presentation owner](../../design/screens/NET-04.md) govern current aligned membership/settings regions, owned versus read-only controls, hosting-specific context, publication feedback and eligible solo Start. The earlier planned/unimplemented status and old row allocation are historical; this format conversion changes no scenario, permission or evidence status.
 
 - Role, Connection, Readiness, and owned-player count occupy separate textual columns.
 - Every roster slot shows its authoritative position, owner, person, and control.

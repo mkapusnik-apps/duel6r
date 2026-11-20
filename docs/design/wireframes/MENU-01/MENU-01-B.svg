@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1240" viewBox="0 0 1920 1240" role="img" aria-labelledby="title desc">
+  <title id="title">MENU-01-B — Teams session setup</title>
+  <desc id="desc">1920 by 1080 desktop client with the same scaled 850 by 700 menu as MENU-01-A. Eight saved persons and six selected players illustrate Teams, two teams, Friendly Fire off and Rounds zero. Team settings appear in one compact stack; Equalize and Shuffle form a centered group between the Players edge actions. Team colors are described outside the UI rather than replaced by invented roster badges.</desc>
+  <rect width="1920" height="1240" fill="white"/>
+  <rect x="1" y="1" width="1918" height="1078" fill="none" stroke="black" stroke-width="2"/>
+  <g transform="translate(386 67) scale(1.35)" font-family="sans-serif" font-size="16" fill="black">
+    <rect width="850" height="700" fill="white" stroke="black" stroke-width="2"/>
+    <g fill="none" stroke="black">
+      <rect x="325" y="5" width="200" height="95"/>
+      <rect x="10" y="122" width="315" height="325"/>
+      <rect x="330" y="122" width="315" height="325"/>
+      <rect x="650" y="122" width="190" height="325"/>
+      <path d="M10 140H325 M330 140H645 M650 140H840"/>
+      <rect x="16" y="146" width="303" height="224"/>
+      <path d="M16 162H319 M50 146V370 M190 146V370 M244 146V370"/>
+      <rect x="16" y="378" width="249" height="25"/><rect x="273" y="378" width="46" height="25"/>
+      <rect x="16" y="412" width="70" height="25"/><rect x="287" y="412" width="32" height="25"/>
+      <rect x="336" y="146" width="303" height="240"/>
+      <rect x="336" y="412" width="32" height="25"/><rect x="549" y="412" width="90" height="25"/>
+      <rect x="380" y="412" width="78" height="25"/><rect x="466" y="412" width="70" height="25"/>
+      <rect x="656" y="148" width="178" height="24"/><path d="M674 148V172 M816 148V172"/>
+      <rect x="762" y="180" width="72" height="24"/><path d="M780 180V204 M816 180V204"/>
+      <rect x="658" y="216" width="16" height="16"/>
+      <rect x="658" y="248" width="16" height="16"/><rect x="658" y="280" width="16" height="16"/><rect x="658" y="312" width="16" height="16"/>
+      <path d="M660 252L665 259L672 250 M660 284L665 291L672 282 M660 316L665 323L672 314"/>
+      <rect x="722" y="344" width="110" height="24"/>
+      <rect x="10" y="457" width="830" height="149"/><path d="M10 480H840"/>
+      <rect x="56" y="630" width="150" height="50"/><rect x="252" y="630" width="150" height="50"/>
+      <rect x="448" y="630" width="150" height="50"/><rect x="644" y="630" width="150" height="50"/>
+    </g>
+    <text x="425" y="58" text-anchor="middle">Animated banner</text><text x="425" y="116" text-anchor="middle">version &lt;runtime&gt;</text>
+    <text x="18" y="136">PERSONS</text><text x="338" y="136">PLAYERS 6</text><text x="658" y="136">GAME SETTINGS</text>
+    <g font-size="12">
+      <text x="20" y="158">Rank</text><text x="56" y="158">Name</text><text x="196" y="158">Elo</text><text x="250" y="158">Trend</text>
+      <text x="20" y="176">01</text><text x="56" y="176">Alice</text><text x="196" y="176">1264</text><text x="250" y="176">+18</text>
+      <text x="20" y="192">02</text><text x="56" y="192">Bruno</text><text x="196" y="192">1218</text><text x="250" y="192">-7</text>
+      <rect x="17" y="196" width="301" height="16" fill="black"/><text x="56" y="208" fill="white">Cora</text>
+      <text x="56" y="224">Diego</text><text x="56" y="240">Erin</text><text x="56" y="256">Filip</text><text x="56" y="272">Gina</text><text x="56" y="288">Hana</text>
+      <text x="342" y="159">Alice</text><text x="342" y="175">Bruno</text><text x="342" y="191">Cora</text><text x="342" y="207">Diego</text><text x="342" y="223">Erin</text><text x="342" y="239">Filip</text>
+    </g>
+    <g fill="none" stroke="black">
+      <path d="M420 146H600V242H420Z M438 146V242 M582 146V242 M420 162H600 M420 178H600 M420 194H600 M420 210H600 M420 226H600"/>
+      <path d="M608 146H638V242H608Z M608 162H638 M608 178H638 M608 194H638 M608 210H638 M608 226H638"/>
+      <rect x="310" y="164" width="6" height="202"/><rect x="311" y="165" width="4" height="80" fill="black"/>
+    </g>
+    <g font-size="12" text-anchor="middle">
+      <text x="429" y="159">‹</text><text x="510" y="159">K1: Arrows</text><text x="591" y="159">›</text><text x="623" y="159">D</text>
+      <text x="429" y="175">‹</text><text x="510" y="175">K1: Arrows</text><text x="591" y="175">›</text><text x="623" y="175">D</text>
+      <text x="429" y="191">‹</text><text x="510" y="191">K2: WSAD</text><text x="591" y="191">›</text><text x="623" y="191">D</text>
+      <text x="429" y="207">‹</text><text x="510" y="207">Keyboard</text><text x="591" y="207">›</text><text x="623" y="207">D</text>
+      <text x="429" y="223">‹</text><text x="510" y="223">Keyboard</text><text x="591" y="223">›</text><text x="623" y="223">D</text>
+      <text x="429" y="239">‹</text><text x="510" y="239">Controller 1</text><text x="591" y="239">›</text><text x="623" y="239">D</text>
+    </g>
+    <text x="296" y="396" text-anchor="middle" font-size="14">Add</text>
+    <g text-anchor="middle" font-size="14">
+      <text x="51" y="430">Remove</text><text x="303" y="430">&gt;&gt;</text><text x="352" y="430">&lt;&lt;</text>
+      <text x="419" y="430">Equalize</text><text x="501" y="430">Shuffle</text><text x="594" y="430">Detect All</text>
+      <text x="665" y="166">‹</text><text x="745" y="166">Teams</text><text x="825" y="166">›</text>
+      <text x="771" y="198">‹</text><text x="798" y="198">2</text><text x="825" y="198">›</text>
+    </g>
+    <g font-size="14">
+      <text x="658" y="198">Num. of Team</text><text x="682" y="230">Friendly Fire</text>
+      <text x="682" y="262">Assistance</text><text x="682" y="294">Quick Liquid</text><text x="682" y="326">Burnable Trees</text>
+      <text x="658" y="362">Rounds</text><text x="730" y="362">0</text>
+    </g>
+    <g font-size="12">
+      <text x="18" y="473">Name</text><text x="130" y="473">Elo</text><text x="184" y="473">Pts</text><text x="230" y="473">Win</text><text x="274" y="473">Kill</text><text x="316" y="473">Assist</text>
+      <text x="372" y="473">Pen</text><text x="414" y="473">Death</text><text x="472" y="473">K/D</text><text x="520" y="473">Shot</text><text x="570" y="473">Acc.</text><text x="626" y="473">GmTm</text><text x="704" y="473">Dmg</text>
+      <text x="18" y="501">Alice</text><text x="130" y="501">1264</text><text x="184" y="501">24</text><text x="230" y="501">3</text><text x="274" y="501">18</text><text x="316" y="501">4</text><text x="372" y="501">1</text><text x="414" y="501">12</text><text x="472" y="501">1.5</text><text x="520" y="501">90</text><text x="570" y="501">60%</text><text x="626" y="501">12:30</text><text x="704" y="501">1800</text>
+    </g>
+    <g text-anchor="middle" font-size="16">
+      <text x="131" y="660">Play (F1)</text><text x="327" y="660">Network (F2)</text><text x="523" y="660">Clear (F3)</text><text x="719" y="660">Quit (ESC)</text>
+    </g>
+  </g>
+  <g font-family="sans-serif" font-size="20" fill="black">
+    <text x="24" y="1116">ANNOTATIONS — not UI. Same session background, centered 135% canvas, panel bounds and action-row positions as MENU-01-A.</text>
+    <text x="24" y="1144">Players use alternating Alpha red / Bravo green row colors for two teams; monochrome omits production colors, not team assignment.</text>
+    <text x="24" y="1172">Cora remains selected in Persons. No roster badge or team label is added to person rows or player rows.</text>
+    <text x="24" y="1200">Equalize and Shuffle are centered between &lt;&lt; and Detect All. All six bottom setup actions share one height and caption clearance.</text>
+    <text x="24" y="1228">Eight saved persons, six roster players, two teams, Friendly Fire off and Rounds 0. Lists scroll for overflow; production styling remains unchanged.</text>
+  </g>
+</svg>

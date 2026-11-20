@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1040" viewBox="0 0 1280 1040" role="img" aria-labelledby="title desc">
+  <title id="title">NET-09 — Confirmed intentional host-ended session</title>
+  <desc id="desc">1280 by 900 client. A centered 640-pixel blocking panel overlays the last confirmed arena and explains an accepted intentional host End session notice. Return to Network is the sole action and has initial focus. Match context includes the no-local-persistence statement. Lobby context omits that statement. There is no countdown, migration, save or resume action.</desc>
+  <rect width="1280" height="1040" fill="white"/>
+  <g fill="none" stroke="black" stroke-width="2">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <rect x="8" y="8" width="280" height="54"/><rect x="510" y="8" width="260" height="36"/><rect x="1020" y="8" width="252" height="100"/>
+    <path d="M50 400H280V430H50 M990 680H1230V710H990 M40 820H1240"/>
+    <circle cx="190" cy="327" r="10"/><path d="M178 341H202V375L210 400H198L190 380L182 400H170L178 375Z"/><rect x="202" y="349" width="40" height="8"/>
+    <circle cx="1090" cy="607" r="10"/><path d="M1078 621H1102V655L1110 680H1098L1090 660L1082 680H1070L1078 655Z"/>
+    <path d="M40 765Q120 750 200 765T360 765T520 765T680 765T840 765T1000 765T1160 765H1240V820H40Z" stroke-dasharray="8 4"/>
+  </g>
+  <g font-family="sans-serif" font-size="18" fill="black">
+    <text x="20" y="32">Player: event text</text><text x="530" y="33">Rounds: 1|3</text><text x="1032" y="32">Live ranking</text><text x="24" y="858">Last confirmed state</text>
+  </g>
+  <g id="intentional-end-panel" font-family="sans-serif" font-size="16" fill="black">
+    <rect x="320" y="300" width="640" height="300" fill="white" stroke="black" stroke-width="2"/>
+    <rect x="322" y="302" width="636" height="22" fill="none" stroke="black"/>
+    <text x="336" y="319">HOST ENDED SESSION</text>
+    <text x="344" y="364">The host ended the session.</text>
+    <text x="344" y="398">This session cannot be resumed.</text>
+    <text x="344" y="440">Session-only results were not saved to</text>
+    <text x="344" y="460">local statistics or Elo.</text>
+    <rect x="342" y="522" width="596" height="44" fill="none" stroke="black" stroke-width="2"/>
+    <rect x="344" y="524" width="592" height="40" fill="none" stroke="black"/>
+    <text x="640" y="549" text-anchor="middle">Return to Network</text>
+  </g>
+  <g font-family="sans-serif" font-size="18" fill="black">
+    <text x="20" y="932">ANNOTATIONS — not UI. Only a valid accepted intentional-end notice selects this state; silence, crash or timeout does not.</text>
+    <text x="20" y="960">Retain the last lobby, arena, common summary or reconnect context. Lobby omits the match-result persistence statement.</text>
+    <text x="20" y="988">Maximum panel width: 640 px; minimum client-edge clearance: 16 px. Wrapped copy never covers the title or focused sole action.</text>
+    <text x="20" y="1016">No countdown, election, resume, Save or Continue action. A dedicated controller end does not imply that the service process stopped.</text>
+  </g>
+</svg>

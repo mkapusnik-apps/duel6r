@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1040" viewBox="0 0 1280 1040" role="img" aria-labelledby="title desc">
+  <title id="title">MODE-02 — Team gameplay and grouped live ranking</title>
+  <desc id="desc">1280 by 900 shared arena with two teams and four players. Named team rows contain nested player ranking rows. All four players remain in the same level. Apparel color overrides and additional team-count variants are explained outside the UI; no in-world team badge or new control is added.</desc>
+  <defs>
+    <g id="player" fill="black">
+      <circle cy="-73" r="10"/><path d="M-12-59H12V-25L20 0H8L0-20L-8 0H-20L-12-25Z"/><rect x="12" y="-51" width="40" height="8"/>
+    </g>
+  </defs>
+  <rect width="1280" height="1040" fill="white"/>
+  <g fill="none" stroke="black" stroke-width="2">
+    <rect x="1" y="1" width="1278" height="898"/>
+    <rect x="8" y="8" width="280" height="54"/><rect x="510" y="8" width="260" height="36"/>
+    <rect x="970" y="8" width="302" height="190"/><path d="M970 102H1272"/>
+    <path d="M50 380H400V410H50 M470 570H850V600H470Z M910 680H1230V710H910 M40 820H1240"/>
+    <path d="M40 765Q120 750 200 765T360 765T520 765T680 765T840 765T1000 765T1160 765H1240V820H40Z" stroke-dasharray="8 4"/>
+  </g>
+  <g font-family="sans-serif" font-size="18" fill="black">
+    <text x="20" y="32">Ada: You picked up gun laser</text><text x="530" y="33">Rounds: 1|3</text>
+    <text x="982" y="32" font-weight="bold">Alpha</text><text x="1248" y="32" text-anchor="end">12</text>
+    <text x="1006" y="60">Ada</text><text x="1248" y="60" text-anchor="end">8</text><text x="1006" y="88">Amir</text><text x="1248" y="88" text-anchor="end">4</text>
+    <text x="982" y="128" font-weight="bold">Bravo</text><text x="1248" y="128" text-anchor="end">9</text>
+    <text x="1006" y="156">Bea</text><text x="1248" y="156" text-anchor="end">6</text><text x="1006" y="184">Ben</text><text x="1248" y="184" text-anchor="end">3</text>
+    <text x="174" y="270">Ada</text><text x="284" y="270">Amir</text><text x="604" y="460">Bea</text><text x="1064" y="570">Ben</text>
+  </g>
+  <use href="#player" x="190" y="380"/><use href="#player" x="300" y="380"/><use href="#player" x="620" y="570"/><use href="#player" x="1080" y="680"/>
+  <g font-family="sans-serif" font-size="18" fill="black">
+    <text x="20" y="932">ANNOTATIONS — not UI. Two-team example: Ada/Amir are Alpha; Bea/Ben are Bravo. Three/four teams add ranking groups.</text>
+    <text x="20" y="960">Team colors override headband, trousers and hair top; production Alpha red / Bravo green are not replaced by new badges.</text>
+    <text x="20" y="988">Named team rows and nested players supplement color. Teams and players sort by points under the existing rules.</text>
+    <text x="20" y="1016">All players, terrain, water, events and status remain in one undivided arena. This is not a separate Team viewport model.</text>
+  </g>
+</svg>

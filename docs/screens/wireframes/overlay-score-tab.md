@@ -4,26 +4,9 @@ Representative viewport: 1280 by 900 debug client.
 The panel size depends on name length, ranking row count, and Team group count.
 The screen has no mobile layout, so this single desktop wireframe covers the implemented centered overlay.
 
-```text
-┌────────────────── one undivided live shared arena continues ───────────────────┐
-│                                                                                │
-│                 ┌──────────────────────────────────────┐                       │
-│                 │              ---SCORE---             │ blue header strip     │
-│                 │                 K   A   D  K/D  PTS   │                       │
-│                 │ Alpha        |  4 | 2 | 3 | 1.3 | 12│ ← team row            │
-│                 │ Ada          |  3 | 1 | 1 | 3.0 | 8 │   nested player       │
-│                 │ Amir         |  1 | 1 | 2 | 0.5 | 4 │   nested player       │
-│                 │ ──────────────────────────────────── │ ← 2 px rule in 8 px band
-│                 │ Bravo       + two nested players     │ ← contiguous group    │
-│                 │ ──────────────────────────────────── │ ← 8 px boundary       │
-│                 │ Charlie     + two nested players     │ ← contiguous group    │
-│                 │ ──────────────────────────────────── │ ← 8 px boundary       │
-│                 │ Delta       + two nested players     │ ← no trailing band    │
-│                 └──────────────────────────────────────┘                       │
-│                    translucent white outer + blue inner                        │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+[![OVER-01 — Active-round Team score overlay](../../design/wireframes/OVER-01/OVER-01.svg)](../../design/wireframes/OVER-01/OVER-01.svg)
+
+Monochrome panel outlines represent the existing translucent white outer surface, blue inner surface and blue heading strip. External annotations are not UI. The [owning screen contract](../overlay-score-tab.md) and [design system](../../design.md) retain exact sizing calculations, production appearance and noninteractive overlay behavior; the SVG is schematic.
 
 No winner curtain appears in this state.
 The representative Team state uses four teams and two nested players per team.

@@ -1,22 +1,10 @@
 # NET-03 wireframe — Join connecting
 
-Target representative viewport: 1920 by 1080 px with the scaled 850 by 700 retro canvas. This wireframe is planned for issue #38 and is not implemented.
+Representative desktop context: 1920 by 1080 px with the scaled 850 by 700 retro canvas. The SVG depicts logical-canvas relationships with external annotation space.
 
-```text
-┌────────────────────── 850 × 700 logical canvas ──────────────────────┐
-│                         JOIN NETWORK SESSION                         │
-│ Hostname or address [127.0.0.1________]  Port [26660]                 │
-│                                                                      │
-│ ┌──────── LOCAL PLAYERS 2 ─────────────────────────────────────────┐ │
-│ │ Ada             Keyboard                                        │ │
-│ │ Bruno           Controller 1                                    │ │
-│ └──────────────────────────────────────────────────────────────────┘ │
-│                                                                      │
-│                 Connecting to 127.0.0.1:26660…                       │
-│                 Connection deadline: 10 seconds total                │
-│                         [ Cancel ]                                   │
-└──────────────────────────────────────────────────────────────────────┘
-```
+[![NET-03 — Locked connecting task](../../design/wireframes/NET-03/NET-03.svg)](../../design/wireframes/NET-03/NET-03.svg)
+
+This reuses the current canonical SVG unchanged. The [functional owner](../network-join.md) and [NET-03 presentation owner](../../design/screens/NET-03.md) govern common optional/required Password, selector-free Direct and locked selected-session context. Editable structural variants remain [NET-03-P common Direct](../../design/wireframes/NET-03/NET-03-P.svg), [NET-03-E selected player-hosted](../../design/wireframes/NET-03/NET-03-E.svg) and [NET-03-B selected dedicated](../../design/wireframes/NET-03/NET-03-B.svg). Connecting does not show credential text or promise a role. The earlier planned/unimplemented status is historical.
 
 - The endpoint and two local players remain visible while the attempt is pending.
 - The representative setup uses a project-local host process bound to `127.0.0.1:26660` that accepts the connection and withholds a complete terminal admission result until after capture.
