@@ -6346,6 +6346,18 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
         round.rosterOrder = {11, 12};
         result.rounds.push_back(std::move(round));
     }
+    using Detail = std::pair<std::string, std::string>;
+    std::map<std::string, std::vector<Detail>> requiredDetails{
+        {"Outcome identities", {{"Match", "No winner"}}},
+        {"MATCH SETTINGS", {{"Mode", "Deathmatch"}, {"Teams", "0"}, {"Friendly fire", "Off"},
+            {"Assistance", "Off"}, {"Quick Liquid", "Off"}, {"Burnable Trees", "On"},
+            {"Level plan", "Fixed level"}, {"Round limit", "2"}, {"Seed", "1234"},
+            {"Optional scripts", "Disabled"}}},
+    };
+    for (int round = 1; round <= 2; ++round)
+        requiredDetails["ROUND " + std::to_string(round)] = {
+            {"Level", "Duel 01"}, {"Orientation", "Normal"}, {"Outcome", "No winner"},
+            {"Roster", "Ada / Player 11"}, {"Roster", "Bea / Player 12"}};
     const auto serialized = A::serializeSessionResult(result);
     D6R_REQUIRE(serialized);
     auto state = canonical(91, R::Phase::FinalSummary);
@@ -6360,8 +6372,103 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
         D6R_REQUIRE_EQ(64, initial.layout.rows.height); // 32px header + two rows:96px viewport.
         D6R_REQUIRE(initial.bounds.vertical > 0 && initial.bounds.horizontal > 0);
         const auto plan = [&] { return f.menu.finalSummaryPlan(f.menu.runtime.snapshot()); };
+        const auto wheel = [&](int direction, int horizontal = 0) {
+            f.application.mouseWheelEvent(f.menu, MouseWheelEvent(425, 350, horizontal, -direction));
+        };
+        const auto text = [](const FinalSummaryPresentation::Plan &p, const std::string &value, int size) {
+            return std::find_if(p.commands.begin(), p.commands.end(), [&](const auto &c) {
+                return c.kind == FinalSummaryPresentation::Command::Kind::Text
+                        && c.text == value && c.size == size;
+            });
+        };
+        const auto header = [&](const FinalSummaryPresentation::Plan &p, const std::string &section) {
+            const bool score = section.find("PLAYER RESULTS") != std::string::npos;
+            const auto title = text(p, section, 16);
+            D6R_REQUIRE(title != p.commands.end());
+            D6R_REQUIRE_EQ(p.layout.body.y + (score ? 0 : 10), title->bounds.y);
+            const std::vector<std::string> columns = score
+                    ? std::vector<std::string>{"Player / identity / owner / team / state"}
+                    : section == "Outcome identities"
+                    ? std::vector<std::string>{"Outcome scope", "Complete display name", "Player identity", "Team", "Departure"}
+                    : std::vector<std::string>{section == "MATCH SETTINGS" ? "Setting" : "Field", "Value"};
+            for (const auto &column: columns) {
+                const auto found = text(p, column, score ? 32 : 16);
+                D6R_REQUIRE(found != p.commands.end());
+                D6R_REQUIRE_EQ(p.layout.body.y + (score ? 24 : 42), found->bounds.y);
+            }
+        };
+        // Route real wheel events through the application: a confirmation owns
+        // input; the existing final view resumes both axes after cancellation.
+        const auto action = initial.actions.back().bounds;
+        f.click(action.x + 5, f.video.screen.getClientHeight() - action.y - 5);
+        D6R_REQUIRE(f.menu.confirmation != NetworkMenu::Confirmation::None);
+        const auto blocked = plan().scroll;
+        wheel(1, 1);
+        D6R_REQUIRE_EQ(blocked.vertical, plan().scroll.vertical);
+        D6R_REQUIRE_EQ(blocked.horizontal, plan().scroll.horizontal);
+        f.key(SDLK_ESCAPE);
+        D6R_REQUIRE(f.menu.confirmation == NetworkMenu::Confirmation::None);
+        while (plan().scroll.horizontal) f.key(SDLK_LEFT);
+        D6R_REQUIRE_EQ(0, plan().scroll.vertical);
+        wheel(1);
+        D6R_REQUIRE_EQ(18, plan().scroll.vertical);
+        wheel(-1);
+        D6R_REQUIRE_EQ(0, plan().scroll.vertical);
+
+        // Exact captured consuming path, not an injected offset. ROUND1 starts
+        // at422, but its Level row already fits at the third page position412.
+        for (int page = 0; page < 3; ++page) f.key(SDLK_PAGEDOWN);
+        auto boundary = plan();
+        D6R_REQUIRE_EQ(412, boundary.scroll.vertical);
+        header(boundary, "ROUND 1");
+        D6R_REQUIRE(text(boundary, "MATCH SETTINGS", 16) == boundary.commands.end());
+        const auto level = text(boundary, "Level", 16), value = text(boundary, "Duel 01", 16);
+        D6R_REQUIRE(level != boundary.commands.end() && value != boundary.commands.end());
+        D6R_REQUIRE_EQ(boundary.layout.body.y + 74, level->bounds.y);
+        D6R_REQUIRE_EQ(level->bounds.y, value->bounds.y);
+        const auto seek = [&](int target) {
+            for (int steps = 0; plan().scroll.vertical != target; ++steps) {
+                D6R_REQUIRE(steps <= initial.bounds.vertical);
+                const int before = plan().scroll.vertical;
+                const int direction = target > before ? 1 : -1;
+                wheel(direction);
+                const int after = plan().scroll.vertical;
+                D6R_REQUIRE((after - before) * direction > 0);
+                D6R_REQUIRE((target - after) * direction >= 0);
+            }
+        };
+        for (const auto &[offset, section]: std::vector<std::pair<int, std::string>>{
+                {394, "MATCH SETTINGS"}, {412, "ROUND 1"}, {422, "ROUND 1"},
+                {494, "ROUND 1"}, {566, "ROUND 1"}, {576, "ROUND 1 PLAYER RESULTS"}}) {
+            seek(offset);
+            boundary = plan();
+            header(boundary, section);
+            if (offset == 394) D6R_REQUIRE(text(boundary, "Level", 16) == boundary.commands.end());
+            if (offset == 422) {
+                const auto row = text(boundary, "Level", 16);
+                D6R_REQUIRE(row != boundary.commands.end());
+                D6R_REQUIRE_EQ(boundary.layout.rows.y, row->bounds.y);
+            }
+            if (offset == 566) {
+                D6R_REQUIRE(text(boundary, "ROUND 1 PLAYER RESULTS", 16) == boundary.commands.end());
+                D6R_REQUIRE(std::none_of(boundary.commands.begin(), boundary.commands.end(), [&](const auto &c) {
+                    return c.kind == FinalSummaryPresentation::Command::Kind::Text && c.size == 32
+                            && c.bounds.y >= boundary.layout.rows.y
+                            && c.bounds.y < boundary.layout.rows.y + boundary.layout.rows.height;
+                }));
+            }
+            if (offset == 576) {
+                D6R_REQUIRE(text(boundary, "Field", 16) == boundary.commands.end());
+                D6R_REQUIRE(text(boundary, "Value", 16) == boundary.commands.end());
+                const auto row = text(boundary, "Ada / Player 11 / Participant 1", 32);
+                D6R_REQUIRE(row != boundary.commands.end());
+                D6R_REQUIRE_EQ(boundary.layout.rows.y, row->bounds.y);
+            }
+        }
+        seek(0);
         for (const int direction: {1, -1}) {
             std::map<std::string, std::set<std::string>> seen;
+            std::map<std::string, std::set<Detail>> seenDetails;
             const auto observe = [&] {
                 const auto current = plan();
                 std::string section = "Cumulative";
@@ -6370,6 +6477,28 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
                         || c.text == "ROUND 1" || c.text == "ROUND 2"
                         || c.text == "ROUND 1 PLAYER RESULTS" || c.text == "ROUND 2 PLAYER RESULTS")
                         section = c.text;
+                if (!current.scroll.horizontal)
+                    for (const auto &c: current.commands) {
+                        if (c.kind != FinalSummaryPresentation::Command::Kind::Text || c.size != 16
+                            || c.bounds.x != current.layout.rows.x + 8 || c.bounds.y < current.layout.rows.y
+                            || c.bounds.y + c.bounds.height > current.layout.rows.y + current.layout.rows.height) continue;
+                        const auto expected = requiredDetails.find(section);
+                        D6R_REQUIRE(expected != requiredDetails.end());
+                        header(current, section);
+                        bool owned = false;
+                        for (const auto &pair: expected->second)
+                            if (pair.first == c.text && std::any_of(current.commands.begin(), current.commands.end(),
+                                    [&](const auto &cell) {
+                                        return cell.kind == FinalSummaryPresentation::Command::Kind::Text
+                                                && cell.size == 16 && cell.text == pair.second
+                                                && cell.bounds.y == c.bounds.y && cell.bounds.x > c.bounds.x;
+                                    })) {
+                                seenDetails[section].insert(pair);
+                                owned = true;
+                            }
+                        if (!owned) Test::fail("detail row belongs to its visible section and columns", __FILE__, __LINE__,
+                            "section=" + section + ";field=" + c.text + ";scroll=" + std::to_string(current.scroll.vertical));
+                    }
                 for (const auto &c: current.commands) {
                     D6R_REQUIRE(c.text != "Cumulative ranking" && c.text != "CUMULATIVE RANKING");
                     if (c.kind != FinalSummaryPresentation::Command::Kind::Text
@@ -6378,6 +6507,9 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
                     D6R_REQUIRE(c.bounds.x >= current.layout.rows.x);
                     D6R_REQUIRE(c.bounds.x + c.bounds.width <= current.layout.rows.x + current.layout.rows.width);
                     D6R_REQUIRE(c.bounds.y + c.bounds.height <= current.layout.rows.y + current.layout.rows.height);
+                    D6R_REQUIRE(section == "Cumulative" || section == "ROUND 1 PLAYER RESULTS"
+                            || section == "ROUND 2 PLAYER RESULTS");
+                    if (section != "Cumulative" && !current.scroll.horizontal) header(current, section);
                     seen[section].insert(c.text);
                 }
                 D6R_REQUIRE_EQ(initial.layout.panel.height, current.layout.panel.height);
@@ -6402,7 +6534,7 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
                     D6R_REQUIRE(after > before && after <= initial.bounds.horizontal);
                 }
                 const auto before = plan().scroll.vertical;
-                f.menu.mouseWheelEvent(MouseWheelEvent(0, 0, 0, -direction));
+                wheel(direction);
                 const auto after = plan().scroll.vertical;
                 if (after == before) {
                     D6R_REQUIRE_EQ(direction > 0 ? initial.bounds.vertical : 0, after);
@@ -6417,6 +6549,13 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
                         Test::fail("complete final statistic is reachable", __FILE__, __LINE__,
                             "host=" + std::to_string(host) + ";direction=" + std::to_string(direction)
                             + ";section=" + section + ";value=" + value);
+            for (const auto &[section, pairs]: requiredDetails)
+                for (const auto &pair: pairs)
+                    if (!seenDetails[section].count(pair))
+                        Test::fail("complete detail field is wheel-reachable under its own section and columns",
+                            __FILE__, __LINE__, "section=" + section + ";field=" + pair.first + ";value=" + pair.second);
+            D6R_REQUIRE(seenDetails["MATCH SETTINGS"].count({"Mode", "Deathmatch"}));
+            D6R_REQUIRE(seenDetails["MATCH SETTINGS"].count({"Seed", "1234"}));
         }
         for (const int direction: {1, -1})
             for (int step = 0; ; ++step) {

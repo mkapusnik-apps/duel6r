@@ -262,6 +262,18 @@ namespace Duel6::FinalSummaryPresentation {
         std::size_t stickyIndex = 0;
         for (std::size_t i = 0; i < measured.size(); ++i)
             if (measured[i].top <= plan.scroll.vertical) stickyIndex = i;
+        const auto hasVisibleRow = [&](const MeasuredTable &table) {
+            return std::any_of(table.rowTops.begin(), table.rowTops.end(), [&](int rowTop) {
+                const int y = table.top + rowTop - plan.scroll.vertical;
+                return y >= table.header && y + table.textHeight <= documentViewportHeight;
+            });
+        };
+        // A following section can expose a complete row before its document
+        // origin reaches the top. Once the old section has no visible rows,
+        // that row's own section and columns must own the sticky header.
+        if (!hasVisibleRow(measured[stickyIndex]))
+            for (std::size_t i = stickyIndex + 1; i < measured.size(); ++i)
+                if (hasVisibleRow(measured[i])) { stickyIndex = i; break; }
         layout.rows = {layout.body.x, layout.body.y + measured[stickyIndex].header, layout.body.width,
                        std::max(0, documentViewportHeight - measured[stickyIndex].header)};
 
@@ -308,6 +320,14 @@ namespace Duel6::FinalSummaryPresentation {
             const auto &table = measured[t];
             const bool score = table.table->score;
             const int top = layout.body.y + table.top - plan.scroll.vertical;
+            // Never show a section's rows beneath another section's headings.
+            // Nonsticky sections retain continuous inline presentation only
+            // when their complete header allocation is inside the row viewport.
+            if (t < stickyIndex || (t != stickyIndex
+                    && (top < layout.rows.y || top + table.header > layout.rows.y + layout.rows.height))) {
+                rowNumber += table.table->rows.size();
+                continue;
+            }
             if (t != stickyIndex) drawHeading(table, top, layout.rows);
             std::optional<Color> teamSurface;
             for (std::size_t r = 0; r < table.table->rows.size(); ++r) {
