@@ -81,7 +81,7 @@ namespace Duel6::FinalSummaryPresentation {
     };
     struct Layout {
         int width = 0, height = 0;
-        Rect panel, title, body, footer, notice, counter;
+        Rect panel, title, body, status, footer, notice, counter;
         Rect rows, navigation, horizontalBack, horizontalForward;
     };
     struct Scroll {

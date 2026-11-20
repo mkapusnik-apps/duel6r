@@ -2563,6 +2563,53 @@ D6R_TEST_CASE("Non-final local counter removes the panel row and keeps measured 
     }
 }
 
+D6R_TEST_CASE("Compact local final uses the actual interim frame strip and score glyph positions") {
+    ReviewMenuFixture f;
+    auto controls = PlayerControls::keyboardControls("Compact", f.application.input,
+        SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    std::vector<Person> people;
+    people.reserve(3);
+    for (const auto *name: {"Ada", "Bea", "Cora"}) people.emplace_back(name, nullptr);
+    std::vector<Game::PlayerDefinition> definitions;
+    for (auto &person: people)
+        definitions.emplace_back(person, PlayerSkinColors(Color::WHITE), f.application.menu->defaultPlayerSounds, *controls);
+    DeathMatch mode;
+    f.application.gameSettings.setMaxRounds(1);
+    auto &game = *f.application.game;
+    game.start(definitions, {"levels/duel_01.json"}, {}, mode);
+    WorldRenderer local(f.service, game);
+    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900},
+                           std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.recorder.quads.clear(); f.recorder.draws.clear();
+        local.roundOverSummary(false, true);
+        const auto panel = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &q) {
+            return q.material.getTexture() == Texture{} && q.material.getColor() == Color(255,255,255,80);
+        });
+        D6R_REQUIRE(panel != f.recorder.quads.end());
+        const auto plan = local.finalSummaryPlan();
+        D6R_REQUIRE_EQ(float(plan.layout.panel.x), panel->vertices[0].x);
+        D6R_REQUIRE_EQ(float(size.second - plan.layout.panel.y - plan.layout.panel.height), panel->vertices[0].y);
+        D6R_REQUIRE_EQ(float(plan.layout.panel.x + plan.layout.panel.width), panel->vertices[2].x);
+        D6R_REQUIRE_EQ(float(size.second - plan.layout.panel.y), panel->vertices[2].y);
+        const auto &strip = reviewTextQuad(f, "---SCORE---");
+        for (const auto &text: plan.commands)
+            if (text.text == "---SCORE---") {
+                D6R_REQUIRE_EQ(float(text.bounds.x), strip.vertices[0].x);
+                D6R_REQUIRE_EQ(float(size.second - text.bounds.y - 32), strip.vertices[0].y);
+            }
+        for (const auto *name: {"Ada", "Bea", "Cora"}) {
+            const auto &interim = reviewTextQuad(f, name);
+            const auto found = std::find_if(plan.commands.begin(), plan.commands.end(), [&](const auto &c) {
+                return c.text == name;
+            });
+            D6R_REQUIRE(found != plan.commands.end());
+            D6R_REQUIRE_EQ(float(found->bounds.x), interim.vertices[0].x);
+            D6R_REQUIRE_EQ(float(size.second - found->bounds.y - 32), interim.vertices[0].y);
+        }
+    }
+}
+
 D6R_TEST_CASE("Non-final network counter reserves dynamic footer and keeps raised action and publication pointer bounds isolated") {
     ReviewMenuFixture f;
     namespace R = Network::Replication;
@@ -6182,16 +6229,25 @@ D6R_TEST_CASE("Shared final and retained overlays render the arena and restore e
                           std::pair{1920, 1080}}) {
         fixture.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         menu.runtime.current.journey = Client::NetworkJourney::Summary;
-        menu.confirmation = NetworkMenu::Confirmation::None;
-        const auto plan = menu.finalSummaryPlan(menu.runtime.snapshot());
-        D6R_REQUIRE_EQ(1u, plan.actions.size());
-        const auto action = plan.actions.front().bounds;
-        menu.mouseButtonEvent(MouseButtonEvent(action.x + 5, size.second - action.y - 5,
-            SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
-        D6R_REQUIRE(menu.confirmation != NetworkMenu::Confirmation::None);
-        fixture.recorder.buffers.clear(); fixture.draw();
-        D6R_REQUIRE(!fixture.recorder.buffers.empty());
-        D6R_REQUIRE(fixture.text("End of Game"));
+        for (const bool host: {true, false}) {
+            menu.runtime.current.host = host;
+            menu.confirmation = NetworkMenu::Confirmation::None;
+            const auto plan = menu.finalSummaryPlan(menu.runtime.snapshot());
+            D6R_REQUIRE_EQ(host ? 2u : 1u, plan.actions.size());
+            const auto action = plan.actions.back().bounds; // Moved End session / Leave.
+            menu.mouseButtonEvent(MouseButtonEvent(action.x + 5, size.second - action.y - 5,
+                SysEvent::MouseButton::LEFT, SysEvent::ButtonState::PRESSED, false));
+            D6R_REQUIRE(menu.confirmation == (host ? NetworkMenu::Confirmation::End : NetworkMenu::Confirmation::Leave));
+            fixture.recorder.buffers.clear(); fixture.draw();
+            D6R_REQUIRE(!fixture.recorder.buffers.empty());
+            D6R_REQUIRE(fixture.text("End of Game"));
+            menu.keyEvent(KeyPressEvent(SDLK_ESCAPE, SysEvent::ButtonState::PRESSED, 0));
+            D6R_REQUIRE(menu.confirmation == NetworkMenu::Confirmation::None);
+            D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Summary);
+            const auto restored = menu.finalSummaryPlan(menu.runtime.snapshot());
+            D6R_REQUIRE_EQ(action.x, restored.actions.back().bounds.x);
+            D6R_REQUIRE_EQ(action.y, restored.actions.back().bounds.y);
+        }
     }
 }
 
@@ -6442,7 +6498,7 @@ D6R_TEST_CASE("Local final score adapter keeps all four configured teams styled 
         D6R_REQUIRE_EQ(Color::BLACK, identity->color);
         const auto fill = std::find_if(plan.commands.begin(), plan.commands.end(), [&](const auto &command) {
             return command.kind == FinalSummaryPresentation::Command::Kind::Fill
-                    && command.bounds.y == identity->bounds.y && command.bounds.height == 32;
+                    && command.bounds.y == identity->bounds.y - 1 && command.bounds.height == 32;
         });
         D6R_REQUIRE(fill != plan.commands.end());
         D6R_REQUIRE_EQ(team.second.withAlpha(178), fill->color);
@@ -6523,7 +6579,7 @@ D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll 
         menu.runtime.current.journey = retained ? Client::NetworkJourney::Lobby : Client::NetworkJourney::Summary;
         menu.runtime.current.canonical = state;
         std::set<std::string> visible;
-        bool matchHeading = false, lastRoundHeading = false;
+        bool matchHeading = false, lastRoundHeading = false, outcomeDetail = false;
         menu.summaryScroll = 0;
         menu.finalScroll = {};
         menu.focus = retained ? 2 : 1; // Guest result-table focus, with no local slots in this historical fixture.
@@ -6534,6 +6590,12 @@ D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll 
                 recorder.draws.clear();
                 if (retained) menu.drawResult(state, true);
                 else menu.drawSummary(menu.runtime.snapshot());
+                if (!retained) {
+                    const auto plan = menu.finalSummaryPlan(menu.runtime.snapshot());
+                    D6R_REQUIRE_EQ(1, std::count_if(plan.commands.begin(), plan.commands.end(), [](const auto &c) {
+                        return c.text == "---SCORE---";
+                    }));
+                }
                 for (const auto &draw : recorder.draws) {
                     const auto entry = std::find_if(font.fontCache.entryList.begin(), font.fontCache.entryList.end(),
                             [&](const auto &item) { return item.texture == draw.material.getTexture(); });
@@ -6542,16 +6604,19 @@ D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll 
                     const bool match = text.find("Match outcome:") == 0;
                     const bool last = text.find("Last completed round") == 0;
                     if (match || last) {
+                        D6R_REQUIRE(retained);
                         D6R_REQUIRE(draw.right <= (retained ? 818 : application.video->getScreen().getClientWidth() - 16));
                         matchHeading = matchHeading || match; lastRoundHeading = lastRoundHeading || last;
                     }
+                    outcomeDetail |= text == "Outcome identities";
                     visible.insert(text);
                 }
                 application.keyEvent(menu, KeyPressEvent(SDLK_RIGHT, SysEvent::ButtonState::PRESSED, 0));
             }
             menu.mouseWheelEvent(MouseWheelEvent(0, 0, 0, -1));
         }
-        D6R_REQUIRE(matchHeading && lastRoundHeading);
+        if (retained) D6R_REQUIRE(matchHeading && lastRoundHeading);
+        else D6R_REQUIRE(outcomeDetail && !matchHeading && !lastRoundHeading);
         for (unsigned index = 0; index < 14; ++index) {
             const auto &row = result.players[index];
             const bool nameVisible = std::any_of(visible.begin(), visible.end(), [&](const auto &text) {

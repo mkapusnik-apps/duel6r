@@ -2,7 +2,7 @@
 
 ## Purpose and traceability
 
-`OVER-03` presents the final local ranking after the last round of a finite match. `NET-06` presents the completed authoritative network result. They use one common whole-screen presentation with different data and permitted actions. These stable screen IDs identify functional journeys, not separate visual designs.
+`OVER-03` presents the final local ranking after the last round of a finite match. `NET-06` presents the completed authoritative network result. Both use the compact arena-backed scoreboard presentation derived from the non-final summary, with required network data and permitted actions where applicable. These stable screen IDs identify functional journeys, not separate visual designs.
 
 Local entry occurs when the configured final round gains a winner or no-winner result. Escape closes gameplay after the final wait completes. Shift+Escape closes gameplay earlier. Network entry, return, departure, recovery, and result lifetime remain in [NET-06](network-summary.md).
 
@@ -12,7 +12,7 @@ Local requirements are `LIF-018`–`LIF-029`, `SCO-022`–`SCO-023`, `UI-013`–
 
 This section is the authoritative source for `SUMMARY-VIEW` requirements. UX owns the shared whole-screen appearance in [design.md](../design.md) and its linked screen specifications, including [NET-06](../design/screens/NET-06.md). Separate mandatory local arena-overlay and network menu-background treatments do not apply to the common final screen. The common appearance includes finite Predator results; non-final and active-round score overlays remain separate states.
 
-- **SUMMARY-VIEW-001** Local and network final results must use one common whole-screen presentation, not only a common score table.
+- **SUMMARY-VIEW-001** Local and network final results must share the compact arena-backed scoreboard presentation defined by UX from OVER-02. They must not use the former large final-window shell.
 - **SUMMARY-VIEW-002** The common screen must apply the same presentation rules to equivalent result content, with source-specific content and permitted actions.
 - **SUMMARY-VIEW-003** The screen must preserve each result value and ranking order supplied by the applicable gameplay authority.
 - **SUMMARY-VIEW-004** The screen must keep the meaning of a match outcome separate from cumulative ranking.
@@ -20,12 +20,13 @@ This section is the authoritative source for `SUMMARY-VIEW` requirements. UX own
 - **SUMMARY-VIEW-006** The screen must offer only the actions permitted by the local or network journey.
 - **SUMMARY-VIEW-007** Opening, drawing, navigating, or closing the screen must not duplicate a score award, outcome, or required persistence operation.
 
-Common appearance covers the background/context treatment, screen frame, headings, result regions, score presentation, and status/action treatment. UX defines their geometry, typography, overflow, focus, and visual rules. Conditional network details and role-specific actions do not require a separate visual design. Appearance reuse does not require Local Play to acquire network-only history, identities, seed data, connection status, or participant actions.
+Common appearance covers arena/curtain context, the content-sized score panel, score typography, final counter and completion cue. Required network information and actions may occupy additional compact regions; Local Play must not reserve empty copies of them. UX owns placement, overflow and focus. Appearance reuse does not require Local Play to acquire network-only history, identities, seed data, connection status, or participant actions.
 
 ## Local content and actions
 
 - The local final result must retain K, A, D, K/D, and PTS.
 - Local rankings and score values must retain the existing mode rules.
+- The local main presentation must omit the added `SCORE` title, `Local Play`, `Match outcome`, `Last completed round` and `Cumulative ranking` captions. It must retain one `---SCORE---` strip, the score table, final counter and `End of Game`. Removing these captions must not remove or recompute established outcomes in the model, promote the ranking leader to winner, or change ordinary outcome-event semantics.
 - Team results must retain team identity and membership for two through four teams.
 - Local finite results must support two through 15 players in each applicable mode.
 - Local Deathmatch and Team results must retain `End of Game` and final round progress under `UI-GAME-002`–`UI-GAME-007`.
@@ -62,7 +63,7 @@ This section owns local overflow navigation for `SUMMARY-VIEW-005`. It supplies 
 
 ## Acceptance criteria
 
-- **SUMMARY-VIEW-AC-001 — Whole-screen parity:** Local and network final Deathmatch, Predator, and Team results use the same approved whole-screen presentation rules at 1280 × 900 and the 1280 × 720 evaluation minimum. Differences are attributable to required content, available data, and permitted actions, not a separate local overlay versus network menu design.
+- **SUMMARY-VIEW-AC-001 — Compact presentation parity:** Local and network final Deathmatch, Predator, and Team results use the same OVER-02-derived compact scoreboard rules at 1280 × 900 and the 1280 × 720 evaluation minimum. A short result is content-sized and centered, not inserted into a large window. There is exactly one `---SCORE---` strip and no duplicate `SCORE` title or added local scope/outcome/ranking captions. Network-only required data and actions do not create blank local allocations.
 - **SUMMARY-VIEW-AC-002 — Data integrity:** Common score quantities and team totals remain correct for equivalent result inputs. Local mode rankings remain unchanged. Network rows retain points, wins, damage, and authoritative roster-order precedence, with team ties resolved in fixed team order. A cumulative leader different from the final-round winner does not replace the network match outcome.
 - **SUMMARY-VIEW-AC-003 — Complete content:** Required content remains readable and accessible at the supported maximum roster. Network coverage includes 14 Predator winners, departed winner identities, supported 64 UTF-8-byte names, and both result-scroll extremes. Local coverage includes team membership, K/A/D/K/D/PTS, and complete multi-digit final round progress.
 - **SUMMARY-VIEW-AC-004 — Actions and timing:** Local final-wait and completed exits retain their eligibility and destinations. Host/controller and guest actions retain their permissions, exact confirmation consequences, and destinations. A guest cannot advance, return everyone to the lobby, or end the session. Repeated presentation or recovery creates no extra round, award, or outcome.

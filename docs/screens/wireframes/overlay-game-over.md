@@ -1,10 +1,10 @@
 # OVER-03 wireframe — Game-over summary
 
-Representative viewport: 1280 by 900 debug client.
+Representative viewport: native 1280 by 900 client; short completed local result.
 
-[![OVER-03 — Common final shell, local variant](../../design/wireframes/OVER-03/OVER-03.svg)](../../design/wireframes/OVER-03/OVER-03.svg)
+[![OVER-03 — Compact final scoreboard](../../design/wireframes/OVER-03/OVER-03.svg)](../../design/wireframes/OVER-03/OVER-03.svg)
 
-This reuses the current canonical SVG unchanged. The [common final-screen contract](../overlay-game-over.md#common-final-screen-contract), [OVER-03 presentation binding](../../design/screens/OVER-03.md) and [shared final presentation](../../design.md#shared-final-presentation) supersede the old oversized local illustration. They own the common arena-backed shell, separate outcomes and cumulative ranking, bounded result body, fixed counter and completion notice, and local-specific actions/navigation. External SVG annotations are not UI.
+The existing SVG now shows the actual interim-style, content-sized centered panel with exactly one `---SCORE---` strip. The [functional contract](../overlay-game-over.md#common-final-screen-contract), [screen binding](../../design/screens/OVER-03.md) and [appearance owner](../../design.md#shared-final-presentation) retain authority. No added SCORE title, Local Play, outcome/ranking captions, Player / team heading or empty network footer appears. The final counter and End of Game remain separate below the table. A larger Team result uses bounded existing navigation, not an additional surrounding window. External SVG annotations are not UI.
 
 <details>
 <summary>Historical illustration guidance — superseded, not current layout requirements</summary>

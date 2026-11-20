@@ -334,18 +334,19 @@ def assert_final_round_counter(data, label, font_path, played=1, rounds=1):
     text = f"Rounds: {played} | {rounds}"
     text_width = len(text) * 16
     text_height = 32
-    panel_width = min(1184, WIDTH - 32)
-    surface_left = (WIDTH + panel_width) // 2 - 16 - (text_width + 16)
-    surface_top = 22
+    surface_left = (WIDTH - text_width - 16) // 2
+    surface_top = HEIGHT - 120
     surface_right = surface_left + text_width + 16
-    surface_bottom = surface_top + text_height
+    surface_bottom = surface_top + 40
     text_left = surface_left + 8
-    text_top = surface_top
+    text_top = surface_top + 4
 
-    # UX-FINAL-007/009: right-aligned inside the title, with opaque side padding.
+    # Compact footer: centered40px backing,8px sides and4px vertical padding.
     padding = (
         (surface_left, text_top, text_left, text_top + text_height),
         (text_left + text_width, text_top, surface_right, text_top + text_height),
+        (surface_left, surface_top, surface_right, text_top),
+        (surface_left, text_top + text_height, surface_right, surface_bottom),
     )
     for index, box in enumerate(padding, 1):
         coverage = fraction(
@@ -392,68 +393,78 @@ def assert_final_round_counter(data, label, font_path, played=1, rounds=1):
     return similarity, (surface_left, surface_top, surface_right, surface_bottom)
 
 
+def compact_final_geometry(players, teams):
+    """Actual OVER-02 footprint for the harness's P00-style short names."""
+    longest = max([3] + [len(name) for name in TEAM_NAMES[:teams]])
+    table_width = (longest + 26) * 16
+    row_height = (players + teams) * 32 + max(0, teams - 1) * 8
+    navigation = 36 if row_height + 160 > HEIGHT - 152 else 0
+    panel_height = min(160 + row_height + navigation, HEIGHT - 152)
+    top = min((HEIGHT - panel_height) // 2, HEIGHT - 136 - panel_height)
+    viewport = panel_height - 128 - navigation
+    return {
+        "left": (WIDTH - table_width) // 2, "width": table_width,
+        "top": top, "height": panel_height, "first": top + 96,
+        "bottom": top + 64 + viewport, "scroll": max(0, 32 + row_height - viewport),
+        "name_width": (longest + 3) * 16,
+    }
+
+
 def assert_shared_final_body(data, label, players, teams, scroll=0):
-    # UX-FINAL-005/006/018/019: final-only client-pixel shell. Active Tab
-    # and non-final summaries deliberately retain the legacy oracle below.
-    panel_width = min(1184, WIDTH - 32)
-    body_left = (WIDTH - panel_width) // 2 + 16
-    viewport_left = body_left + 16
-    viewport_width = panel_width - 72
-    # Short fixture names fit under "Player / team". Each numeric cell reserves
-    # a pipe and padding (32px). Person preserves the leading space in " 0.00",
-    # so K/D needs 112px, not the 96px of an unpadded "0.00": total width 560px.
-    name_width = len("Player / team") * 16 + 16
-    table_width = name_width + 3 * (16 + 32) + len(" 0.00") * 16 + 32 + len("PTS") * 16 + 32
-    left = viewport_left + (viewport_width - table_width) // 2
+    # Final-specific oracle. Keep the actual interim assertions below unchanged.
+    geometry = compact_final_geometry(players, teams)
+    left, table_width = geometry["left"], geometry["width"]
     right = left + table_width
-    header = fraction(region_pixels(data, body_left, 24, body_left + 100, 52),
-                      lambda rgb: rgb[2] > 200 and rgb[0] < 60 and rgb[1] < 60)
-    if header < 0.45:
-        fail(f"{label}: shared final SCORE title surface missing: {header:.3f}")
-    strip = fraction(region_pixels(data, left, 166, right, 202),
+    top = geometry["top"]
+    strip = fraction(region_pixels(data, left - 21, top + 28, right + 21, top + 64),
                      lambda rgb: rgb[2] >= 245 and rgb[0] <= 20 and rgb[1] <= 20)
-    title = glyph_similarity(data, "---SCORE---", left + (table_width - 176) // 2, 166)
+    title = glyph_similarity(data, "---SCORE---", WIDTH // 2 - 88, top + 32)
     if strip < .65 or title < .42:
-        fail(f"{label}: centered reference score strip missing: blue={strip:.3f} title={title:.3f}")
-    row_y = 234 - scroll
+        fail(f"{label}: compact interim score strip missing: blue={strip:.3f} title={title:.3f}")
+    old_title = fraction(region_pixels(data, 50, 18, 150, 58),
+                         lambda rgb: rgb[2] >= 245 and rgb[0] <= 20 and rgb[1] <= 20)
+    if top > 64 and old_title > .85:
+        fail(f"{label}: obsolete large final window/title remains")
+    row_top, row_bottom = geometry["first"], geometry["bottom"]
+    row_y = row_top - (geometry["scroll"] if scroll else 0)
     groups = []
     for group in range(teams or 1):
         count = players
         if group:
-            if 234 <= row_y + 3 and row_y + 5 <= HEIGHT - 188:
-                assert_team_separators(data, label, left, table_width, [row_y + 3])
+            if row_top <= row_y + 2 and row_y + 4 <= row_bottom:
+                assert_team_separators(data, label, left, table_width, [row_y + 2])
             row_y += 8
         if teams:
             # The deterministic native fixture's only entirely hidden group at
             # the maximum scroll is its surviving Alpha group.
             color = "Alpha"
-            if 234 <= row_y and row_y + 32 <= HEIGHT - 188:
+            if row_top <= row_y and row_y + 32 <= row_bottom:
                 colors = parent_team_fractions(region_pixels(data, left + 2, row_y, right - 2, row_y + 32))
                 color = max(colors, key=colors.get)
                 if colors[color] < .25 or color in groups:
                     fail(f"{label}: full final team fill missing or repeated at {row_y}: {colors}")
-                if glyph_similarity(data, color, left + 8, row_y, dark=True) < .42:
+                if glyph_similarity(data, color, left, row_y, dark=True) < .42:
                     fail(f"{label}: named final team row missing at {row_y}")
-            elif row_y >= HEIGHT - 188:
+            elif row_y >= row_bottom:
                 break
             groups.append(color)
             team = ("Alpha", "Bravo", "Charlie", "Delta").index(color)
             count = 1 + sum(player % teams == team for player in range(players))
         for row in range(count):
-            if 234 <= row_y and row_y + 32 <= HEIGHT - 188:
+            if row_top <= row_y and row_y + 32 <= row_bottom:
                 if not teams or row:
-                    values = region_pixels(data, left + 8, row_y, left + 224, row_y + 32)
+                    values = region_pixels(data, left + 5, row_y, left + geometry["name_width"], row_y + 32)
                     ink = fraction(values, lambda rgb: rgb[0] > 190 and rgb[2] < 80)
-                    numeric = region_pixels(data, left + 224, row_y, right, row_y + 32)
+                    numeric = region_pixels(data, left + geometry["name_width"], row_y, right, row_y + 32)
                     yellow = fraction(numeric, lambda rgb: min(rgb[:2]) > 190 and rgb[2] < 80)
                     if ink < .005:
                         fail(f"{label}: reference final identity row missing at {row_y}")
                     if yellow < .005:
                         fail(f"{label}: yellow final values/pipes missing at {row_y}")
             row_y += 32
-    if scroll and row_y != HEIGHT - 188:
+    if scroll and row_y != row_bottom:
         fail(f"{label}: final bottom does not align with the bounded row viewport: {row_y}")
-    return groups, header, 16
+    return groups, strip, top
 
 
 def assert_score_overlay(data, label, players, teams, team_separators=True):
@@ -597,15 +608,15 @@ def main():
         print(f"{args.label}: SCORE overlay header absent: glyph-similarity={similarity:.3f}")
     elif args.score or args.final_score:
         groups, header, panel_top = (assert_shared_final_body(
-            data, args.label, args.players, args.teams, scroll=154 if args.final_bottom else 0) if args.final_score else assert_score_overlay(
+            data, args.label, args.players, args.teams, scroll=1 if args.final_bottom else 0) if args.final_score else assert_score_overlay(
             data, args.label, args.players, args.teams, team_separators=True))
         notice = ""
         if args.final_score:
             similarity, bounds = assert_end_of_game_notice(data, args.label, args.font)
             counter_similarity, counter_bounds = assert_final_round_counter(data, args.label, args.font)
-            counter_gap = None  # The counter is inside the shared title strip.
+            counter_gap = HEIGHT - 120 - (panel_top + compact_final_geometry(args.players, args.teams)["height"])
             notice = (f" notice={bounds} text-similarity={similarity:.3f}"
-                      f" counter={counter_bounds} counter-height=32"
+                      f" counter={counter_bounds} counter-height=40"
                       f" counter-similarity={counter_similarity:.3f}"
                       f" counter-panel-gap={counter_gap}")
         print(f"{args.label}: score-rows={args.players + args.teams} groups={groups} "
