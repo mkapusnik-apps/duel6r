@@ -6321,12 +6321,23 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
         A::PlayerResultRow row;
         row.playerId = 11 + i; row.participantId = 1 + i; row.rosterOrder = i;
         row.displayName = i ? "Bea" : "Ada";
-        row.statistics = statistics(3000 + i * 100, 2);
-        expect("Cumulative", row, row.statistics);
         for (unsigned round = 1; round <= 2; ++round) {
             row.rounds.push_back(statistics(round * 1000 + i * 100, 1));
-            expect("ROUND " + std::to_string(round) + " PLAYER RESULTS", row, row.rounds.back());
+            const auto &s = row.rounds.back();
+            row.statistics.roundsPlayed += s.roundsPlayed;
+            row.statistics.shots += s.shots;
+            row.statistics.hits += s.hits;
+            row.statistics.kills += s.kills;
+            row.statistics.deaths += s.deaths;
+            row.statistics.assists += s.assists;
+            row.statistics.wins += s.wins;
+            row.statistics.penalties += s.penalties;
+            row.statistics.survivalTicks += s.survivalTicks;
+            row.statistics.damage += s.damage;
+            row.statistics.assistedDamage += s.assistedDamage;
+            expect("ROUND " + std::to_string(round) + " PLAYER RESULTS", row, s);
         }
+        expect("Cumulative", row, row.statistics);
         result.players.push_back(std::move(row));
     }
     for (unsigned number = 1; number <= 2; ++number) {
