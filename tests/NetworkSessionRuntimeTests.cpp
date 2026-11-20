@@ -2918,8 +2918,31 @@ D6R_TEST_CASE("UX-NET round progress uses current authoritative round during act
         menu.scoreOverlay = phase == Network::Replication::Phase::ActiveRound;
         f.draw();
         if (phase == Network::Replication::Phase::FinalSummary) {
-            D6R_REQUIRE(f.text("Last completed round: 1 / No winner"));
+            D6R_REQUIRE(!f.text("Last completed round: 1 / No winner"));
             D6R_REQUIRE(f.text("Rounds: 1 | 1"));
+            // Compact finals keep the last completed round's number/outcome in
+            // navigable detail, not a fixed caption or the current live round.
+            bool completedOutcome = false;
+            for (unsigned step = 0; step < 128; ++step) {
+                f.draw();
+                D6R_REQUIRE(f.text("Rounds: 1 | 1"));
+                D6R_REQUIRE(!f.text("ROUND 2") && !f.text("Rounds: 2|3"));
+                if (f.text("ROUND 1") && f.text("Field") && f.text("Value")
+                    && f.text("Outcome") && f.text("No winner")) {
+                    const auto &field = reviewTextQuad(f, "Outcome");
+                    const auto &value = reviewTextQuad(f, "No winner");
+                    D6R_REQUIRE_EQ(field.vertices[0].y, value.vertices[0].y);
+                    D6R_REQUIRE(value.vertices[0].x > field.vertices[2].x);
+                    D6R_REQUIRE_EQ(16.0f, value.vertices[2].y - value.vertices[0].y);
+                    completedOutcome = true;
+                    break;
+                }
+                const int before = menu.finalScroll.vertical;
+                menu.mouseWheelEvent(MouseWheelEvent(200, 300, 0, -1));
+                if (menu.finalScroll.vertical == before) break;
+            }
+            D6R_REQUIRE(completedOutcome);
+            menu.finalScroll = {};
         } else D6R_REQUIRE(f.text("Last completed round 1: Pending"));
         D6R_REQUIRE(!f.text("Rounds: 2|3"));
     }
