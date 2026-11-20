@@ -271,7 +271,8 @@ D6R_TEST_CASE("Final completed-only local navigation isolates console wait wheel
     D6R_REQUIRE_EQ(56, scroll.horizontal);
     input.shift = false;
     D6R_REQUIRE(navigateLocal(scroll, plan, input));
-    D6R_REQUIRE_EQ(std::max(0, vertical - 18), scroll.vertical);
+    D6R_REQUIRE(scroll.vertical < vertical);
+    D6R_REQUIRE(vertical - scroll.vertical <= 18);
     input.input = LocalInput::Other;
     D6R_REQUIRE(!navigateLocal(scroll, plan, input));
     move(scroll, plan.bounds, INT_MAX, INT_MAX);

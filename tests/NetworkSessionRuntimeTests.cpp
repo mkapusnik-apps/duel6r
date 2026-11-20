@@ -6282,6 +6282,146 @@ D6R_TEST_CASE("Shared arena absent exploded bodies stay absent while rings and t
     render(); D6R_REQUIRE(draws(body) > 0); D6R_REQUIRE(draws(explosion) > 0);
 }
 
+D6R_TEST_CASE("Compact final navigation reaches every two-player two-round statistic through supported controls") {
+    namespace A = Server::Authoritative;
+    namespace R = Network::Replication;
+    ReviewMenuFixture f;
+    A::SessionResult result;
+    result.config.hostParticipantId = 1; result.config.seed = 1234; result.config.roundLimit = 2;
+    result.config.fixedLevel = "levels/duel_01.json";
+    result.config.playableLevels = {result.config.fixedLevel}; result.config.enabledWeapons = {"pistol"};
+    result.completedRounds = 2; result.finalNoWinner = true;
+    std::map<std::string, std::set<std::string>> required;
+    const auto statistics = [](unsigned base, unsigned rounds) {
+        A::PlayerStatistics s;
+        s.roundsPlayed = rounds; s.shots = base + 1; s.hits = base + 2;
+        s.kills = base + 3; s.deaths = base + 4; s.assists = base + 5;
+        s.wins = base + 6; s.penalties = base + 7; s.survivalTicks = base + 8;
+        s.damage = base + 9; s.assistedDamage = base + 10;
+        return s;
+    };
+    const auto expect = [&](const std::string &section, const A::PlayerResultRow &player,
+                            const A::PlayerStatistics &s) {
+        auto &values = required[section];
+        values.insert(player.displayName + " / Player " + std::to_string(player.playerId)
+                + " / Participant " + std::to_string(player.participantId));
+        for (const auto value: {s.roundsPlayed, s.shots, s.hits, s.kills, s.deaths, s.assists,
+                               s.wins, s.penalties, s.survivalTicks, s.damage, s.assistedDamage})
+            values.insert(std::to_string(value));
+        values.insert(std::to_string(s.totalPoints()));
+        std::ostringstream ratio;
+        ratio.precision(2);
+        ratio << std::fixed << double(s.kills) / double(s.deaths);
+        values.insert(ratio.str());
+        for (const auto *heading: {"Rank", "K", "A", "D", "K/D", "PTS", "R", "Sh", "Hi", "W", "P",
+                                   "Survival ticks", "Damage", "Assist dmg"})
+            values.insert(heading);
+    };
+    for (unsigned i = 0; i < 2; ++i) {
+        A::PlayerResultRow row;
+        row.playerId = 11 + i; row.participantId = 1 + i; row.rosterOrder = i;
+        row.displayName = i ? "Bea" : "Ada";
+        row.statistics = statistics(3000 + i * 100, 2);
+        expect("Cumulative", row, row.statistics);
+        for (unsigned round = 1; round <= 2; ++round) {
+            row.rounds.push_back(statistics(round * 1000 + i * 100, 1));
+            expect("ROUND " + std::to_string(round) + " PLAYER RESULTS", row, row.rounds.back());
+        }
+        result.players.push_back(std::move(row));
+    }
+    for (unsigned number = 1; number <= 2; ++number) {
+        A::RoundResult round;
+        round.roundNumber = number; round.level = result.config.fixedLevel; round.noWinner = true;
+        round.rosterOrder = {11, 12};
+        result.rounds.push_back(std::move(round));
+    }
+    const auto serialized = A::serializeSessionResult(result);
+    D6R_REQUIRE(serialized);
+    auto state = canonical(91, R::Phase::FinalSummary);
+    state.completedRounds = 2; state.result = {true, true, "Completed", *serialized};
+    D6R_REQUIRE(R::retainedResultView(state.result));
+    f.menu.runtime.current.canonical = state;
+    f.menu.runtime.current.journey = Client::NetworkJourney::Summary;
+    for (const bool host: {true, false}) {
+        f.menu.runtime.current.host = host;
+        f.video.screen = ScreenParameters(host ? 1280 : 850, host ? 900 : 700, 24, 24, 0, false);
+        const auto initial = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+        D6R_REQUIRE_EQ(64, initial.layout.rows.height); // 32px header + two rows:96px viewport.
+        D6R_REQUIRE(initial.bounds.vertical > 0 && initial.bounds.horizontal > 0);
+        const auto plan = [&] { return f.menu.finalSummaryPlan(f.menu.runtime.snapshot()); };
+        for (const int direction: {1, -1}) {
+            std::map<std::string, std::set<std::string>> seen;
+            const auto observe = [&] {
+                const auto current = plan();
+                std::string section = "Cumulative";
+                for (const auto &c: current.commands)
+                    if (c.text == "Outcome identities" || c.text == "MATCH SETTINGS"
+                        || c.text == "ROUND 1" || c.text == "ROUND 2"
+                        || c.text == "ROUND 1 PLAYER RESULTS" || c.text == "ROUND 2 PLAYER RESULTS")
+                        section = c.text;
+                for (const auto &c: current.commands) {
+                    D6R_REQUIRE(c.text != "Cumulative ranking" && c.text != "CUMULATIVE RANKING");
+                    if (c.kind != FinalSummaryPresentation::Command::Kind::Text
+                        || c.size != 32 || c.bounds.y < current.layout.body.y
+                        || c.bounds.y >= current.layout.rows.y + current.layout.rows.height) continue;
+                    D6R_REQUIRE(c.bounds.x >= current.layout.rows.x);
+                    D6R_REQUIRE(c.bounds.x + c.bounds.width <= current.layout.rows.x + current.layout.rows.width);
+                    D6R_REQUIRE(c.bounds.y + c.bounds.height <= current.layout.rows.y + current.layout.rows.height);
+                    seen[section].insert(c.text);
+                }
+                D6R_REQUIRE_EQ(initial.layout.panel.height, current.layout.panel.height);
+                D6R_REQUIRE_EQ(initial.layout.footer.y, current.layout.footer.y);
+                D6R_REQUIRE_EQ(initial.layout.counter.y, current.layout.counter.y);
+            };
+            for (int step = 0; ; ++step) {
+                D6R_REQUIRE(step <= initial.bounds.vertical);
+                // Only real supported menu controls change either offset.
+                for (int x = 0; ; ++x) {
+                    D6R_REQUIRE(x <= initial.bounds.horizontal / 64 + 1);
+                    f.key(SDLK_LEFT);
+                    if (!plan().scroll.horizontal) break;
+                }
+                for (int x = 0; ; ++x) {
+                    D6R_REQUIRE(x <= initial.bounds.horizontal / 64 + 1);
+                    observe();
+                    const auto before = plan().scroll.horizontal;
+                    f.key(SDLK_RIGHT);
+                    const auto after = plan().scroll.horizontal;
+                    if (after == before) break;
+                    D6R_REQUIRE(after > before && after <= initial.bounds.horizontal);
+                }
+                const auto before = plan().scroll.vertical;
+                f.menu.mouseWheelEvent(MouseWheelEvent(0, 0, 0, -direction));
+                const auto after = plan().scroll.vertical;
+                if (after == before) {
+                    D6R_REQUIRE_EQ(direction > 0 ? initial.bounds.vertical : 0, after);
+                    break;
+                }
+                D6R_REQUIRE((after - before) * direction > 0);
+                D6R_REQUIRE(std::abs(after - before) <= 18);
+            }
+            for (const auto &[section, values]: required)
+                for (const auto &value: values)
+                    if (!seen[section].count(value))
+                        Test::fail("complete final statistic is reachable", __FILE__, __LINE__,
+                            "host=" + std::to_string(host) + ";direction=" + std::to_string(direction)
+                            + ";section=" + section + ";value=" + value);
+        }
+        for (const int direction: {1, -1})
+            for (int step = 0; ; ++step) {
+                D6R_REQUIRE(step <= initial.bounds.vertical);
+                const int before = plan().scroll.vertical;
+                f.key(direction > 0 ? SDLK_PAGEDOWN : SDLK_PAGEUP);
+                const int after = plan().scroll.vertical;
+                if (after == before) {
+                    D6R_REQUIRE_EQ(direction > 0 ? initial.bounds.vertical : 0, after);
+                    break;
+                }
+                D6R_REQUIRE((after - before) * direction > 0);
+            }
+    }
+}
+
 D6R_TEST_CASE("Retained final tables carry sticky section and column metadata through Return to lobby") {
     namespace A = Server::Authoritative;
     namespace R = Network::Replication;
@@ -6323,7 +6463,10 @@ D6R_TEST_CASE("Retained final tables carry sticky section and column metadata th
         f.menu.finalScroll = {offset, 0};
         const auto plan = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
         for (const auto &command: plan.commands) {
-            cumulative |= command.text == "Cumulative ranking";
+            cumulative |= offset == 0 && command.size == 32
+                    && command.text.find("ROUND RESULTS / Player ") == 0;
+            D6R_REQUIRE(command.text != "Cumulative ranking");
+            D6R_REQUIRE(command.text != "CUMULATIVE RANKING");
             perRound |= command.text == "ROUND 2 PLAYER RESULTS";
             settings |= command.text == "Mode" && command.size == 16;
             if (command.text.find("Historical ") == 0 && command.size == 32)

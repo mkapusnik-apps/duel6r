@@ -240,6 +240,18 @@ namespace Duel6::FinalSummaryPresentation {
                                             layout.body.width, 24};
         plan.bounds.vertical = std::max(0, plan.bounds.contentHeight - documentViewportHeight);
         plan.bounds.horizontal = std::max(0, plan.bounds.contentWidth - layout.body.width);
+        // Fixed 18px steps can skip the entire visibility interval of a 32px
+        // row under a 56px sticky header in a compact 96px viewport. Retain the
+        // normal step size but visit each row's exact alignment in both
+        // directions, without enlarging the panel or drawing partial rows.
+        std::vector<int> alignments{0, plan.bounds.vertical};
+        for (const auto &table: measured)
+            for (const int rowTop: table.rowTops)
+                alignments.push_back(clampedOffset(table.top + rowTop - table.header, plan.bounds.vertical));
+        std::sort(alignments.begin(), alignments.end());
+        for (const int alignment: alignments)
+            while (plan.bounds.verticalPositions.back() < alignment)
+                plan.bounds.verticalPositions.push_back(std::min(alignment, plan.bounds.verticalPositions.back() + Pitch));
         if (network && plan.bounds.horizontal) {
             layout.horizontalBack = {layout.navigation.x, layout.navigation.y, 32, 24};
             layout.horizontalForward = {layout.navigation.x + layout.navigation.width - 32,
@@ -412,8 +424,16 @@ namespace Duel6::FinalSummaryPresentation {
     }
 
     void move(Scroll &scroll, const ScrollBounds &bounds, int rows, int columns) {
-        scroll.vertical = clampedOffset(static_cast<std::int64_t>(scroll.vertical) + static_cast<std::int64_t>(rows) * Pitch,
-                                        bounds.vertical);
+        scroll.vertical = clampedOffset(scroll.vertical, bounds.vertical);
+        if (rows) {
+            const auto &positions = bounds.verticalPositions;
+            const auto next = rows > 0 ? std::upper_bound(positions.begin(), positions.end(), scroll.vertical)
+                                      : std::lower_bound(positions.begin(), positions.end(), scroll.vertical);
+            const auto index = std::clamp<std::int64_t>(
+                    (next - positions.begin()) + static_cast<std::int64_t>(rows) - (rows > 0 ? 1 : 0),
+                    0, static_cast<std::int64_t>(positions.size()) - 1);
+            scroll.vertical = positions[index];
+        }
         scroll.horizontal = clampedOffset(static_cast<std::int64_t>(scroll.horizontal) + static_cast<std::int64_t>(columns) * Glyph,
                                           bounds.horizontal);
     }
