@@ -304,28 +304,31 @@ D6R_TEST_CASE("Network required details stay after cumulative results and keep c
     D6R_REQUIRE_EQ(std::size_t(55), bottom.bounds.totalRows);
 }
 
-D6R_TEST_CASE("Final network table retains every supplied identity ownership and statistic across horizontal navigation") {
+D6R_TEST_CASE("Final supporting table retains every supplied identity ownership and statistic across horizontal navigation") {
     auto model = ordinary(Scope::NetworkGuest);
-    model.cumulative.columns = {{"Rank", true}, {"Display name"}, {"Player identity"}, {"Owner participant"},
+    Table detail{"CUMULATIVE PLAYER 18446744073709551614",
+        {{"Rank", true}, {"Display name"}, {"Player identity"}, {"Owner participant"},
             {"Team"}, {"Departure"}, {"Rounds played", true}, {"Shots", true}, {"Hits", true},
             {"Kills", true}, {"Deaths", true}, {"Assists", true}, {"Wins", true}, {"Penalties", true},
-            {"Survival ticks", true}, {"Damage", true}, {"Assisted damage", true}, {"Points", true}};
+            {"Survival ticks", true}, {"Damage", true}, {"Assisted damage", true}, {"Points", true}}, {}};
     const std::vector<std::string> values{"1", "Retained identity", "18446744073709551614",
             "18446744073709551613", "Bravo", "Departed", "100", "101", "102", "103", "104",
             "105", "106", "107", "108", "109", "110", "207"};
-    model.cumulative.rows = {{values}};
+    model.cumulative.rows = {{{"Retained identity", "103", "105", "104", "0.99", "207"}}};
+    detail.rows = {{values}};
+    model.settings.push_back(detail);
     const auto initial = compose(model, 1280, 720);
     std::set<std::string> observed;
     for (int x = 0; x <= initial.bounds.horizontal + 8; x += 8) {
-        const auto plan = compose(model, 1280, 720, {0, x});
+        const auto plan = compose(model, 1280, 720, {initial.bounds.vertical, x});
         for (const auto &command: plan.commands)
             if (command.kind == Command::Kind::Text) observed.insert(command.text);
         D6R_REQUIRE(hasText(plan, "---SCORE---"));
     }
     for (const auto &value: values) D6R_REQUIRE(observed.count(value));
-    for (const auto &column: model.cumulative.columns) D6R_REQUIRE(observed.count(column.heading));
-    D6R_REQUIRE_EQ(values, model.cumulative.rows.front().cells);
-    D6R_REQUIRE_EQ(std::size_t(2), initial.bounds.totalRows);
+    for (const auto &column: detail.columns) D6R_REQUIRE(observed.count(column.heading));
+    D6R_REQUIRE_EQ(values, model.settings.front().rows.front().cells);
+    D6R_REQUIRE_EQ(std::size_t(3), initial.bounds.totalRows);
 }
 
 D6R_TEST_CASE("Final reference score tables center measured content and preserve supplied local life colors") {

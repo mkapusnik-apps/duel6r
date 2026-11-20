@@ -1,28 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1110" viewBox="0 0 1280 1110" role="img" aria-labelledby="title desc">
   <title id="title">NET-06 — Compact final scoreboard, network role variants</title>
-  <desc id="desc">1280 by 900 client. A short completed network result uses the same compact score-panel vocabulary as Local Play. Required wide fields use existing horizontal navigation. Hidden result, settings and round detail do not enlarge the primary viewport's height. Host actions are shown; Guest substitutes its existing Leave and waiting text. There is no large final window or fixed diagnostic-style outcome hierarchy.</desc>
-  <defs><clipPath id="result-viewport"><rect x="80" y="390" width="1120" height="120"/></clipPath></defs>
+  <desc id="desc">1280 by 900 client. A short completed network result uses Local Play's display-name column followed by K, A, D, K/D and PTS. Network identity, rank and additional statistics remain accessible in supporting result and round detail through existing navigation, without enlarging the primary table. Host actions are shown; Guest substitutes its existing Leave and waiting text. There is no large final window, new control or fixed diagnostic-style outcome hierarchy.</desc>
+  <defs><clipPath id="result-viewport"><rect x="384" y="390" width="512" height="120"/></clipPath></defs>
   <rect width="1280" height="1110" fill="white"/>
   <g fill="none" stroke="black" stroke-width="2">
     <rect x="1" y="1" width="1278" height="898"/>
-    <rect x="64" y="322" width="1152" height="256"/>
-    <rect x="66" y="324" width="1148" height="252"/>
-    <rect x="59" y="354" width="1162" height="36"/>
-    <rect x="80" y="516" width="32" height="24"/><rect x="1168" y="516" width="32" height="24"/>
+    <rect x="368" y="322" width="544" height="256"/>
+    <rect x="370" y="324" width="540" height="252"/>
+    <rect x="363" y="354" width="554" height="36"/>
+    <rect x="898" y="390" width="8" height="120"/><rect x="898" y="390" width="8" height="24"/>
     <rect x="420" y="722" width="224" height="44"/>
     <rect x="422" y="724" width="220" height="40"/><rect x="658" y="724" width="200" height="40"/>
     <rect x="480" y="780" width="320" height="40"/><rect x="520" y="836" width="240" height="48"/>
   </g>
   <text x="640" y="382" text-anchor="middle" font-family="monospace" font-size="32">---SCORE---</text>
   <g clip-path="url(#result-viewport)" font-family="monospace" font-size="32" fill="black">
-    <text x="80" y="416">Player / identity / owner</text>
-    <text x="640" y="416">Rank</text><text x="752" y="416">K</text><text x="816" y="416">A</text><text x="880" y="416">D</text><text x="944" y="416">K/D</text><text x="1056" y="416">PTS</text><text x="1168" y="416">R</text>
-    <text x="80" y="448">Ada / Player 2 / Participant 1</text><text x="80" y="480">Bea / Player 4 / Participant 3</text>
-    <text x="640" y="448">1 | 0 | 0 | 0 | 0.00 | 1</text><text x="640" y="480">2 | 0 | 0 | 1 | 0.00 |-1</text>
+    <text x="560" y="416">K</text><text x="624" y="416">A</text><text x="688" y="416">D</text><text x="752" y="416">K/D</text><text x="848" y="416">PTS</text>
+    <text x="384" y="448">Ada</text><text x="384" y="480">Bea</text>
+    <text x="528" y="448">| 0| 0| 0| 0.00| 1</text><text x="528" y="480">| 0| 0| 1| 0.00|-1</text>
   </g>
   <g font-family="sans-serif" font-size="16" fill="black">
-    <text x="96" y="534" text-anchor="middle">&lt;</text><text x="1184" y="534" text-anchor="middle">&gt;</text>
-    <text x="128" y="534">Rows 1–2 / total · Position: current / total</text>
+    <text x="384" y="534">Rows 1–2 / total</text>
     <text x="640" y="686" text-anchor="middle">Completed / Session only</text>
     <text x="640" y="704" text-anchor="middle">Not saved to local statistics or Elo</text>
     <text x="532" y="750" text-anchor="middle">Return to lobby</text><text x="758" y="750" text-anchor="middle">End session</text>
@@ -31,9 +29,9 @@
     <text x="640" y="810" text-anchor="middle">Rounds: 1 | 1</text><text x="640" y="869" text-anchor="middle">End of Game</text>
   </g>
   <g font-family="sans-serif" font-size="18" fill="black">
-    <text x="20" y="932">ANNOTATIONS — not UI. Same interim-style panel as Local Play; width reflects required data, not a fixed full-window frame.</text>
-    <text x="20" y="960">Primary height follows the two score rows. Existing result/settings/round detail scrolls in this viewport; no new tab or details UI.</text>
-    <text x="20" y="988">One score strip throughout traversal; compact section/column headings distinguish detail. Complete identities and values remain accessible.</text>
+    <text x="20" y="932">ANNOTATIONS — not UI. Local Play names and K/A/D/K/D/PTS; primary width/height follow score content, not supporting detail.</text>
+    <text x="20" y="960">Identity/owner/rank and other statistics remain in existing 16 px result/round detail, associated with each player and scope.</text>
+    <text x="20" y="988">One strip; per-round score tables reuse the five columns at 32 px. Existing navigation/feedback exposes actual overflow only.</text>
     <text x="20" y="1016">Guest: replace Host actions with centered Leave; add Waiting for host to return to lobby or end session above status lines.</text>
     <text x="20" y="1044">Status/actions are actual network additions, not blank local reservations. Footer gaps, counter and notice follow the appearance owner.</text>
     <text x="20" y="1072">Names remain neutral white; values/pipes yellow, Team fills and grouping unchanged. New pointer bounds must match moved controls.</text>

@@ -6315,6 +6315,14 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
     result.config.playableLevels = {result.config.fixedLevel}; result.config.enabledWeapons = {"pistol"};
     result.completedRounds = 2; result.finalNoWinner = true;
     std::map<std::string, std::set<std::string>> required;
+    using Detail = std::pair<std::string, std::string>;
+    std::map<std::string, std::vector<Detail>> requiredDetails{
+        {"Outcome identities", {{"Match", "No winner"}}},
+        {"MATCH SETTINGS", {{"Mode", "Deathmatch"}, {"Teams", "0"}, {"Friendly fire", "Off"},
+            {"Assistance", "Off"}, {"Quick Liquid", "Off"}, {"Burnable Trees", "On"},
+            {"Level plan", "Fixed level"}, {"Round limit", "2"}, {"Seed", "1234"},
+            {"Optional scripts", "Disabled"}}},
+    };
     const auto statistics = [](unsigned base, unsigned rounds) {
         A::PlayerStatistics s;
         s.roundsPlayed = rounds; s.shots = base + 1; s.hits = base + 2;
@@ -6326,19 +6334,23 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
     const auto expect = [&](const std::string &section, const A::PlayerResultRow &player,
                             const A::PlayerStatistics &s) {
         auto &values = required[section];
-        values.insert(player.displayName + " / Player " + std::to_string(player.playerId)
-                + " / Participant " + std::to_string(player.participantId));
-        for (const auto value: {s.roundsPlayed, s.shots, s.hits, s.kills, s.deaths, s.assists,
-                               s.wins, s.penalties, s.survivalTicks, s.damage, s.assistedDamage})
+        values.insert(player.displayName);
+        for (const auto value: {s.kills, s.deaths, s.assists})
             values.insert(std::to_string(value));
         values.insert(std::to_string(s.totalPoints()));
-        std::ostringstream ratio;
-        ratio.precision(2);
-        ratio << std::fixed << double(s.kills) / double(s.deaths);
-        values.insert(ratio.str());
-        for (const auto *heading: {"Rank", "K", "A", "D", "K/D", "PTS", "R", "Sh", "Hi", "W", "P",
-                                   "Survival ticks", "Damage", "Assist dmg"})
-            values.insert(heading);
+        values.insert(Person::getKillsToDeathsRatio(s.kills, s.deaths));
+        for (const auto *heading: {"K", "A", "D", "K/D", "PTS"}) values.insert(heading);
+        const auto scope = section == "Cumulative" ? "CUMULATIVE"
+                : section.substr(0, section.find(" PLAYER RESULTS"));
+        auto &details = requiredDetails[scope + " PLAYER " + std::to_string(player.playerId)];
+        details = {{"Display name", player.displayName}, {"Player identity", std::to_string(player.playerId)},
+            {"Owner participant", std::to_string(player.participantId)}, {"Team", "No team"},
+            {"Result departure", "Retained"}, {"Rounds played", std::to_string(s.roundsPlayed)},
+            {"Shots", std::to_string(s.shots)}, {"Hits", std::to_string(s.hits)},
+            {"Wins", std::to_string(s.wins)}, {"Penalties", std::to_string(s.penalties)},
+            {"Survival ticks", std::to_string(s.survivalTicks)}, {"Damage", std::to_string(s.damage)},
+            {"Assisted damage", std::to_string(s.assistedDamage)}};
+        if (section == "Cumulative") details.push_back({"Rank", std::to_string(player.rosterOrder + 1)});
     };
     for (unsigned i = 0; i < 2; ++i) {
         A::PlayerResultRow row;
@@ -6369,14 +6381,6 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
         round.rosterOrder = {11, 12};
         result.rounds.push_back(std::move(round));
     }
-    using Detail = std::pair<std::string, std::string>;
-    std::map<std::string, std::vector<Detail>> requiredDetails{
-        {"Outcome identities", {{"Match", "No winner"}}},
-        {"MATCH SETTINGS", {{"Mode", "Deathmatch"}, {"Teams", "0"}, {"Friendly fire", "Off"},
-            {"Assistance", "Off"}, {"Quick Liquid", "Off"}, {"Burnable Trees", "On"},
-            {"Level plan", "Fixed level"}, {"Round limit", "2"}, {"Seed", "1234"},
-            {"Optional scripts", "Disabled"}}},
-    };
     for (int round = 1; round <= 2; ++round)
         requiredDetails["ROUND " + std::to_string(round)] = {
             {"Level", "Duel 01"}, {"Orientation", "Normal"}, {"Outcome", "No winner"},
@@ -6410,13 +6414,18 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
             D6R_REQUIRE(title != p.commands.end());
             D6R_REQUIRE_EQ(p.layout.body.y + (score ? 0 : 10), title->bounds.y);
             const std::vector<std::string> columns = score
-                    ? std::vector<std::string>{"Player / identity / owner / team / state"}
+                    ? std::vector<std::string>{"K", "A", "D", "K/D", "PTS"}
                     : section == "Outcome identities"
                     ? std::vector<std::string>{"Outcome scope", "Complete display name", "Player identity", "Team", "Departure"}
                     : std::vector<std::string>{section == "MATCH SETTINGS" ? "Setting" : "Field", "Value"};
             for (const auto &column: columns) {
                 const auto found = text(p, column, score ? 32 : 16);
-                D6R_REQUIRE(found != p.commands.end());
+                // Narrow primary scores no longer widen every supporting table.
+                // Overflow headings are checked across both axes below.
+                if (found == p.commands.end()) {
+                    D6R_REQUIRE(column != columns.front());
+                    continue;
+                }
                 D6R_REQUIRE_EQ(p.layout.body.y + (score ? 24 : 42), found->bounds.y);
             }
         };
@@ -6438,17 +6447,12 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
         wheel(-1);
         D6R_REQUIRE_EQ(0, plan().scroll.vertical);
 
-        // Exact captured consuming path, not an injected offset. ROUND1 starts
-        // at422, but its Level row already fits at the third page position412.
+        // Retain the three-PageDown consuming path through real controls. The
+        // displaced fields now own this position instead of MATCH SETTINGS.
         for (int page = 0; page < 3; ++page) f.key(SDLK_PAGEDOWN);
         auto boundary = plan();
         D6R_REQUIRE_EQ(412, boundary.scroll.vertical);
-        header(boundary, "ROUND 1");
-        D6R_REQUIRE(text(boundary, "MATCH SETTINGS", 16) == boundary.commands.end());
-        const auto level = text(boundary, "Level", 16), value = text(boundary, "Duel 01", 16);
-        D6R_REQUIRE(level != boundary.commands.end() && value != boundary.commands.end());
-        D6R_REQUIRE_EQ(boundary.layout.body.y + 74, level->bounds.y);
-        D6R_REQUIRE_EQ(level->bounds.y, value->bounds.y);
+        header(boundary, "CUMULATIVE PLAYER 11");
         const auto seek = [&](int target) {
             for (int steps = 0; plan().scroll.vertical != target; ++steps) {
                 D6R_REQUIRE(steps <= initial.bounds.vertical);
@@ -6460,19 +6464,28 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
                 D6R_REQUIRE((target - after) * direction >= 0);
             }
         };
+        // Two 14-field player-detail tables add632px before the former sticky
+        // settings/round boundary. Preserve all its complete-row/column checks.
+        seek(1044);
+        boundary = plan();
+        header(boundary, "ROUND 1");
+        const auto level = text(boundary, "Level", 16), value = text(boundary, "Duel 01", 16);
+        D6R_REQUIRE(level != boundary.commands.end() && value != boundary.commands.end());
+        D6R_REQUIRE_EQ(boundary.layout.body.y + 74, level->bounds.y);
+        D6R_REQUIRE_EQ(level->bounds.y, value->bounds.y);
         for (const auto &[offset, section]: std::vector<std::pair<int, std::string>>{
-                {394, "MATCH SETTINGS"}, {412, "ROUND 1"}, {422, "ROUND 1"},
-                {494, "ROUND 1"}, {566, "ROUND 1"}, {576, "ROUND 1 PLAYER RESULTS"}}) {
+                {1026, "MATCH SETTINGS"}, {1044, "ROUND 1"}, {1054, "ROUND 1"},
+                {1126, "ROUND 1"}, {1198, "ROUND 1"}, {1208, "ROUND 1 PLAYER RESULTS"}}) {
             seek(offset);
             boundary = plan();
             header(boundary, section);
-            if (offset == 394) D6R_REQUIRE(text(boundary, "Level", 16) == boundary.commands.end());
-            if (offset == 422) {
+            if (offset == 1026) D6R_REQUIRE(text(boundary, "Level", 16) == boundary.commands.end());
+            if (offset == 1054) {
                 const auto row = text(boundary, "Level", 16);
                 D6R_REQUIRE(row != boundary.commands.end());
                 D6R_REQUIRE_EQ(boundary.layout.rows.y, row->bounds.y);
             }
-            if (offset == 566) {
+            if (offset == 1198) {
                 D6R_REQUIRE(text(boundary, "ROUND 1 PLAYER RESULTS", 16) == boundary.commands.end());
                 D6R_REQUIRE(std::none_of(boundary.commands.begin(), boundary.commands.end(), [&](const auto &c) {
                     return c.kind == FinalSummaryPresentation::Command::Kind::Text && c.size == 32
@@ -6480,10 +6493,10 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
                             && c.bounds.y < boundary.layout.rows.y + boundary.layout.rows.height;
                 }));
             }
-            if (offset == 576) {
+            if (offset == 1208) {
                 D6R_REQUIRE(text(boundary, "Field", 16) == boundary.commands.end());
                 D6R_REQUIRE(text(boundary, "Value", 16) == boundary.commands.end());
-                const auto row = text(boundary, "Ada / Player 11 / Participant 1", 32);
+                const auto row = text(boundary, "Ada", 32);
                 D6R_REQUIRE(row != boundary.commands.end());
                 D6R_REQUIRE_EQ(boundary.layout.rows.y, row->bounds.y);
             }
@@ -6496,9 +6509,8 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
                 const auto current = plan();
                 std::string section = "Cumulative";
                 for (const auto &c: current.commands)
-                    if (c.text == "Outcome identities" || c.text == "MATCH SETTINGS"
-                        || c.text == "ROUND 1" || c.text == "ROUND 2"
-                        || c.text == "ROUND 1 PLAYER RESULTS" || c.text == "ROUND 2 PLAYER RESULTS")
+                    if (c.size == 16 && (c.bounds.y == current.layout.body.y || c.bounds.y == current.layout.body.y + 10)
+                        && (requiredDetails.count(c.text) || c.text == "ROUND 1 PLAYER RESULTS" || c.text == "ROUND 2 PLAYER RESULTS"))
                         section = c.text;
                 if (!current.scroll.horizontal)
                     for (const auto &c: current.commands) {
@@ -6524,6 +6536,11 @@ D6R_TEST_CASE("Compact final navigation reaches every two-player two-round stati
                     }
                 for (const auto &c: current.commands) {
                     D6R_REQUIRE(c.text != "Cumulative ranking" && c.text != "CUMULATIVE RANKING");
+                    if (c.size == 32) {
+                        D6R_REQUIRE(c.text != "Rank" && c.text != "R" && c.text != "Sh" && c.text != "Hi");
+                        D6R_REQUIRE(c.text.find(" / Player ") == std::string::npos);
+                        D6R_REQUIRE(c.text.find(" / Participant ") == std::string::npos);
+                    }
                     if (c.kind != FinalSummaryPresentation::Command::Kind::Text
                         || c.size != 32 || c.bounds.y < current.layout.body.y
                         || c.bounds.y >= current.layout.rows.y + current.layout.rows.height) continue;
@@ -6610,6 +6627,13 @@ D6R_TEST_CASE("Retained final tables carry sticky section and column metadata th
         row.displayName = i == 0 ? "ROUND RESULTS" : "Historical " + std::to_string(i);
         row.departed = true; row.statistics.roundsPlayed = 2;
         row.rounds.resize(2); for (auto &round: row.rounds) round.roundsPlayed = 1;
+        if (i == 1) {
+            // Keep real retained-table overflow after identity/owner columns
+            // move to detail: a supported full name and exact 64-bit deaths.
+            row.displayName = std::string(64, 'x');
+            for (auto &round: row.rounds) round.deaths = UINT64_MAX / 2;
+            row.statistics.deaths = UINT64_MAX - 1;
+        }
         result.players.push_back(row);
     }
     for (unsigned number = 1; number <= 2; ++number) {
@@ -6632,12 +6656,12 @@ D6R_TEST_CASE("Retained final tables carry sticky section and column metadata th
     f.video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
     const auto initial = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
     bool cumulative = false, perRound = false, settings = false;
-    for (int offset = 0; offset <= initial.bounds.vertical + 144; offset += 144) {
-        f.menu.finalScroll = {offset, 0};
+    for (int step = 0; ; ++step) {
+        D6R_REQUIRE(step < 1500);
         const auto plan = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
         for (const auto &command: plan.commands) {
-            cumulative |= offset == 0 && command.size == 32
-                    && command.text.find("ROUND RESULTS / Player ") == 0;
+            cumulative |= plan.scroll.vertical == 0 && command.size == 32
+                    && command.text == "ROUND RESULTS";
             D6R_REQUIRE(command.text != "Cumulative ranking");
             D6R_REQUIRE(command.text != "CUMULATIVE RANKING");
             perRound |= command.text == "ROUND 2 PLAYER RESULTS";
@@ -6646,6 +6670,9 @@ D6R_TEST_CASE("Retained final tables carry sticky section and column metadata th
                 D6R_REQUIRE_EQ(Color::WHITE, command.color);
             if (command.text == "---SCORE---") D6R_REQUIRE_EQ(32, command.size);
         }
+        const auto before = plan.scroll.vertical;
+        f.menu.mouseWheelEvent(MouseWheelEvent(425, 350, 0, -1));
+        if (f.menu.finalScroll.vertical == before) break;
     }
     D6R_REQUIRE(cumulative); D6R_REQUIRE(perRound); D6R_REQUIRE(settings);
     f.menu.finalScroll = {};
@@ -6656,46 +6683,313 @@ D6R_TEST_CASE("Retained final tables carry sticky section and column metadata th
     state.phase = R::Phase::Lobby;
     f.menu.runtime.current.canonical = state;
     f.menu.runtime.current.journey = Client::NetworkJourney::Lobby;
-    const std::vector<std::tuple<unsigned, std::string, std::string>> sections{
-        {1, "OUTCOME WINNERS", "Outcome scope"}, {6, "CUMULATIVE RANKING", "Player / identity"},
-        {23, "MATCH SETTINGS", "Setting"}, {35, "ROUND 1", "Field"},
-        {55, "ROUND 1 PLAYER RESULTS", "Player / identity"}, {72, "ROUND 2", "Field"},
-        {92, "ROUND 2 PLAYER RESULTS", "Player / identity"}};
-    const auto textAt = [&](int y) {
-        for (const auto &quad: f.recorder.quads) if (quad.vertices[0].y == y) {
-            for (const auto &entry: f.font.fontCache.entryList)
-                if (entry.texture == quad.material.getTexture()) return entry.text;
+    for (const bool interrupted: {false, true}) {
+        auto retained = result;
+        if (interrupted) {
+            retained.state = A::ResultState::Interrupted;
+            retained.config.roundLimit = 3; // Two complete rounds of an unfinished match.
         }
-        return std::string();
-    };
-    std::set<std::string> values;
-    for (const auto &section: sections) {
-        f.menu.summaryScroll = std::get<0>(section);
-        std::string leftColumns, rightColumns;
-        for (int horizontal: {0, 8, 16, 10000, 20000}) {
-            f.menu.summaryHorizontal = horizontal;
-            f.recorder.quads.clear(); f.recorder.draws.clear();
-            f.menu.drawResult(state, true);
-            D6R_REQUIRE_EQ(std::get<1>(section), textAt(252));
-            if (!horizontal) {
-                leftColumns = textAt(234);
-                D6R_REQUIRE(leftColumns.find(std::get<2>(section)) == 0);
-            } else if (horizontal == 8) {
-                // The first eight characters of every heading are ASCII.
-                D6R_REQUIRE(textAt(234).find(leftColumns.substr(8, 8)) == 0);
-            } else if (horizontal == 10000) rightColumns = textAt(234);
-            else if (horizontal == 20000) D6R_REQUIRE_EQ(rightColumns, textAt(234));
-            for (const auto &quad: f.recorder.quads)
-                if (quad.vertices[0].y == 234 || quad.vertices[0].y == 212)
-                    D6R_REQUIRE(quad.vertices[2].x <= 802);
-            for (const auto &draw: f.recorder.draws)
+        const auto retainedBytes = A::serializeSessionResult(retained); D6R_REQUIRE(retainedBytes);
+        state.result = {true, true, interrupted ? "Interrupted" : "Completed", *retainedBytes};
+        D6R_REQUIRE(R::retainedResultView(state.result));
+        f.menu.runtime.current.canonical = state;
+        f.draw();
+        f.click(100, 200); // Retained canvas uses bottom-left menu coordinates.
+        D6R_REQUIRE_EQ(static_cast<int>(f.menu.localPlayers.size() * 2 + 12 + state.players.size()), f.menu.focus);
+        std::map<std::string, std::string> sections{
+            {"OUTCOME WINNERS", "Outcome scope"}, {"CUMULATIVE RANKING", "K"},
+            {"MATCH SETTINGS", "Setting"}, {"ROUND 1", "Field"}, {"ROUND 1 PLAYER RESULTS", "K"},
+            {"ROUND 2", "Field"}, {"ROUND 2 PLAYER RESULTS", "K"}};
+        for (const auto &player: result.players)
+            for (const auto &scope: {"CUMULATIVE", "ROUND 1", "ROUND 2"})
+                sections[std::string(scope) + " PLAYER " + std::to_string(player.playerId)] = "Field";
+        const auto textAt = [&](int y) {
+            for (const auto &quad: f.recorder.quads) if (quad.vertices[0].y == y) {
                 for (const auto &entry: f.font.fontCache.entryList)
-                    if (entry.texture == draw.material.getTexture()) values.insert(entry.text);
+                    if (entry.texture == quad.material.getTexture()) return entry.text;
+            }
+            return std::string();
+        };
+        const auto cells = [](const std::string &line) {
+            std::vector<std::string> values;
+            std::istringstream in(line);
+            for (std::string cell; std::getline(in, cell, '|');) {
+                const auto first = cell.find_first_not_of(' '), last = cell.find_last_not_of(' ');
+                values.push_back(first == std::string::npos ? "" : cell.substr(first, last - first + 1));
+            }
+            return values;
+        };
+        std::map<std::string, std::set<std::string>> scopedValues;
+        std::map<std::string, std::set<R::Identity>> scorePlayers;
+        std::set<std::string> seenSections;
+        f.menu.summaryScroll = 0;
+        for (unsigned step = 0; ; ++step) {
+            D6R_REQUIRE(step < 1500);
+            f.menu.summaryHorizontal = 0;
+            f.draw();
+            const auto section = textAt(252);
+            D6R_REQUIRE(sections.count(section));
+            seenSections.insert(section);
+            std::string leftColumns, rightColumns;
+            std::map<int, const A::PlayerResultRow *> visiblePlayers;
+            for (int horizontal: {0, 8, 16, 10000, 20000}) {
+                f.menu.summaryHorizontal = horizontal;
+                f.recorder.quads.clear(); f.recorder.draws.clear();
+                f.menu.drawResult(state, true);
+                D6R_REQUIRE_EQ(section, textAt(252));
+                if (!horizontal) {
+                    leftColumns = textAt(234);
+                    const auto first = leftColumns.find_first_not_of(' ');
+                    D6R_REQUIRE(first != std::string::npos);
+                    D6R_REQUIRE(leftColumns.substr(first).find(sections.at(section)) == 0);
+                    if (sections.at(section) == "K")
+                        for (int y: {212, 194, 176}) {
+                            const auto values = cells(textAt(y));
+                            if (values.size() < 2) continue;
+                            for (const auto &player: result.players)
+                                if (values.front() == player.displayName) visiblePlayers[y] = &player;
+                        }
+                } else if (horizontal == 8) {
+                    // The first eight characters of every heading are ASCII.
+                    D6R_REQUIRE(textAt(234).find(leftColumns.substr(8, 8)) == 0);
+                } else if (horizontal == 10000) {
+                    rightColumns = textAt(234);
+                    for (const auto &[y, player]: visiblePlayers) {
+                        const auto values = cells(textAt(y));
+                        D6R_REQUIRE_EQ(std::size_t(6), values.size());
+                        const auto &s = section == "CUMULATIVE RANKING" ? player->statistics
+                                : player->rounds[section == "ROUND 1 PLAYER RESULTS" ? 0 : 1];
+                        D6R_REQUIRE_EQ((std::vector<std::string>{"0", "0", std::to_string(s.deaths), "0.00", "0"}),
+                                (std::vector<std::string>(values.begin() + 1, values.end())));
+                        scorePlayers[section].insert(player->playerId);
+                    }
+                } else if (horizontal == 20000) D6R_REQUIRE_EQ(rightColumns, textAt(234));
+                for (const auto &quad: f.recorder.quads)
+                    if (quad.vertices[0].y == 234 || quad.vertices[0].y == 212)
+                        D6R_REQUIRE(quad.vertices[2].x <= 802);
+                for (const auto &draw: f.recorder.draws)
+                    for (const auto &entry: f.font.fontCache.entryList)
+                        if (entry.texture == draw.material.getTexture()) scopedValues[section].insert(entry.text);
+            }
+            const auto before = f.menu.summaryScroll;
+            f.menu.summaryHorizontal = 0;
+            f.menu.mouseWheelEvent(MouseWheelEvent(100, 500, 0, -1));
+            if (f.menu.summaryScroll == before) break;
+        }
+        D6R_REQUIRE_EQ(sections.size(), seenSections.size());
+        for (const auto *section: {"CUMULATIVE RANKING", "ROUND 1 PLAYER RESULTS", "ROUND 2 PLAYER RESULTS"})
+            D6R_REQUIRE_EQ(result.players.size(), scorePlayers[section].size());
+        for (const auto &player: result.players)
+            for (const auto &scope: {"CUMULATIVE", "ROUND 1", "ROUND 2"}) {
+                const auto section = std::string(scope) + " PLAYER " + std::to_string(player.playerId);
+                const auto &seen = scopedValues[section];
+                for (const auto &[field, value]: std::vector<std::pair<std::string, std::string>>{
+                        {"Display name", player.displayName}, {"Player identity", std::to_string(player.playerId)},
+                        {"Owner participant", std::to_string(player.participantId)}, {"Team", "No team"},
+                        {"Result departure", "Departed"}, {"Rounds played", std::string(scope) == "CUMULATIVE" ? "2" : "1"},
+                        {"Shots", "0"}, {"Hits", "0"}, {"Wins", "0"}, {"Penalties", "0"},
+                        {"Survival ticks", "0"}, {"Damage", "0"}, {"Assisted damage", "0"}})
+                    D6R_REQUIRE(seen.count(field + "  " + value + "  "));
+                if (std::string(scope) == "CUMULATIVE")
+                    D6R_REQUIRE(seen.count("Rank  " + std::to_string(player.rosterOrder + 1) + "  "));
+                else D6R_REQUIRE(!seen.count("Rank  " + std::to_string(player.rosterOrder + 1) + "  "));
+            }
+    }
+}
+
+D6R_TEST_CASE("Compact network score columns match local ratios and Team totals while scoped duplicate identities remain readable") {
+    namespace A = Server::Authoritative;
+    namespace R = Network::Replication;
+    namespace F = FinalSummaryPresentation;
+    ReviewMenuFixture f;
+    f.video.screen = ScreenParameters(1280, 900, 24, 24, 0, false);
+    A::SessionResult result;
+    result.config.hostParticipantId = 1; result.config.seed = 1234; result.config.roundLimit = 1;
+    result.config.mode = A::Mode::TeamDeathmatch; result.config.teamCount = 2;
+    result.config.fixedLevel = "levels/duel_01.json";
+    result.config.playableLevels = {result.config.fixedLevel}; result.config.enabledWeapons = {"pistol"};
+    result.completedRounds = 1; result.finalNoWinner = true;
+    std::string duplicate;
+    for (int i = 0; i < 30; ++i) duplicate += "É";
+    duplicate += "Twin";
+    D6R_REQUIRE_EQ(64u, duplicate.size());
+    const std::array<unsigned, 4> kills{2, 5, 14, 0}, assists{1, 2, 0, 0}, deaths{3, 0, 3, 0};
+    const std::array<unsigned, 4> penalties{5, 0, 0, 3};
+    for (const unsigned i: {2, 1, 0, 3}) { // Actual authoritative cumulative order.
+        A::PlayerResultRow row;
+        row.playerId = 101 + i; row.participantId = 11 + i;
+        row.rosterOrder = i == 1 ? 2 : i == 2 ? 1 : i;
+        row.team = i < 2 ? A::Team::Alpha : A::Team::Bravo;
+        row.displayName = i < 2 ? duplicate : i == 2 ? "Cora" : "Dara"; row.departed = i == 0;
+        auto &s = row.statistics;
+        s.roundsPlayed = 1; s.kills = kills[i]; s.assists = assists[i]; s.deaths = deaths[i];
+        s.wins = i == 1 ? 1 : 0; s.penalties = penalties[i];
+        s.shots = 17 + i; s.hits = 9 + i; s.survivalTicks = 501 + i;
+        s.damage = 701 + i; s.assistedDamage = 801 + i; row.rounds = {s};
+        result.players.push_back(row);
+    }
+    result.teams = {{A::Team::Bravo, 11, {103, 104}}, {A::Team::Alpha, 6, {102, 101}}};
+    A::RoundResult round;
+    round.roundNumber = 1; round.level = result.config.fixedLevel; round.noWinner = true;
+    round.rosterOrder = {101, 103, 102, 104}; result.rounds = {round};
+    const auto serialized = A::serializeSessionResult(result); D6R_REQUIRE(serialized);
+    auto state = canonical(91, R::Phase::FinalSummary);
+    state.result = {true, true, "Completed", *serialized};
+    D6R_REQUIRE(R::retainedResultView(state.result));
+    f.menu.runtime.current.canonical = state; f.menu.runtime.current.host = true;
+    f.menu.runtime.current.journey = Client::NetworkJourney::Summary;
+    const std::vector<std::vector<std::string>> rows{
+        {"Bravo", "14", "0", "3", " 4.66", "11"}, {"Cora", "14", "0", "3", " 4.66", "14"},
+        {"Dara", "0", "0", "0", " 0.00", "-3"}, {"Alpha", "7", "3", "3", " 2.33", "6"},
+        {duplicate, "5", "2", "0", " 5.00", "8"}, {duplicate, "2", "1", "3", " 0.66", "-2"}};
+    const auto rendered = [&](const F::Command &command) {
+        return std::any_of(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &q) {
+            return q.vertices[0].x == command.bounds.x
+                && q.vertices[0].y == f.video.screen.getClientHeight() - command.bounds.y - command.size
+                && std::any_of(f.font.fontCache.entryList.begin(), f.font.fontCache.entryList.end(), [&](const auto &entry) {
+                    return entry.texture == q.material.getTexture() && entry.text == command.text;
+                });
+        });
+    };
+    const auto checkScores = [&](const F::Plan &plan) {
+        std::vector<std::vector<std::string>> actual;
+        std::vector<std::string> headings;
+        std::map<int, std::vector<std::string>> byY;
+        for (const auto &c: plan.commands) {
+            if (c.size == 32 && c.kind == F::Command::Kind::Text && c.bounds.y == plan.layout.body.y)
+                headings.push_back(c.text);
+            if (c.size != 32 || c.kind != F::Command::Kind::Text
+                || c.bounds.y < plan.layout.rows.y || c.bounds.y >= plan.layout.rows.y + plan.layout.rows.height) continue;
+            D6R_REQUIRE(rendered(c));
+            if (c.text != "|") byY[c.bounds.y].push_back(c.text);
+        }
+        for (const auto &[y, cells]: byY) actual.push_back(cells);
+        D6R_REQUIRE_EQ((std::vector<std::string>{"K", "A", "D", "K/D", "PTS"}), headings);
+        D6R_REQUIRE_EQ(rows, actual);
+        for (const auto *removed: {"Rank", "R", "Sh", "Hi", "W", "P", "Survival ticks", "Damage", "Assist dmg"})
+            D6R_REQUIRE(!f.text(removed));
+    };
+    f.draw();
+    const auto initial = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+    checkScores(initial);
+    std::map<std::string, std::set<std::pair<std::string, std::string>>> required, seen;
+    for (std::size_t rank = 0; rank < result.players.size(); ++rank) {
+        const auto &p = result.players[rank]; const auto &s = p.statistics;
+        for (const auto &scope: {"CUMULATIVE", "ROUND 1"}) {
+            auto &fields = required[std::string(scope) + " PLAYER " + std::to_string(p.playerId)];
+            fields = {{"Display name", p.displayName}, {"Player identity", std::to_string(p.playerId)},
+                {"Owner participant", std::to_string(p.participantId)}, {"Team", p.team == A::Team::Alpha ? "Alpha" : "Bravo"},
+                {"Result departure", p.departed ? "Departed" : "Retained"}, {"Rounds played", "1"},
+                {"Shots", std::to_string(s.shots)}, {"Hits", std::to_string(s.hits)},
+                {"Wins", std::to_string(s.wins)}, {"Penalties", std::to_string(s.penalties)},
+                {"Survival ticks", std::to_string(s.survivalTicks)}, {"Damage", std::to_string(s.damage)},
+                {"Assisted damage", std::to_string(s.assistedDamage)}};
+            if (std::string(scope) == "CUMULATIVE") fields.insert({"Rank", std::to_string(rank + 1)});
         }
     }
-    D6R_REQUIRE(std::any_of(values.begin(), values.end(), [](const auto &text) {
-        return text.find("18446744073709551615") != std::string::npos && text.find("Departed") != std::string::npos;
-    }));
+    required["CUMULATIVE TEAM Bravo"] = {{"Rank", "1"}};
+    required["CUMULATIVE TEAM Alpha"] = {{"Rank", "2"}};
+    bool perRound = false;
+    std::map<int, std::vector<std::string>> roundRows;
+    for (int step = 0; ; ++step) {
+        D6R_REQUIRE(step < 1500);
+        f.draw();
+        const auto plan = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+        std::string section;
+        for (const auto &c: plan.commands)
+            if (c.kind == F::Command::Kind::Text && c.size == 16
+                && (c.bounds.y == plan.layout.body.y || c.bounds.y == plan.layout.body.y + 10))
+                section = c.text;
+        if (section == "ROUND 1 PLAYER RESULTS") {
+            perRound = true;
+            std::map<int, std::vector<std::string>> visible;
+            for (const auto &c: plan.commands)
+                if (c.kind == F::Command::Kind::Text && c.size == 32 && c.text != "|"
+                    && c.bounds.y >= plan.layout.rows.y
+                    && c.bounds.y + c.size <= plan.layout.rows.y + plan.layout.rows.height) {
+                    D6R_REQUIRE(rendered(c));
+                    visible[c.bounds.y + plan.scroll.vertical - plan.layout.body.y].push_back(c.text);
+                }
+            for (const auto &[y, cells]: visible) roundRows[y] = cells;
+        }
+        for (const auto &field: plan.commands) {
+            if (field.kind != F::Command::Kind::Text || field.size != 16
+                || field.bounds.x != plan.layout.rows.x + 8 || field.bounds.y < plan.layout.rows.y) continue;
+            if (!required.count(section)) continue;
+            for (const auto &value: plan.commands)
+                if (value.size == 16 && value.bounds.y == field.bounds.y && value.bounds.x > field.bounds.x
+                    && required[section].count({field.text, value.text})) {
+                    D6R_REQUIRE(rendered(field) && rendered(value));
+                    seen[section].insert({field.text, value.text});
+                }
+            if (section.find("ROUND 1 PLAYER ") == 0) D6R_REQUIRE(field.text != "Rank");
+        }
+        const int before = plan.scroll.vertical;
+        f.application.mouseWheelEvent(f.menu, MouseWheelEvent(640, 450, 0, -1));
+        if (f.menu.finalScroll.vertical == before) break;
+    }
+    D6R_REQUIRE(perRound);
+    std::vector<std::vector<std::string>> roundCells;
+    for (const auto &[y, cells]: roundRows) roundCells.push_back(cells);
+    D6R_REQUIRE_EQ(rows, roundCells);
+    D6R_REQUIRE_EQ(required, seen);
+
+    // Legal UInt64 counters must not narrow to Person's Int32 or wrap when
+    // display-only Team sums exceed UInt64. Zero kills keep PTS0.
+    std::sort(result.players.begin(), result.players.end(), [](const auto &a, const auto &b) {
+        return a.rosterOrder < b.rosterOrder;
+    });
+    for (auto &p: result.players) {
+        auto &s = p.statistics;
+        s.deaths = UINT64_MAX; s.kills = s.penalties = s.assists = s.wins = s.damage = 0;
+        p.rounds = {s};
+    }
+    result.teams = {{A::Team::Alpha, 0, {101, 102}}, {A::Team::Bravo, 0, {103, 104}}};
+    const auto extreme = A::serializeSessionResult(result); D6R_REQUIRE(extreme);
+    state.result.serialized = *extreme; D6R_REQUIRE(R::retainedResultView(state.result));
+    f.menu.runtime.current.canonical = state; f.menu.finalScroll = {};
+    f.video.screen = ScreenParameters(1920, 1080, 24, 24, 0, false); f.draw();
+    const auto wide = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+    for (const auto *team: {"Alpha", "Bravo"}) {
+        const auto label = std::find_if(wide.commands.begin(), wide.commands.end(), [&](const auto &c) {
+            return c.text == team && c.size == 32;
+        });
+        D6R_REQUIRE(label != wide.commands.end());
+        std::vector<std::string> cells;
+        for (const auto &c: wide.commands) if (c.size == 32 && c.bounds.y == label->bounds.y && c.text != "|") {
+            D6R_REQUIRE(rendered(c)); cells.push_back(c.text);
+        }
+        D6R_REQUIRE_EQ((std::vector<std::string>{team, "0", "0",
+                           "36893488147419103230", " 0.00", "0"}), cells);
+    }
+
+    auto sparse = result;
+    sparse.config.teamCount = 4;
+    sparse.players.resize(2);
+    for (unsigned i = 0; i < sparse.players.size(); ++i) {
+        auto &p = sparse.players[i];
+        p.rosterOrder = i; p.statistics = {}; p.statistics.roundsPlayed = 1;
+        p.rounds = {p.statistics};
+    }
+    sparse.rounds[0].rosterOrder = {101, 103};
+    sparse.teams = {{A::Team::Alpha, 0, {101}}, {A::Team::Bravo, 0, {103}},
+                    {A::Team::Charlie, 0, {}}, {A::Team::Delta, 0, {}}};
+    const auto sparseBytes = A::serializeSessionResult(sparse); D6R_REQUIRE(sparseBytes);
+    state.result.serialized = *sparseBytes; D6R_REQUIRE(R::retainedResultView(state.result));
+    f.menu.runtime.current.canonical = state; f.menu.finalScroll = {}; f.draw();
+    const auto sparsePlan = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+    for (const auto *team: {"Alpha", "Bravo", "Charlie", "Delta"}) {
+        const auto label = std::find_if(sparsePlan.commands.begin(), sparsePlan.commands.end(), [&](const auto &c) {
+            return c.text == team && c.size == 32;
+        });
+        D6R_REQUIRE(label != sparsePlan.commands.end());
+        std::vector<std::string> cells;
+        for (const auto &c: sparsePlan.commands)
+            if (c.size == 32 && c.bounds.y == label->bounds.y && c.text != "|") {
+                D6R_REQUIRE(rendered(c)); cells.push_back(c.text);
+            }
+        D6R_REQUIRE_EQ((std::vector<std::string>{team, "0", "0", "0", " 0.00", "0"}), cells);
+    }
 }
 
 D6R_TEST_CASE("Local shared final retains established outcomes across later deaths and isolates completed navigation") {

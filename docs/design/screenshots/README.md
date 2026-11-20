@@ -1,5 +1,21 @@
 # Screenshot coverage and assessment
 
+## Network score-column parity
+
+The [NET-06 score-column contract](../../screens/network-summary.md#score-columns-and-supporting-detail), [shared presentation](../../design.md#shared-final-presentation) and existing [NET-06 SVG](../wireframes/NET-06/NET-06.svg) own the current column selection and supporting-field placement. Local Play is unchanged and remains the appearance authority. Earlier network originals retain their actual geometry/style scope, not proof of these changed columns or relocated fields. This supersedes only affected column/detail coverage below; unrelated arena/platform obligations remain outside scope.
+
+Retain profile L from the compact-final matrix: native Linux x86-64 Docker Release GL4/Lua ON, shipped font/assets, supported startup dimensions, private Xvfb/software OpenGL/dummy audio and ordinary native keyboard/pointer input. Supply original full-client lossless PNGs without crop, scaling, retouch, composition or injected results. Preserve the existing source/runtime/state/viewport/UTC/hash provenance requirements.
+
+| Existing representative / wireframe | Minimum actual route/state | Viewport | Changed visible criteria | Destination / status |
+|---|---|---|---|---|
+| FS-N / NET-06 / NET-06 | Ordinary Host/direct Guest completion, two or three short-name players, one round and normal final delay; default cumulative view with Return to lobby initially focused. | L, 1280 × 900 | Display names followed by exactly K/A/D/K/D/PTS, matching the local reference's formatting, headings and pipes. No Rank or other extra score columns, appended identity/owner strings or first-column caption. Primary width follows the compact table; one score strip, required status/actions and separate final cues remain. | `docs/design/screenshots/NET-06/NET-06.png` — Pending column-parity replacement |
+
+Use that same session for the minimum focused observations: Guest at 850 × 700, primary and one per-round score table, representative 16 px supporting identity/rank/additional-statistic detail, applicable bounds and correct section/column ownership; then Return to lobby and access the retained score tables and supporting values through existing result navigation. Supply only the focused originals needed to establish changed column/detail presentation; unchanged initial NET-04-R outcome geometry does not require another permanent representative.
+
+Current routine evidence must establish complete cumulative/per-round field access and association, including displaced metadata/statistics, supported 64-byte UTF-8 names, duplicate names and Departed identities; Team K/A/D/PTS sums and aggregate K/D; nonzero/fractional/zero-death formatting; and fitting/overflow bounds and input ownership. Native paging need not expose every detail row when current real-adapter evidence establishes complete supported-navigation access; disclose the distinction. Preserve authoritative values/order/outcomes, participation, session-only persistence and existing actions/timing. Reuse valid unchanged path evidence rather than repeat score/outcome hunting.
+
+Reuse the local canonical, current non-final parity and active-play evidence within unchanged consumers. No new Local Play, active Tab, live-ranking, final-delay, fifteen-player overflow, twelve-round, nonleader-winner, native fourteen-winner, quality/recovery or platform campaign is required solely for this column change. Routine developer verification suffices; assess the single coordinated supplied set against this baseline.
+
 ## Compact final scoreboard
 
 This is the current OVER-03 / NET-06 follow-up baseline from merged develop `d10fa92f5bc17d4764946773806d7592390c40ba`. It supersedes the earlier large final-shell geometry and main-screen caption requirements below, not their actual outcome/data/persistence coverage. [OVER-02](../../screens/overlay-round-over.md#layout-and-hierarchy) is the actual appearance authority; [the final appearance owner](../../design.md#shared-final-presentation), [local binding](../screens/OVER-03.md), [network binding](../screens/NET-06.md) and existing OVER-03/NET-06 SVGs define the approved compact result. No new screen, stable ID, tab, details product or control is introduced.
