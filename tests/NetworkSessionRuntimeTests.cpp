@@ -6178,7 +6178,8 @@ D6R_TEST_CASE("Shared final and retained overlays render the arena and restore e
         D6R_REQUIRE(fixture.text("End of Game"));
         D6R_REQUIRE(!fixture.text("Match is running"));
     }
-    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}}) {
+    for (const auto size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900},
+                          std::pair{1920, 1080}}) {
         fixture.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         menu.runtime.current.journey = Client::NetworkJourney::Summary;
         menu.confirmation = NetworkMenu::Confirmation::None;
@@ -6257,6 +6258,25 @@ D6R_TEST_CASE("Retained final tables carry sticky section and column metadata th
     // Exercise the actual action queue without opening a socket or directory.
     f.menu.runtime.current.publicSession = true;
     f.menu.runtime.current.journey = Client::NetworkJourney::Summary;
+    // Read the real retained-result adapter at both axes, including historical
+    // per-round player tables. Departed names remain neutral, never life-colored.
+    f.video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
+    const auto initial = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+    bool cumulative = false, perRound = false, settings = false;
+    for (int offset = 0; offset <= initial.bounds.vertical + 144; offset += 144) {
+        f.menu.finalScroll = {offset, 0};
+        const auto plan = f.menu.finalSummaryPlan(f.menu.runtime.snapshot());
+        for (const auto &command: plan.commands) {
+            cumulative |= command.text == "Cumulative ranking";
+            perRound |= command.text == "ROUND 2 PLAYER RESULTS";
+            settings |= command.text == "Mode" && command.size == 16;
+            if (command.text.find("Historical ") == 0 && command.size == 32)
+                D6R_REQUIRE_EQ(Color::WHITE, command.color);
+            if (command.text == "---SCORE---") D6R_REQUIRE_EQ(32, command.size);
+        }
+    }
+    D6R_REQUIRE(cumulative); D6R_REQUIRE(perRound); D6R_REQUIRE(settings);
+    f.menu.finalScroll = {};
     f.menu.focus = 0; f.key(SDLK_RETURN);
     D6R_REQUIRE_EQ(1u, f.menu.runtime.pendingGuestCommands.size());
     const auto command = Network::HostComposition::deserialize(f.menu.runtime.pendingGuestCommands.front());
@@ -6354,6 +6374,16 @@ D6R_TEST_CASE("Local shared final retains established outcomes across later deat
         application.keyEvent(game, KeyPressEvent(SDLK_PAGEDOWN, SysEvent::ButtonState::PRESSED, 0));
         D6R_REQUIRE_EQ(0, game.getFinalScroll().vertical);
         round.gameOverWait = 0;
+        game.finalScroll = {std::numeric_limits<int>::max(), 0};
+        const auto styled = game.getWorldRenderer().finalSummaryPlan();
+        bool deadName = false;
+        for (const auto &command: styled.commands)
+            if (command.size == 32 && command.text.find("Final player ") == 0) {
+                D6R_REQUIRE_EQ(Color::RED, command.color);
+                deadName = true;
+            }
+        D6R_REQUIRE(deadName);
+        game.finalScroll = {};
         const auto completed = game.getWorldRenderer().finalSummaryPlan();
         D6R_REQUIRE(std::any_of(completed.commands.begin(), completed.commands.end(), [](const auto &command) {
             return command.text == "End of Game";
@@ -6371,6 +6401,68 @@ D6R_TEST_CASE("Local shared final retains established outcomes across later deat
             application.video->getScreen().getClientHeight() - completed.layout.body.y - 5, 0, -2));
         D6R_REQUIRE(game.getFinalScroll().vertical >= scroll.vertical);
     }
+}
+
+D6R_TEST_CASE("Local final score adapter keeps all four configured teams styled with only two players") {
+    char name[] = "duel6r-sparse-final-team-style";
+    char *arguments[] = {name};
+    Application application(1, arguments);
+    auto controls = PlayerControls::keyboardControls("QA", application.input,
+        SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+    std::vector<Person> people;
+    people.reserve(2);
+    people.emplace_back("Ada", nullptr);
+    people.emplace_back("Bea", nullptr);
+    std::vector<Game::PlayerDefinition> definitions;
+    for (auto &person: people)
+        definitions.emplace_back(person, PlayerSkinColors(Color::WHITE),
+            application.menu->defaultPlayerSounds, *controls);
+    application.video->screen = ScreenParameters(1280, 900, 24, 24, 0, false);
+    application.gameSettings.setMaxRounds(1);
+    TeamDeathMatch mode(4, false);
+    auto &game = *application.game;
+    game.start(definitions, {"levels/duel_01.json"}, {}, mode);
+    game.getPlayers()[1].setBonus(BonusType::NONE, 0);
+    D6R_REQUIRE(game.getPlayers()[1].hit(1000));
+    game.getRound().checkWinner();
+    D6R_REQUIRE(game.getRound().hasWinner());
+    game.getRound().gameOverWait = 0;
+    const auto plan = game.getWorldRenderer().finalSummaryPlan();
+    D6R_REQUIRE_EQ(std::size_t(6), plan.bounds.totalRows);
+    D6R_REQUIRE_EQ(0, plan.bounds.vertical);
+    const std::vector<std::pair<std::string, Color>> teams{
+        {"Alpha", Color::RED}, {"Bravo", Color::GREEN},
+        {"Charlie", Color::YELLOW}, {"Delta", Color::MAGENTA}};
+    for (const auto &team: teams) {
+        const auto identity = std::find_if(plan.commands.begin(), plan.commands.end(), [&](const auto &command) {
+            return command.kind == FinalSummaryPresentation::Command::Kind::Text && command.text == team.first;
+        });
+        D6R_REQUIRE(identity != plan.commands.end());
+        D6R_REQUIRE_EQ(32, identity->size);
+        D6R_REQUIRE_EQ(Color::BLACK, identity->color);
+        const auto fill = std::find_if(plan.commands.begin(), plan.commands.end(), [&](const auto &command) {
+            return command.kind == FinalSummaryPresentation::Command::Kind::Fill
+                    && command.bounds.y == identity->bounds.y && command.bounds.height == 32;
+        });
+        D6R_REQUIRE(fill != plan.commands.end());
+        D6R_REQUIRE_EQ(team.second.withAlpha(178), fill->color);
+        D6R_REQUIRE(fill->bounds.width > identity->bounds.width);
+        std::size_t values = 0, pipes = 0;
+        for (const auto &command: plan.commands)
+            if (command.kind == FinalSummaryPresentation::Command::Kind::Text
+                && command.bounds.y == identity->bounds.y) {
+                D6R_REQUIRE_EQ(32, command.size);
+                D6R_REQUIRE_EQ(Color::BLACK, command.color);
+                if (command.text == "|") ++pipes;
+                else if (command.text != team.first) ++values;
+            }
+        D6R_REQUIRE_EQ(std::size_t(5), values);
+        D6R_REQUIRE_EQ(std::size_t(5), pipes);
+    }
+    D6R_REQUIRE_EQ(std::size_t(3), std::count_if(plan.commands.begin(), plan.commands.end(), [](const auto &command) {
+        return command.kind == FinalSummaryPresentation::Command::Kind::Fill
+                && command.color == Color(255, 255, 255, 178) && command.bounds.height == 2;
+    }));
 }
 
 D6R_TEST_CASE("PR83 summary and retained result draw bounded headers and scroll every long historical winner") {

@@ -356,6 +356,7 @@ namespace Duel6 {
                     details.rows.push_back({{"Roster", player->displayName + " / Player " + std::to_string(id)}});
                 model.rounds.push_back(std::move(details));
                 F::Table statistics{title + " PLAYER RESULTS", model.cumulative.columns, {}};
+                statistics.score = true;
                 for (const auto &player: result->players)
                     if (round.number <= player.rounds.size() && player.rounds[round.number - 1].roundsPlayed)
                         statistics.rows.push_back(playerRow(player, player.rounds[round.number - 1], false));

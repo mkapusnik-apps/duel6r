@@ -7,7 +7,7 @@
 
 namespace Duel6::FinalSummaryPresentation {
     namespace {
-        constexpr int Glyph = 8, Pitch = 18, HeaderHeight = 64, NavigationHeight = 36;
+        constexpr int Glyph = 8, Pitch = 18, HeaderHeight = 64, ScoreHeaderHeight = 88, NavigationHeight = 36;
         const Color White(255), Black(0), Header(0, 0, 255);
 
         std::vector<std::size_t> boundaries(const std::string &text) {
@@ -38,13 +38,15 @@ namespace Duel6::FinalSummaryPresentation {
 
         // Clip whole glyphs, never bytes. We intentionally do NOT add ellipses:
         // horizontal navigation reveals the original complete cell verbatim.
-        void clippedText(Plan &plan, int x, int y, const std::string &value, const Rect &clip) {
-            if (y < clip.y || y + 16 > clip.y + clip.height) return;
+        void clippedText(Plan &plan, int x, int y, const std::string &value, const Rect &clip,
+                         int height = 16, Color color = White) {
+            if (y < clip.y || y + height > clip.y + clip.height) return;
+            const int glyph = height / 2;
             const auto offsets = boundaries(value);
             const int count = static_cast<int>(offsets.size()) - 1;
-            const int first = std::clamp((clip.x - x + Glyph - 1) / Glyph, 0, count);
-            const int end = std::clamp((clip.x + clip.width - x) / Glyph, first, count);
-            text(plan, x + first * Glyph, y, value.substr(offsets[first], offsets[end] - offsets[first]));
+            const int first = std::clamp((clip.x - x + glyph - 1) / glyph, 0, count);
+            const int end = std::clamp((clip.x + clip.width - x) / glyph, first, count);
+            text(plan, x + first * glyph, y, value.substr(offsets[first], offsets[end] - offsets[first]), height, color);
         }
 
         Rect intersection(Rect a, Rect b) {
@@ -93,7 +95,7 @@ namespace Duel6::FinalSummaryPresentation {
             const Table *table = nullptr;
             std::vector<int> widths;
             std::vector<int> rowTops;
-            int top = 0, height = 0, width = 0;
+            int top = 0, height = 0, width = 0, header = HeaderHeight, textHeight = 16, pitch = Pitch;
         };
 
         std::vector<MeasuredTable> measure(const std::vector<Table> &tables, int availableWidth,
@@ -103,21 +105,31 @@ namespace Duel6::FinalSummaryPresentation {
                 MeasuredTable measured;
                 measured.table = &table;
                 measured.top = bounds.contentHeight;
-                measured.height = HeaderHeight;
-                for (const auto &column: table.columns)
-                    measured.widths.push_back(std::max(column.minimumWidth, textWidth(column.heading) + 16));
+                if (table.score) {
+                    measured.header = ScoreHeaderHeight;
+                    measured.textHeight = measured.pitch = 32;
+                }
+                measured.height = measured.header;
+                for (std::size_t i = 0; i < table.columns.size(); ++i) {
+                    const auto &column = table.columns[i];
+                    const int pipe = table.score && i > 0 ? 16 : 0;
+                    measured.widths.push_back(std::max(column.minimumWidth,
+                            textWidth(column.heading, measured.textHeight) + 16 + pipe));
+                }
                 for (const auto &row: table.rows) {
                     if (row.teamSeparatorBefore) measured.height += 8;
                     measured.rowTops.push_back(measured.height);
-                    measured.height += Pitch;
+                    measured.height += measured.pitch;
                     for (std::size_t i = 0; i < row.cells.size() && i < measured.widths.size(); ++i) {
-                        const int inset = i == 0 ? (row.nested ? 24 : 0) + (row.teamColor ? 20 : 0) : 0;
-                        measured.widths[i] = std::max(measured.widths[i], textWidth(row.cells[i]) + 16 + inset);
+                        const int inset = i == 0 ? (row.nested ? 24 : 0)
+                                + (!table.score && row.teamColor ? 20 : 0) : table.score ? 16 : 0;
+                        measured.widths[i] = std::max(measured.widths[i],
+                                textWidth(row.cells[i], measured.textHeight) + 16 + inset);
                     }
                 }
                 for (int width: measured.widths) measured.width += width;
                 // Identity receives remaining width AFTER all numeric columns.
-                if (!measured.widths.empty() && measured.width < availableWidth) {
+                if (!table.score && !measured.widths.empty() && measured.width < availableWidth) {
                     auto identity = std::find_if(table.columns.begin(), table.columns.end(),
                             [](const Column &column) { return !column.numeric; });
                     const auto index = identity == table.columns.end() ? 0 : identity - table.columns.begin();
@@ -125,6 +137,7 @@ namespace Duel6::FinalSummaryPresentation {
                     measured.width = availableWidth;
                 }
                 measured.width = std::max(measured.width, textWidth(table.title) + 16);
+                if (table.score) measured.width = std::max(measured.width, textWidth("---SCORE---", 32));
                 bounds.contentWidth = std::max(bounds.contentWidth, measured.width);
                 bounds.contentHeight += measured.height;
                 bounds.totalRows += table.rows.size();
@@ -218,6 +231,7 @@ namespace Duel6::FinalSummaryPresentation {
         if (!outcomes.rows.empty()) tables.push_back(std::move(outcomes));
         tables.push_back(model.cumulative);
         tables.back().title = "Cumulative ranking";
+        tables.back().score = true;
         tables.insert(tables.end(), model.settings.begin(), model.settings.end());
         tables.insert(tables.end(), model.rounds.begin(), model.rounds.end());
         const auto measured = measure(tables, layout.rows.width, plan.bounds);
@@ -226,51 +240,82 @@ namespace Duel6::FinalSummaryPresentation {
         plan.bounds.horizontal = std::max(0, plan.bounds.contentWidth - layout.rows.width);
         plan.scroll = {clampedOffset(requested.vertical, plan.bounds.vertical),
                        clampedOffset(requested.horizontal, plan.bounds.horizontal)};
-        const int originX = layout.rows.x - plan.scroll.horizontal;
         std::size_t stickyIndex = 0;
         for (std::size_t i = 0; i < measured.size(); ++i)
             if (measured[i].top <= plan.scroll.vertical) stickyIndex = i;
+        layout.rows.y = layout.body.y + measured[stickyIndex].header;
+        layout.rows.height = std::max(0, layout.body.height - measured[stickyIndex].header - NavigationHeight);
+
+        const auto tableLeft = [&](const MeasuredTable &table) {
+            const int overflow = std::max(0, table.width - layout.rows.width);
+            const int centered = table.table->score ? std::max(0, (layout.rows.width - table.width) / 2) : 0;
+            return layout.rows.x + centered - std::min(plan.scroll.horizontal, overflow);
+        };
 
         auto drawHeading = [&](const MeasuredTable &table, int top, const Rect &clip) {
-            fill(plan, intersection({layout.rows.x, top + 4, layout.rows.width, 28}, clip), Header);
+            const bool score = table.table->score;
+            const int originX = tableLeft(table);
+            if (score) {
+                const Rect strip{std::max(layout.rows.x, originX), top + 20,
+                                 std::min(table.width, layout.rows.width), 36};
+                fill(plan, intersection(strip, clip), Header);
+                clippedText(plan, strip.x + (strip.width - textWidth("---SCORE---", 32)) / 2,
+                            top + 20, "---SCORE---", clip, 32);
+            } else fill(plan, intersection({layout.rows.x, top + 4, layout.rows.width, 28}, clip), Header);
             // The section label stays fixed on BOTH axes; only table columns
             // follow horizontal navigation. Ranking never loses its scope label.
-            clippedText(plan, layout.rows.x + 8, top + 10, table.table->title, clip);
+            clippedText(plan, layout.rows.x + 8, top + (score ? 0 : 10), table.table->title, clip);
             int x = originX;
             for (std::size_t c = 0; c < table.widths.size(); ++c) {
                 const auto &column = table.table->columns[c];
-                const int tx = column.numeric ? x + table.widths[c] - 8 - textWidth(column.heading) : x + 8;
-                clippedText(plan, tx, top + 42, column.heading, clip);
+                const int tx = column.numeric ? x + table.widths[c] - 8
+                        - textWidth(column.heading, table.textHeight) : x + 8 + (score && c > 0 ? 16 : 0);
+                clippedText(plan, tx, top + (score ? 56 : 42), column.heading, clip, table.textHeight);
                 x += table.widths[c];
             }
         };
-        const Rect headerClip{layout.rows.x, layout.body.y, layout.rows.width, HeaderHeight};
+        const Rect headerClip{layout.rows.x, layout.body.y, layout.rows.width, measured[stickyIndex].header};
         drawHeading(measured[stickyIndex], layout.body.y, headerClip);
         std::size_t rowNumber = 0, firstVisible = 0, lastVisible = 0;
         for (std::size_t t = 0; t < measured.size(); ++t) {
             const auto &table = measured[t];
+            const bool score = table.table->score;
             const int top = layout.body.y + table.top - plan.scroll.vertical;
             if (t != stickyIndex) drawHeading(table, top, layout.rows);
+            std::optional<Color> teamSurface;
             for (std::size_t r = 0; r < table.table->rows.size(); ++r) {
                 ++rowNumber;
                 const auto &row = table.table->rows[r];
+                if (row.teamColor) teamSurface = row.teamColor->withAlpha(178);
                 const int y = top + table.rowTops[r];
                 if (row.teamSeparatorBefore) fill(plan,
-                        intersection({layout.rows.x, y - 5, layout.rows.width, 2}, layout.rows), Color(255, 255, 255, 178));
-                if (y < layout.rows.y || y + 16 > layout.rows.y + layout.rows.height) continue;
+                        intersection({score ? tableLeft(table) : layout.rows.x, y - 5,
+                                      score ? table.width : layout.rows.width, 2}, layout.rows), Color(255, 255, 255, 178));
+                if (y < layout.rows.y || y + table.textHeight > layout.rows.y + layout.rows.height) continue;
                 if (!firstVisible) firstVisible = rowNumber;
                 lastVisible = rowNumber;
-                int x = originX;
+                int x = tableLeft(table);
+                if (score) {
+                    const Color surface = row.teamColor ? *teamSurface : row.nested && teamSurface
+                            ? teamSurface->scale(0.2f) : Color(0, 0, 255, 178);
+                    fill(plan, intersection({x, y, table.width, table.textHeight}, layout.rows), surface);
+                }
                 for (std::size_t c = 0; c < table.widths.size(); ++c) {
                     if (c < row.cells.size()) {
                         int inset = 8 + (c == 0 && row.nested ? 24 : 0);
-                        if (c == 0 && row.teamColor) {
+                        if (!score && c == 0 && row.teamColor) {
                             fill(plan, intersection({x + inset, y + 3, 12, 10}, layout.rows), *row.teamColor);
                             inset += 20;
                         }
+                        const Color color = !score ? White : row.teamColor ? Black
+                                : table.table->columns[c].numeric ? Color::YELLOW : row.identityColor;
+                        if (score && c > 0) {
+                            clippedText(plan, x + 8, y, "|", layout.rows, 32, row.teamColor ? Black : Color::YELLOW);
+                            inset += 16;
+                        }
                         const int tx = table.table->columns[c].numeric
-                                ? x + table.widths[c] - 8 - textWidth(row.cells[c]) : x + inset;
-                        clippedText(plan, tx, y, row.cells[c], layout.rows);
+                                ? x + table.widths[c] - 8 - textWidth(row.cells[c], table.textHeight) : x + inset;
+                        clippedText(plan, tx, y, row.cells[c], layout.rows, table.textHeight, color);
                     }
                     x += table.widths[c];
                 }

@@ -214,16 +214,18 @@ namespace Duel6 {
         model.cumulative.columns = {{"Player / team"}, {"K", true}, {"A", true}, {"D", true},
                                     {"K/D", true}, {"PTS", true}};
         const Ranking ranking = game.getMode().getRanking(game.getPlayers());
+        const bool teamRanking = dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;
         const auto append = [&](const Ranking::Entry &entry, bool nested, bool separator) {
             Row row{{entry.name, std::to_string(entry.kills), std::to_string(entry.assistances),
                     std::to_string(entry.deaths), Person::getKillsToDeathsRatio(entry.kills, entry.deaths),
                     std::to_string(entry.points)}, nested, separator, {}};
-            if (!entry.entries.empty()) row.teamColor = entry.bcgColor;
+            if (teamRanking && !nested) row.teamColor = entry.bcgColor;
+            row.identityColor = entry.fontColor;
             model.cumulative.rows.push_back(std::move(row));
         };
         for (std::size_t index = 0; index < ranking.entries.size(); ++index) {
             const auto &entry = ranking.entries[index];
-            append(entry, false, index > 0 && !entry.entries.empty());
+            append(entry, false, index > 0 && teamRanking);
             for (const auto &nested: entry.entries) append(nested, true, false);
         }
         return compose(model, video.getScreen().getClientWidth(), video.getScreen().getClientHeight(),

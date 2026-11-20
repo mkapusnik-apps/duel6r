@@ -392,42 +392,67 @@ def assert_final_round_counter(data, label, font_path, played=1, rounds=1):
     return similarity, (surface_left, surface_top, surface_right, surface_bottom)
 
 
-def assert_shared_final_body(data, label, players, teams):
+def assert_shared_final_body(data, label, players, teams, scroll=0):
     # UX-FINAL-005/006/018/019: final-only client-pixel shell. Active Tab
     # and non-final summaries deliberately retain the legacy oracle below.
     panel_width = min(1184, WIDTH - 32)
     body_left = (WIDTH - panel_width) // 2 + 16
-    left = body_left + 16  # row viewport inset; swatches add another 8 px
-    right = (WIDTH + panel_width) // 2 - 40
+    viewport_left = body_left + 16
+    viewport_width = panel_width - 72
+    # Short fixture names fit under "Player / team". Each numeric cell reserves
+    # a pipe and padding (32px). Person preserves the leading space in " 0.00",
+    # so K/D needs 112px, not the 96px of an unpadded "0.00": total width 560px.
+    name_width = len("Player / team") * 16 + 16
+    table_width = name_width + 3 * (16 + 32) + len(" 0.00") * 16 + 32 + len("PTS") * 16 + 32
+    left = viewport_left + (viewport_width - table_width) // 2
+    right = left + table_width
     header = fraction(region_pixels(data, body_left, 24, body_left + 100, 52),
                       lambda rgb: rgb[2] > 200 and rgb[0] < 60 and rgb[1] < 60)
     if header < 0.45:
         fail(f"{label}: shared final SCORE title surface missing: {header:.3f}")
-    row_y = 210  # body y=146, fixed section/column-heading allocation=64
+    strip = fraction(region_pixels(data, left, 166, right, 202),
+                     lambda rgb: rgb[2] >= 245 and rgb[0] <= 20 and rgb[1] <= 20)
+    title = glyph_similarity(data, "---SCORE---", left + (table_width - 176) // 2, 166)
+    if strip < .65 or title < .42:
+        fail(f"{label}: centered reference score strip missing: blue={strip:.3f} title={title:.3f}")
+    row_y = 234 - scroll
     groups = []
     for group in range(teams or 1):
         count = players
         if group:
-            assert_team_separators(data, label, left, right - left, [row_y + 3])
+            if 234 <= row_y + 3 and row_y + 5 <= HEIGHT - 188:
+                assert_team_separators(data, label, left, table_width, [row_y + 3])
             row_y += 8
         if teams:
-            swatch = region_pixels(data, left + 9, row_y + 6, left + 19, row_y + 12)
-            colors = parent_team_fractions(swatch)
-            color = max(colors, key=colors.get)
-            if colors[color] < 0.9 or color in groups:
-                fail(f"{label}: final team swatch missing or repeated at {row_y}: {colors}")
+            # The deterministic native fixture's only entirely hidden group at
+            # the maximum scroll is its surviving Alpha group.
+            color = "Alpha"
+            if 234 <= row_y and row_y + 32 <= HEIGHT - 188:
+                colors = parent_team_fractions(region_pixels(data, left + 2, row_y, right - 2, row_y + 32))
+                color = max(colors, key=colors.get)
+                if colors[color] < .25 or color in groups:
+                    fail(f"{label}: full final team fill missing or repeated at {row_y}: {colors}")
+                if glyph_similarity(data, color, left + 8, row_y, dark=True) < .42:
+                    fail(f"{label}: named final team row missing at {row_y}")
+            elif row_y >= HEIGHT - 188:
+                break
             groups.append(color)
             team = ("Alpha", "Bravo", "Charlie", "Delta").index(color)
             count = 1 + sum(player % teams == team for player in range(players))
         for row in range(count):
-            values = region_pixels(data, left + 24 if teams else left, row_y,
-                                   left + 320, row_y + 16)
-            white = fraction(values, lambda rgb: min(rgb) > 190)
-            if white < 0.005:
-                fail(f"{label}: compact final identity row missing at {row_y}")
-            row_y += 18
-    if row_y > HEIGHT - 188:
-        fail(f"{label}: fixture rows exceed the final body viewport")
+            if 234 <= row_y and row_y + 32 <= HEIGHT - 188:
+                if not teams or row:
+                    values = region_pixels(data, left + 8, row_y, left + 224, row_y + 32)
+                    ink = fraction(values, lambda rgb: rgb[0] > 190 and rgb[2] < 80)
+                    numeric = region_pixels(data, left + 224, row_y, right, row_y + 32)
+                    yellow = fraction(numeric, lambda rgb: min(rgb[:2]) > 190 and rgb[2] < 80)
+                    if ink < .005:
+                        fail(f"{label}: reference final identity row missing at {row_y}")
+                    if yellow < .005:
+                        fail(f"{label}: yellow final values/pipes missing at {row_y}")
+            row_y += 32
+    if scroll and row_y != HEIGHT - 188:
+        fail(f"{label}: final bottom does not align with the bounded row viewport: {row_y}")
     return groups, header, 16
 
 
@@ -537,6 +562,7 @@ def main():
     parser.add_argument("teams", type=int)
     parser.add_argument("--score", action="store_true")
     parser.add_argument("--final-score", action="store_true")
+    parser.add_argument("--final-bottom", action="store_true", help="maximum-scroll four-team native fixture")
     parser.add_argument("--viewport-only", action="store_true")
     parser.add_argument("--live-ready", action="store_true")
     parser.add_argument("--start-prompt", action="store_true")
@@ -571,7 +597,7 @@ def main():
         print(f"{args.label}: SCORE overlay header absent: glyph-similarity={similarity:.3f}")
     elif args.score or args.final_score:
         groups, header, panel_top = (assert_shared_final_body(
-            data, args.label, args.players, args.teams) if args.final_score else assert_score_overlay(
+            data, args.label, args.players, args.teams, scroll=154 if args.final_bottom else 0) if args.final_score else assert_score_overlay(
             data, args.label, args.players, args.teams, team_separators=True))
         notice = ""
         if args.final_score:

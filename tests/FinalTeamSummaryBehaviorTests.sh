@@ -206,6 +206,27 @@ run_scenario() {
     done
     [[ "$ready" == true ]] || fail "$label final summary assertion failed: $assertion"
 
+    if (( player_count == 15 )); then
+        # The approved 32px rows now overflow. Exercise the real completed-only
+        # binding until it reaches the lower bound, not a synthesized plan/image.
+        ready=false
+        for _ in {1..100}; do
+            xdotool key --window "$window_id" Page_Down
+            sleep 0.1
+            import -window root "${scenario_dir}/bottom-candidate.png"
+            if assertion="$(python3 "$assertions" "${scenario_dir}/bottom-candidate.png" "$label-bottom" \
+                    "$player_count" "$team_count" --final-score --final-bottom \
+                    --font "${resource_dir}/data/font.ttf" 2>&1)"; then
+                cp "${scenario_dir}/bottom-candidate.png" "${scenario_dir}/bottom.png"
+                printf '%s\n' "$assertion"
+                ready=true
+                break
+            fi
+            kill -0 "$app_pid" 2>/dev/null || break
+        done
+        [[ "$ready" == true ]] || fail "$label bottom summary assertion failed: $assertion"
+    fi
+
     xdotool key --window "$window_id" Shift+Escape
     sleep 1
     xdotool key --window "$window_id" Escape
