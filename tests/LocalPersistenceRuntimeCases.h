@@ -118,6 +118,45 @@ namespace PersistenceJourney {
         }
     }
 
+    void outcomeDiagnostics(const App &app, const char *stage) {
+        const auto &game = *app.application.game;
+        const auto &outcome = game.getRound().getEstablishedOutcome();
+        const auto saved = Json::Parser().parse(peoplePath);
+        std::cout << "PERSIST_DIAG stage=" << stage
+                  << " current_round=" << game.getCurrentRound() + 1
+                  << " played_rounds=" << game.getPlayedRounds()
+                  << " saved_rounds=" << saved.get("rounds").asInt()
+                  << " outcome_kind=" << static_cast<int>(outcome.kind)
+                  << " no_winner=" << (outcome.kind == MatchResultRules::OutcomeKind::NoWinner)
+                  << " winning_team=" << unsigned(outcome.team)
+                  << " rng_seed=not-exposed-by-fixture\n";
+        for (const auto id: outcome.winners) {
+            for (const auto &player: game.getPlayers())
+                if (player.getRosterSlot() + 1 == id)
+                    std::cout << "PERSIST_WINNER stage=" << stage << " player_id=" << id
+                              << " name=" << player.getPerson().getName() << '\n';
+        }
+        const auto &people = app.application.menu->persons.list();
+        for (Size index = 0; index < people.size() && index < 15; ++index) {
+            const auto &person = people[index];
+            const auto disk = saved.get("persons").get(index);
+            const auto diskPoints = disk.get("kills").asInt() + disk.get("wins").asInt()
+                    + disk.get("assistances").asInt() - disk.get("penalties").asInt();
+            std::cout << "PERSIST_PERSON stage=" << stage << " index=" << index
+                      << " name=" << person.getName() << " saved_name=" << disk.get("name").asString()
+                      << " elo=" << person.getElo() << " saved_elo=" << disk.get("elo").asInt()
+                      << " points=" << person.getTotalPoints() << " saved_points=" << diskPoints
+                      << " wins=" << person.getWins() << " saved_wins=" << disk.get("wins").asInt()
+                      << " damage=" << person.getTotalDamage() << " saved_damage=" << disk.get("totalDamage").asInt()
+                      << " kills=" << person.getKills() << " assists=" << person.getAssistances()
+                      << " penalties=" << person.getPenalties() << " deaths=" << person.getDeaths()
+                      << " games=" << person.getGames() << " saved_games=" << disk.get("games").asInt()
+                      << " elo_updates=" << person.getEloGames()
+                      << " saved_elo_updates=" << disk.get("eloGames").asInt() << '\n';
+        }
+        std::cout.flush(); // Preserve the second child's actual data before an assertion throws.
+    }
+
     // Fork only before any Application/SDL/thread exists. Each stage is a fresh
     // OS process; the next stage can observe previous state only through files.
     void process(const std::function<void()> &stage) {
@@ -163,7 +202,9 @@ D6R_TEST_CASE("Persistence finite offline restart resumes real rounds and update
     using namespace PersistenceJourney;
     D6R_REQUIRE(!std::filesystem::exists(peoplePath)); platforms();
     process([] {
-        App app; app.people(); app.start(0, 2); app.outcome(); savedCounts(1, 0);
+        App app; app.people(); app.start(0, 2);
+        outcomeDiagnostics(app, "first-child/round-1/before-outcome");
+        app.outcome(); outcomeDiagnostics(app, "first-child/round-1/after-outcome"); savedCounts(1, 0);
         app.leave(KMOD_SHIFT); app.quit(); savedCounts(1, 0);
         std::cout << "ASSERT first real round saved; Shift Escape exits unfinished finite match without Elo\n";
     });
@@ -171,7 +212,8 @@ D6R_TEST_CASE("Persistence finite offline restart resumes real rounds and update
     process([&] {
         App app; restored(app); D6R_REQUIRE_EQ(first, bytes(peoplePath));
         app.start(0, 2, true); D6R_REQUIRE_EQ(1, app.application.game->getCurrentRound());
-        app.outcome(); savedCounts(2, 1);
+        outcomeDiagnostics(app, "second-child/resumed-round-2/before-outcome");
+        app.outcome(); outcomeDiagnostics(app, "second-child/resumed-round-2/before-Elo-assertion"); savedCounts(2, 1);
         const auto data = Json::Parser().parse(peoplePath);
         D6R_REQUIRE_EQ(1140, data.get("persons").get(0).get("elo").asInt());
         for (Size i = 1; i < 15; ++i) D6R_REQUIRE_EQ(990, data.get("persons").get(i).get("elo").asInt());
