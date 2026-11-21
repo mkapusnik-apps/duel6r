@@ -91,14 +91,21 @@ set_tests_properties(shared-arena-image-assertions PROPERTIES
 foreach(scenario deathmatch-2 predator-3 team2-ff-off-4 team2-ff-on-4
         team3-ff-off-6 team3-ff-on-6 team4-ff-off-8 team4-ff-on-15)
     set(test_name "shared-arena-behavior-${scenario}")
+    set(scenario_timeout 100)
+    # Loaded Linux CI reached close or cleanup in these cases at the 100s
+    # watchdog. Give them headroom without changing per-phase deadlines.
+    if (scenario MATCHES "^(team3-ff-on-6|team4-ff-off-8|team4-ff-on-15)$")
+        set(scenario_timeout 150)
+    endif ()
+    math(EXPR ctest_timeout "${scenario_timeout} + 15")
     add_test(NAME ${test_name}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/OwnedProcessRunner.py
-                --timeout 100 --log ${CMAKE_BINARY_DIR}/${test_name}/process.log --
+                --timeout ${scenario_timeout} --log ${CMAKE_BINARY_DIR}/${test_name}/process.log --
                 ${D6R_BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/SharedArenaBehaviorTests.sh ${scenario})
     set_tests_properties(${test_name} PROPERTIES
         ENVIRONMENT "WORKSPACE_DIR=${CMAKE_SOURCE_DIR};BUILD_DIR=${CMAKE_BINARY_DIR};RESOURCE_DIR=${CMAKE_SOURCE_DIR}/resources;TEST_ROOT=${CMAKE_BINARY_DIR}/${test_name};DISPLAY=:98"
         LABELS "application;regression;e2e;shared-arena;sanity-common"
-        RUN_SERIAL TRUE TIMEOUT 115)
+        RUN_SERIAL TRUE TIMEOUT ${ctest_timeout})
 endforeach()
 
 add_test(

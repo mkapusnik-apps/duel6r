@@ -35,9 +35,16 @@ export DISPLAY="$display" SDL_AUDIODRIVER=dummy LIBGL_ALWAYS_SOFTWARE=1
 xvfb_pid=""
 app_pid=""
 cleanup() {
-  if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
-    kill "$app_pid" 2>/dev/null || true
-    wait "$app_pid" 2>/dev/null || true
+  local test_status=$? app_status=0 cleanup_action="no signal sent by cleanup"
+  if [[ -n "$app_pid" ]]; then
+    if kill "$app_pid" 2>/dev/null; then
+      cleanup_action="cleanup requested termination"
+    fi
+    # Reap even an already-exited watchdog so a lost window does not hide its status.
+    wait "$app_pid" || app_status=$?
+    if (( test_status != 0 )); then
+      echo "menu-redesign-behavior: ${scenario_dir##*/}: application watchdog exited with status $app_status (${app_timeout}s budget; $cleanup_action; see app.stderr)" >&2
+    fi
   fi
   if [[ -n "$xvfb_pid" ]] && kill -0 "$xvfb_pid" 2>/dev/null; then
     kill "$xvfb_pid" 2>/dev/null || true
@@ -65,8 +72,11 @@ new_scenario() {
 start_app() {
   local startup_command="${1:-}"
   local preload="${2:-}"
+  local -a app_args=()
+  if [[ -n "$startup_command" ]]; then app_args+=("$startup_command"); fi
+  app_timeout="${3:-35}"
   # Observation shares the original process budget; it never starts a new one.
-  app_deadline="$(python3 -c 'import time; print(time.monotonic() + 35)')"
+  app_deadline="$(python3 -c 'import sys, time; print(time.monotonic() + int(sys.argv[1]))' "$app_timeout")"
   mkdir -p "${scenario_dir}/home"
   (
     export HOME="${scenario_dir}/home"
@@ -75,11 +85,8 @@ start_app() {
       export LD_PRELOAD="$preload"
     fi
     cd "$scenario_dir"
-    if [[ -n "$startup_command" ]]; then
-      timeout --kill-after=3s 35s ./duel6r "$startup_command" >app.stdout 2>app.stderr
-    else
-      timeout --kill-after=3s 35s ./duel6r >app.stdout 2>app.stderr
-    fi
+    # The parent must wait on and signal the watchdog, not an intermediate shell.
+    exec timeout --verbose --kill-after=3s "${app_timeout}s" ./duel6r "${app_args[@]}" >app.stdout 2>app.stderr
   ) &
   app_pid="$!"
   window_id=""
@@ -94,13 +101,11 @@ start_app() {
 }
 
 close_app() {
-  xdotool key --window "$window_id" Escape
-  set +e
-  wait "$app_pid"
-  status=$?
-  set -e
+  local status=0
+  xdotool key --window "$window_id" Escape || fail "${scenario_dir##*/}: could not send Escape to the application window"
+  wait "$app_pid" || status=$?
   app_pid=""
-  (( status == 0 )) || fail "application did not close cleanly: $status"
+  (( status == 0 )) || fail "${scenario_dir##*/}: application did not close cleanly (watchdog status $status; ${app_timeout}s budget; see app.stderr)"
 }
 
 capture() {
@@ -892,7 +897,9 @@ with open(sys.argv[1], encoding="utf-8") as f: data = json.load(f)
 data["playing"] = [f"Rank{i:02d}" for i in range(1, 7)]
 with open(sys.argv[1], "w", encoding="utf-8") as f: json.dump(data, f, indent=2)
 PY
-start_app
+# This journey runs repeated software-rendered captures and image conversions
+# before closing; leave extra time for them on loaded Linux runners.
+start_app "" "" 60
 # Assign K1 through K6 to the six visible players.
 for i in {0..5}; do
   for ((step = 0; step < i; step++)); do
