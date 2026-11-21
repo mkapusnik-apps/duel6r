@@ -2705,6 +2705,50 @@ D6R_TEST_CASE("Non-final network counter reserves dynamic footer and keeps raise
     }
 }
 
+D6R_TEST_CASE("Player-hosted match omits unavailable directory status and pointer retry while F5 and lobby retry remain") {
+    ReviewMenuFixture f;
+    namespace R = Network::Replication;
+    auto &runtime = f.menu.runtime;
+    f.lobby();
+    f.video.screen = ScreenParameters(1280, 900, 24, 24, 0, false);
+    runtime.current.journey = Client::NetworkJourney::Match;
+    auto &state = *runtime.current.canonical;
+    state.currentRoundNumber = 1; state.settings.roundLimit = 2; state.roundEndCountdown = 240;
+    constexpr auto unavailable = "Directory: Unavailable • Retry publication (F5)";
+    constexpr auto listed = "Directory: Listed";
+    constexpr auto registering = "Directory: Registering…";
+    for (const auto phase: {R::Phase::ActiveRound, R::Phase::RoundSummary}) {
+        state.phase = phase;
+        const int statusY = phase == R::Phase::RoundSummary ? NetworkRoundSummary::footer(1).statusY : 16;
+        // An idle publisher records retry as pending without starting a network worker.
+        runtime.publisher = std::make_unique<Client::DirectoryPublisher>();
+        f.click(100, statusY + 24); f.click(100, statusY + 24, false);
+        D6R_REQUIRE(!runtime.publisher->busy());
+        f.draw();
+        D6R_REQUIRE(!f.text(unavailable));
+        D6R_REQUIRE(f.text("Host • LAN session • Connected"));
+        D6R_REQUIRE(f.text("Session only scores • Optional scripts disabled"));
+        const auto bar = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == Color(0,0,255,179)
+                && quad.vertices[0].x == 16 && quad.vertices[0].y == statusY && quad.vertices[2].x == 1264;
+        });
+        D6R_REQUIRE(bar != f.recorder.quads.end());
+        D6R_REQUIRE_EQ(24.0f, bar->vertices[2].y - bar->vertices[0].y);
+        f.key(SDLK_F5); D6R_REQUIRE(runtime.publisher->busy());
+
+        runtime.current.directoryAvailable = true; f.draw(); D6R_REQUIRE(f.text(listed));
+        runtime.current.directoryAvailable = false;
+        runtime.current.directoryRegistering = true; f.draw(); D6R_REQUIRE(f.text(registering));
+        runtime.current.directoryRegistering = false;
+    }
+    f.lobby();
+    f.video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
+    runtime.publisher = std::make_unique<Client::DirectoryPublisher>();
+    f.draw(); D6R_REQUIRE(f.text(unavailable));
+    f.click(100, 512); f.click(100, 512, false);
+    D6R_REQUIRE(runtime.publisher->busy());
+}
+
 D6R_TEST_CASE("Non-final renderer paints full-client countdown curtain before readable score and status overlays only") {
     ReviewMenuFixture f;
     namespace R = Network::Replication;

@@ -1093,12 +1093,7 @@ namespace Duel6 {
             const auto status = matchStatus(snap, width);
             const auto footer = NetworkRoundSummary::footer(static_cast<int>(status.rows.size()));
             const bool nonFinal = NetworkRoundSummary::applies(*snap.canonical);
-            const int statusY = nonFinal ? footer.statusY : 16;
             const int actionY = nonFinal ? footer.actionY : 84;
-            if (snap.host && !snap.publicSession && !snap.directoryAvailable && !snap.directoryRegistering
-                && pointerInside(event.getX(), event.getY(), 16, statusY + 16, std::min<Int32>(450, width - 32), 20)) {
-                runtime.retryPublication(); return;
-            }
             const bool roundSummary = snap.canonical->phase == Network::Replication::Phase::RoundSummary;
             if (snap.host && roundSummary
                 && pointerInside(event.getX(), event.getY(), width - 368, actionY, 168, 34)) {
@@ -2393,8 +2388,10 @@ namespace Duel6 {
         MatchStatus result;
         result.rows.push_back(std::string(snap.host ? "Host" : "Guest")
                              + (snap.publicSession ? " • Dedicated session • " : " • LAN session • ") + connectionState);
-        if (snap.host && !snap.publicSession) result.rows.push_back(snap.directoryAvailable ? "Directory: Listed"
-            : snap.directoryRegistering ? "Directory: Registering…" : "Directory: Unavailable • Retry publication (F5)");
+        if (snap.host && !snap.publicSession) {
+            if (snap.directoryAvailable) result.rows.push_back("Directory: Listed");
+            else if (snap.directoryRegistering) result.rows.push_back("Directory: Registering…");
+        }
         const std::string right = "Session only scores • Optional scripts disabled";
         result.rightFits = static_cast<Int32>((utf8Length(result.rows.front()) + utf8Length(right)) * 8 + 56) <= width;
         std::string networkState;
