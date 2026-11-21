@@ -37,9 +37,9 @@ The local score core remains the reference even though network-only outcome/coun
 
 **Non-final counter footer:** Use the exact counter backing, padding, center and bottom inset in [OVER-02](../../screens/overlay-round-over.md#layout-and-hierarchy). The complete client bottom is the anchor, not the score panel or the top of network status. Do not reinterpret the existing completed/total values as rounds remaining. Keep the counter fixed when ranking scrolls, in both round-end phases, with no pointer/focus target.
 
-Reserve the bottom-center counter first. The status bar must start 16 client px above the counter backing's top, retaining its 16 px side insets, existing text, 4 px inner padding, wrapping and three-row limit. Place the existing action/waiting row 16 px above the status bar's top: retain right-aligned 34 px action buttons, their existing horizontal gaps/order, and waiting feedback to their left without overlap. Keep outcome/countdown above that row with at least 16 px clearance; the score panel must retain its existing separation from those texts. Only these necessary vertical offsets and removal of the old counter row are authorized. Do not move the camera, shrink score text, change controls/status content, or add an action. At constrained viewports, the existing network ranking body yields rows to this fixed footer and retains its current navigation.
+Reserve the bottom-center counter first. The status bar must start 16 client px above the counter backing's top, retaining its 16 px side insets, 4 px inner padding, wrapping and three-row limit. The [player-hosted directory status rule](#player-hosted-directory-status) also applies here. Place the existing action/waiting row 16 px above the status bar's top: retain right-aligned 34 px action buttons, their existing horizontal gaps/order, and waiting feedback to their left without overlap. Keep outcome/countdown above that row with at least 16 px clearance; the score panel must retain its existing separation from those texts. Only these necessary vertical offsets and removal of the old counter row are authorized for counter placement. Do not move the camera, shrink score text, change controls, or add an action. At constrained viewports, the existing network ranking body yields rows to this fixed footer and retains its current navigation.
 
-Local OVER-02 uses the same counter relocation, including unchanged resumed count semantics; its unlimited variant remains unchanged. NET-05-S, active live ranking/progress, the final-round delay, NET-06 and OVER-03 retain their existing contracts and evidence. A genuine conflict returns to team rather than silently changing those surfaces.
+Local OVER-02 uses the same counter relocation, including unchanged resumed count semantics; its unlimited variant remains unchanged. Counter placement does not change NET-05-S, active live ranking/progress, the final-round delay, NET-06 or OVER-03. A genuine conflict returns to team rather than silently changing those surfaces.
 
 ## First-round arrival
 
@@ -52,6 +52,10 @@ Local OVER-02 uses the same counter relocation, including unchanged resumed coun
 
 Immediate first-round arrival remains distinct from product-confirmed waiting admission. Neither route may add a false lobby, spectator mode, or blanket join-in-progress rejection. Product determines hosting-specific eligibility and the actual destination.
 
+## Player-hosted directory status
+
+When publication is unavailable, the player-hosted match status bar must omit `Directory: Unavailable • Retry publication (F5)` without replacement text or a reserved row. This applies wherever the match status bar appears, including over round-end views. Keep `Directory: Listed` and `Directory: Registering…` unchanged. The bar must not provide a pointer retry target. The existing F5 retry remains available when eligible, and [lobby publication feedback and retry](NET-04.md#player-hosted-listing-feedback) remain unchanged.
+
 ## Dedicated status
 
 - The dedicated status region must use `Dedicated session` instead of legacy LAN-only scope copy.
@@ -60,11 +64,11 @@ Immediate first-round arrival remains distinct from product-confirmed waiting ad
 - Host End and guest Leave must retain distinct consequences and NET-05-C structure.
 - Explicit controller departure must not imply termination of the remote service process.
 - Retained dedicated context in NET-07 and NET-09 must keep the same identity and orientation.
-- Dedicated status must omit directory publication state and Retry publication targets without changing player-hosted publication feedback.
+- Dedicated status must omit directory publication state and Retry publication targets.
 
 ## Acceptance
 
-Use an ordinary real dedicated Connected match for changed status coverage. The scoped confirmation representative uses the dedicated controller's isolated-End consequence over NET-07; guest Leave and other contexts retain their current structure and focused QA. Unchanged NET-05-S may retain develop evidence with source-impact confirmation rather than receive an automatic replacement. The NET-05-R placement follow-up uses the [current counter-placement matrix](../screenshots/README.md#non-final-counter-placement), not a repeat of the previous three-row parity campaign. A completed summary cannot substitute for a non-final result when that result presentation changes. Preserve degraded/resynchronizing containment, all modes, maximum ranking, and real first-round arrival. The [dedicated scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) retains its status-only scope; it does not claim new Invisibility, orientation, result-extreme, or gameplay-continuity acceptance.
+For dedicated status coverage, use an ordinary real dedicated Connected match. The scoped confirmation representative uses the dedicated controller's isolated-End consequence over NET-07; guest Leave and other contexts retain their current structure and focused QA. Unchanged NET-05-S may retain develop evidence with source-impact confirmation rather than receive an automatic replacement. The NET-05-R placement follow-up uses the [current counter-placement matrix](../screenshots/README.md#non-final-counter-placement), not a repeat of the previous three-row parity campaign. A completed summary cannot substitute for a non-final result when that result presentation changes. Preserve degraded/resynchronizing containment, all modes, maximum ranking, and real first-round arrival. The [dedicated scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) retains its status-only scope; it does not claim new Invisibility, orientation, result-extreme, or gameplay-continuity acceptance.
 
 ## Connected waiting and solo presentation
 
