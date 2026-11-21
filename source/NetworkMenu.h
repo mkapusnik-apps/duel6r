@@ -64,7 +64,8 @@ namespace Duel6 {
         std::string password;
         std::string passwordFeedback;
         bool hostPasswordEditorOpen = false;
-        bool hostPasswordOpenedWithSpace = false;
+        SDL_Keycode hostPasswordActivationKey = SDLK_UNKNOWN;
+        bool hostPasswordActivationTextPending = false;
         Client::DirectoryBrowser browser;
         std::string selectedListing;
         std::string selectedSessionIdentity;
@@ -107,7 +108,7 @@ namespace Duel6 {
 
         void beforeStart(Context *) override;
         void beforeClose(Context *) override;
-        void activate();
+        void activate(SDL_Keycode keyboardSource = SDLK_UNKNOWN);
         void showConfirmation(Confirmation value);
         void back();
         void moveFocus(int direction);

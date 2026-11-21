@@ -773,7 +773,8 @@ namespace Duel6 {
         Network::Trust::secureEraseMemory(password.data(), password.size()); password.clear();
         hostSetup.password.reset(); passwordFeedback.clear();
         hostPasswordEditorOpen = false;
-        hostPasswordOpenedWithSpace = false;
+        hostPasswordActivationKey = SDLK_UNKNOWN;
+        hostPasswordActivationTextPending = false;
     }
 
     void NetworkMenu::clearConfirmedPassword() {
@@ -1504,7 +1505,7 @@ namespace Duel6 {
         focus = 0;
     }
 
-    void NetworkMenu::activate() {
+    void NetworkMenu::activate(SDL_Keycode keyboardSource) {
         reconcileRestoredLocalPlayers();
         auto snap = runtime.snapshot();
         clearConfirmedPassword();
@@ -1560,6 +1561,7 @@ namespace Duel6 {
             if (setupScreen == SetupScreen::Host) {
                 if (focus == PasswordFocus && !hostPasswordEditorOpen) {
                     hostPasswordEditorOpen = true;
+                    hostPasswordActivationKey = keyboardSource;
                     return;
                 }
                 if (focus == HostPasswordRemoveFocus && hostPasswordEditorOpen) {
@@ -1773,8 +1775,14 @@ namespace Duel6 {
     }
 
     void NetworkMenu::keyEvent(const KeyPressEvent &event) {
-        if (!event.isPressed() || event.isRepeat()) return;
-        hostPasswordOpenedWithSpace = false;
+        if (!event.isPressed()) return;
+        // A repeat belongs to the held activation key, even after other keys
+        // are pressed. A new press of that key can type normally.
+        const bool activationKey = hostPasswordActivationKey != SDLK_UNKNOWN
+                                && event.getCode() == hostPasswordActivationKey;
+        hostPasswordActivationTextPending = activationKey && event.isRepeat();
+        if (event.isRepeat()) return;
+        if (activationKey) hostPasswordActivationKey = SDLK_UNKNOWN;
         const auto snap = runtime.snapshot();
         clearConfirmedPassword();
         if (event.getCode() == SDLK_F5 && snap.host && !snap.publicSession) {
@@ -1796,11 +1804,12 @@ namespace Duel6 {
             consume(controls.getRight(), Network::Input::MoveRight);
         };
         const auto activateKey = [&] {
-            const bool spaceOnConfigure = event.getCode() == SDLK_SPACE && snap.journey == Client::NetworkJourney::Inactive
-                && confirmation == Confirmation::None && setupScreen == SetupScreen::Host && focus == PasswordFocus
-                && !hostPasswordEditorOpen;
-            consumeKey(); activate();
-            if (spaceOnConfigure && hostPasswordEditorOpen) hostPasswordOpenedWithSpace = true;
+            const bool wasOpen = hostPasswordEditorOpen;
+            const bool space = event.getCode() == SDLK_SPACE;
+            consumeKey();
+            activate(space ? SDLK_SPACE : SDLK_UNKNOWN);
+            if (!wasOpen && hostPasswordEditorOpen && space)
+                hostPasswordActivationTextPending = true;
         };
         const auto backKey = [&] { consumeKey(); back(); };
         const auto focusKey = [&](int direction) { consumeKey(); moveFocus(direction); };
@@ -1924,10 +1933,12 @@ namespace Duel6 {
     }
 
     void NetworkMenu::textInputEvent(const TextInputEvent &event) {
-        // SDL emits text after the key press that opened Configure. A held
-        // activation Space must not silently configure a password.
-        if (hostPasswordOpenedWithSpace && service.getInput().isPressed(SDLK_SPACE)
-            && std::string_view(event.getText()) == " ") return;
+        // SDL delivers text separately from its keydown. Only discard text
+        // from the Configure press or its repeats, not another key or paste.
+        if (hostPasswordActivationTextPending) {
+            hostPasswordActivationTextPending = false;
+            if (service.getInput().isPressed(hostPasswordActivationKey)) return;
+        }
         enterText(event.getText());
     }
 
@@ -2029,6 +2040,7 @@ namespace Duel6 {
                 | (uiBack ? Network::Input::PickOrSwapWeapon : 0u) | (uiUp ? Network::Input::Jump : 0u)
                 | (uiDown ? Network::Input::Crouch : 0u) | (uiLeft ? Network::Input::MoveLeft : 0u)
                 | (uiRight ? Network::Input::MoveRight : 0u);
+        SDL_Keycode keyboardConfirm = SDLK_UNKNOWN;
         // Sample mapped actions even in gameplay, so held input cannot acquire a
         // new meaning when a summary or confirmation appears.
         if (!localPlayers.empty() && localPlayers[0].controls) {
@@ -2042,6 +2054,10 @@ namespace Duel6 {
             // Sample every mapped control even when an independent controller
             // already holds that action, retaining keyboard suppression/history.
             const bool confirm = sample(c.getShoot(), Network::Input::Shoot);
+            if (confirm && !uiConfirm) {
+                if (const auto *key = dynamic_cast<const KeyboardButton *>(&c.getShoot()))
+                    keyboardConfirm = key->getKeyCode();
+            }
             const bool back = sample(c.getPick(), Network::Input::PickOrSwapWeapon);
             const bool up = sample(c.getUp(), Network::Input::Jump);
             const bool down = sample(c.getDown(), Network::Input::Crouch);
@@ -2084,7 +2100,7 @@ namespace Duel6 {
             if (uiBack && !controllerBack) {
                 back();
                 controllerConfirm = uiConfirm;
-            } else if (uiConfirm && !controllerConfirm) activate();
+            } else if (uiConfirm && !controllerConfirm) activate(keyboardConfirm);
             if (confirmation != priorConfirmation) {
                 controllerUp = uiUp; controllerDown = uiDown;
                 controllerLeft = uiLeft; controllerRight = uiRight;

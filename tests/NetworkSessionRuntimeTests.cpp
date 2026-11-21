@@ -4233,9 +4233,22 @@ D6R_TEST_CASE("NET-02 Host password Configure Remove and Start handoff preserve 
     ReviewMenuFixture f;
     ReviewController controller(f);
     auto &menu = f.menu;
+    const auto keyEvent = [&](SDL_Keycode code, bool down, bool repeat = false, Uint16 modifiers = 0) {
+        SDL_Event event{};
+        event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+        event.key.keysym.sym = code; event.key.keysym.mod = modifiers; event.key.repeat = repeat;
+        D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
+        f.application.processEvents(menu);
+    };
+    const auto textEvent = [&](char value) {
+        SDL_Event event{};
+        event.type = SDL_TEXTINPUT; event.text.text[0] = value;
+        D6R_REQUIRE_EQ(1, SDL_PushEvent(&event));
+        f.application.processEvents(menu);
+    };
     const auto paste = [&](const std::string &value) {
         D6R_REQUIRE(SDL_SetClipboardText(value.c_str()) == 0);
-        menu.keyEvent(KeyPressEvent(SDLK_v, SysEvent::ButtonState::PRESSED, KMOD_CTRL));
+        keyEvent(SDLK_v, true, false, KMOD_CTRL); keyEvent(SDLK_v, false);
         D6R_REQUIRE(SDL_SetClipboardText("") == 0);
     };
     f.key(SDLK_RETURN);
@@ -4270,11 +4283,33 @@ D6R_TEST_CASE("NET-02 Host password Configure Remove and Start handoff preserve 
     f.key(SDLK_TAB); f.draw(); D6R_REQUIRE(f.text("> Ada • Selected")); // No hidden Remove stop.
     menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
     D6R_REQUIRE_EQ(2, menu.focus);
-    f.application.keyEvent(menu, KeyPressEvent(SDLK_SPACE, SysEvent::ButtonState::PRESSED, 0));
-    menu.textInputEvent(TextInputEvent(" ")); // SDL follows a printable activation key with text.
-    f.application.keyEvent(menu, KeyPressEvent(SDLK_SPACE, SysEvent::ButtonState::RELEASED, 0));
-    D6R_REQUIRE(menu.editingEndpoint(menu.runtime.snapshot()) && menu.password.empty());
-    f.draw(); D6R_REQUIRE(f.text("_") && !f.text("Configure"));
+    const auto &k2 = f.service.getControlsManager().get(1);
+    menu.localPlayers.front().controls = &k2;
+    menu.localPlayers.front().controlDescription = k2.getDescription();
+    for (const auto &[activation, character]: {std::pair{SDLK_SPACE, ' '}, std::pair{SDLK_q, 'q'}}) {
+        keyEvent(activation, true); textEvent(character);
+        menu.update(0); // A mapped keyboard Confirm opens the editor from the input poll.
+        D6R_REQUIRE(menu.editingEndpoint(menu.runtime.snapshot()) && menu.password.empty());
+        f.draw(); D6R_REQUIRE(f.text("_") && !f.text("Configure"));
+        for (int repeat = 0; repeat < 3; ++repeat) {
+            keyEvent(SDLK_b, true); textEvent('b'); keyEvent(SDLK_b, false);
+            D6R_REQUIRE_EQ(std::string("b"), menu.password); // Other keys still type while activation is held.
+            keyEvent(SDLK_BACKSPACE, true); keyEvent(SDLK_BACKSPACE, false);
+            keyEvent(activation, true, true); textEvent(character); menu.update(0);
+            D6R_REQUIRE(menu.password.empty());
+        }
+        keyEvent(activation, false); menu.update(0);
+        start("");
+        menu.focus = 2;
+        keyEvent(activation, true); textEvent(character); menu.update(0);
+        keyEvent(activation, false); menu.update(0);
+        const std::string typed(1, character);
+        D6R_REQUIRE_EQ(typed, menu.password);
+        paste(u8" Exact é ");
+        start(typed + u8" Exact é ");
+        menu.focus = 3; f.key(SDLK_RETURN); D6R_REQUIRE_EQ(2, menu.focus);
+    }
+    f.key(SDLK_RETURN);
     start("");
 
     menu.focus = 2; menu.textInputEvent(TextInputEvent(u8"së"));
