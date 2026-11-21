@@ -2699,6 +2699,18 @@ namespace Duel6 {
 
     void NetworkMenu::drawLobby(const Client::NetworkRuntimeSnapshot &snap) const {
         const auto &state = *snap.canonical;
+        // A retained snapshot can still carry departed players and their owners
+        // before the lobby roster is rebuilt. Reserved players are not departed.
+        const auto admitted = [](const auto &player) {
+            return player.lifeState != Network::Replication::LifeState::Departed;
+        };
+        const auto playerTotal = std::count_if(state.players.begin(), state.players.end(), admitted);
+        const auto participantTotal = std::count_if(state.participants.begin(), state.participants.end(),
+                [&](const auto &participant) {
+                    return std::any_of(state.players.begin(), state.players.end(), [&](const auto &player) {
+                        return player.ownerParticipantId == participant.participantId && admitted(player);
+                    });
+                });
         const auto drawTitleCount = [this](Int32 right, Int32 y, std::size_t count) {
             const auto text = std::to_string(count);
             drawText(right - 6 - font.getTextWidth(text, font.getCharHeight()), y, text, Color::WHITE);
@@ -2721,7 +2733,7 @@ namespace Duel6 {
         const Int32 participantBottom = state.result.available ? 410 : 392;
         const Int32 participantWidth = state.result.available ? 358 : 526;
         drawPanel(40, participantBottom, participantWidth, participantTop - participantBottom, "PARTICIPANTS");
-        drawTitleCount(40 + participantWidth, participantTop - 18, state.participants.size());
+        drawTitleCount(40 + participantWidth, participantTop - 18, participantTotal);
         renderer.quadXY(Vector(42, participantTop - 40), Vector(participantWidth - 4, 20), Color(170));
         drawText(44, participantTop - 36, "Role"); drawText(142, participantTop - 36, "Connection");
         drawText(254, participantTop - 36, "Readiness"); drawText(350, participantTop - 36, "Owned");
@@ -2742,7 +2754,7 @@ namespace Duel6 {
         const bool retainedResult = state.result.available;
         if (!retainedResult) {
             drawPanel(40, 196, 526, 188, "PLAYERS AND CONTROLS");
-            drawTitleCount(566, 366, state.players.size());
+            drawTitleCount(566, 366, playerTotal);
             renderer.quadXY(Vector(42, 344), Vector(522, 20), Color(170));
             drawText(44, 346, "Pos  Owner       Person                  Control");
             drawText(520, 346, "Order");
@@ -2789,7 +2801,7 @@ namespace Duel6 {
             // the retained-result panel and its input region at y=350 and below.
             renderer.quadXY(Vector(42, 392), Vector(354, 18), Color(0, 0, 200));
             drawText(46, 394, "PLAYERS AND CONTROLS", Color::WHITE);
-            drawTitleCount(398, 394, state.players.size());
+            drawTitleCount(398, 394, playerTotal);
             std::vector<Network::Replication::PlayerState> roster = state.players;
             std::sort(roster.begin(), roster.end(), [](const auto &left, const auto &right) {
                 return left.rosterPosition < right.rosterPosition;

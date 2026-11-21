@@ -2307,7 +2307,15 @@ D6R_TEST_CASE("UX-NET-04 current totals and first readiness blocker stay in thei
         auto third = state.players.back();
         third.playerId = 103; third.rosterPosition = 2;
         state.players.push_back(third);
-        auto &guest = state.participants.back();
+        if (retained) {
+            // The retained departure update can precede the roster rebuild.
+            auto historical = third;
+            historical.playerId = 104; historical.ownerParticipantId = 3; historical.rosterPosition = 3;
+            historical.lifeState = Network::Replication::LifeState::Departed;
+            state.players.push_back(historical);
+            state.participants.push_back({3, false, Network::Replication::ConnectionState::Connected, false, {104}});
+        }
+        auto &guest = state.participants[1];
         guest.ownedPlayerIds.push_back(third.playerId);
         guest.connection = Network::Replication::ConnectionState::Reconnecting;
         f.draw();
@@ -2361,6 +2369,26 @@ D6R_TEST_CASE("UX-NET-04 current totals and first readiness blocker stay in thei
         requireText("Not ready", 114, retained ? 58 : 168);
         D6R_REQUIRE(!f.text("Waiting for Guest 2 to be ready."));
         D6R_REQUIRE(f.text("Host settings and authoritative roster order are read-only."));
+
+        // Exercise the full critical copy at the largest possible guest ordinal.
+        f.lobby(true, retained);
+        auto &full = *menu.runtime.current.canonical;
+        full.participants[1].ready = true;
+        for (unsigned id = 3; id <= 15; ++id) {
+            auto player = full.players.front();
+            player.playerId = 100 + id; player.ownerParticipantId = id; player.rosterPosition = id - 1;
+            full.players.push_back(player);
+            full.participants.push_back(
+                    {id, false, Network::Replication::ConnectionState::Connected, id != 15, {player.playerId}});
+        }
+        f.draw();
+        const std::string longest = "Waiting for Guest 15 to be ready.";
+        requireText(longest, retained ? 136 : 268, retained ? 58 : 168);
+        const auto &reason = reviewTextQuad(f, longest);
+        D6R_REQUIRE(reason.vertices[2].x <= (retained ? 400 : 566));
+        const auto copies = std::count_if(f.recorder.quads.begin(), f.recorder.quads.end(),
+                [&](const auto &draw) { return draw.material.getTexture() == reason.material.getTexture(); });
+        D6R_REQUIRE_EQ(1, copies);
     }
 }
 
