@@ -2,9 +2,9 @@
 
 Representative desktop context: 1920 by 1080 px with the scaled 850 by 700 retro canvas. The current SVG depicts logical-canvas relationships with external annotations.
 
-[![NET-02 — Host setup with optional password](../../design/wireframes/NET-02/NET-02.svg)](../../design/wireframes/NET-02/NET-02.svg)
+[![NET-02 — Host setup with default and configured Password controls](../../design/wireframes/NET-02/NET-02.svg)](../../design/wireframes/NET-02/NET-02.svg)
 
-This reuses the current canonical SVG unchanged. The [functional owner](../network-host-setup.md) and [NET-02 presentation owner](../../design/screens/NET-02.md) govern the optional masked Password, wildcard/multiple explicit listening selection, hosted capacity, taller lists and current footer. Existing variants remain [wildcard popup NET-02-LA](../../design/wireframes/NET-02/NET-02-LA.svg), [explicit popup NET-02-LE](../../design/wireframes/NET-02/NET-02-LE.svg) and [pending startup NET-02-P](../../design/wireframes/NET-02/NET-02-P.svg). Empty, invalid and enumeration-failure states retain their owning contracts rather than new diagrams.
+The [functional owner](../network-host-setup.md) and [NET-02 presentation owner](../../design/screens/NET-02.md) govern optional password setup, wildcard/multiple explicit listening selection, hosted capacity, taller lists and current footer. Existing variants remain [wildcard popup NET-02-LA](../../design/wireframes/NET-02/NET-02-LA.svg), [explicit popup NET-02-LE](../../design/wireframes/NET-02/NET-02-LE.svg) and [pending startup NET-02-P](../../design/wireframes/NET-02/NET-02-P.svg). Empty, invalid and enumeration-failure states retain their owning contracts rather than new diagrams.
 
 - Start session is enabled only when Port, `Listening interface`, and local-player configuration are valid; its disabled reason remains visible.
 - Port has initial focus.
@@ -34,7 +34,6 @@ These earlier selector rules must not override current `Listen on all`, independ
 - Pending startup never shows listening, readiness, connection, admission, or playable copy.
 - Failure variants and Retry/Edit setup/Return destinations remain in the screen specification rather than separate wireframes.
 - An invalid host manifest uses the exact blocking reason in the screen specification, disables Retry for the application session, and leaves no listener or session.
-- Current keyboard/controller focus inserts Password after `Listening interface`, before roster controls, Start session and Back, under the presentation owner. The older selector-to-roster order is superseded.
 - The setup body is flexible between fixed header and footer regions. Both lists scroll vertically under fixed headings, and status grows upward without covering the setup or actions.
 - Persons and Local Players provide person selection and control assignment without a profile selector, profile column, profile value, or profile-editing action.
 - A profile or cosmetic difference does not create a setup warning or prevent Start session.
