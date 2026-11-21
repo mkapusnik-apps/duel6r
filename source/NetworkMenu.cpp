@@ -3177,8 +3177,15 @@ namespace Duel6 {
             }
             const int panelBottom = setupPanelBottom();
             const int panelHeight = (boundDedicated() ? setupFirstRow() + 40 : 404) - panelBottom;
+            constexpr int playerPanelLeft = 426, playerPanelWidth = 398;
             drawPanel(46, panelBottom, 358, panelHeight, "PERSONS");
-            drawPanel(426, panelBottom, 398, panelHeight, "LOCAL PLAYERS AND CONTROLS");
+            drawPanel(playerPanelLeft, panelBottom, playerPanelWidth, panelHeight, "LOCAL PLAYERS AND CONTROLS");
+            const auto localCount = "Local players: " + std::to_string(localPlayers.size());
+            if (host) {
+                const int countWidth = font.getTextWidth(localCount, font.getCharHeight());
+                drawText(playerPanelLeft + playerPanelWidth - 6 - countWidth,
+                         panelBottom + panelHeight - 18, localCount, Color::WHITE);
+            }
             drawField(48, panelBottom + 4, 354, panelHeight - 26);
             drawField(428, panelBottom + 4, 394, panelHeight - 26);
             const std::size_t firstPerson = static_cast<std::size_t>(setupPersonsScroll);
@@ -3201,7 +3208,7 @@ namespace Duel6 {
                 drawButton(724, y - 2, 96, 18, "Remove", focus == playerBase + static_cast<int>(index) * 2 + 1);
             }
             std::string reason; const bool valid = setupValid(reason);
-            drawText(50, panelBottom - 20, "Local players: " + std::to_string(localPlayers.size()) + " • Lobby 1–15 • Match 1–15");
+            if (!host) drawText(50, panelBottom - 20, localCount + " • Lobby 1–15 • Match 1–15");
             if (boundSelection() && !boundDedicated())
                 drawText(470, 182, "Session: " + browserSelection->sessionId);
             if (setupScreen == SetupScreen::Join)

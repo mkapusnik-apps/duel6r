@@ -938,6 +938,30 @@ namespace {
         throw std::runtime_error("missing text quad");
     }
 
+    const Test::RecordingRenderer::Quad &requireHostRosterCount(const ReviewMenuFixture &f, int players) {
+        const auto label = "Local players: " + std::to_string(players);
+        const auto &title = reviewTextQuad(f, "LOCAL PLAYERS AND CONTROLS");
+        const auto &count = reviewTextQuad(f, label);
+        D6R_REQUIRE_EQ(432.0f, title.vertices[0].x);
+        D6R_REQUIRE_EQ(386.0f, title.vertices[0].y);
+        D6R_REQUIRE(title.vertices[2].x < count.vertices[0].x);
+        D6R_REQUIRE_EQ(title.vertices[0].y, count.vertices[0].y);
+        D6R_REQUIRE_EQ(402.0f, count.vertices[2].y);
+        D6R_REQUIRE_EQ(Color::WHITE, count.material.getColor());
+        D6R_REQUIRE_EQ(818.0f, count.vertices[2].x);
+        D6R_REQUIRE_EQ(float(f.font.getTextWidth(label, 16)), count.vertices[2].x - count.vertices[0].x);
+        int labels = 0;
+        for (const auto &quad: f.recorder.quads)
+            for (const auto &entry: f.font.fontCache.entryList) {
+                if (entry.texture != quad.material.getTexture()) continue;
+                D6R_REQUIRE(entry.text.find("Lobby 1–15") == std::string::npos);
+                D6R_REQUIRE(entry.text.find("Match 1–15") == std::string::npos);
+                if (entry.text.find("Local players: ") == 0) ++labels;
+            }
+        D6R_REQUIRE_EQ(1, labels);
+        return count;
+    }
+
     void requireBottomCounter(const ReviewMenuFixture &f, int width, const std::string &text) {
         const auto &quad = reviewTextQuad(f, text);
         const int measured = f.font.getTextWidth(text, 32);
@@ -1906,7 +1930,7 @@ D6R_TEST_CASE("NET-02 editable footer keeps one action row conditional feedback 
         const int footer = menu.setupFields() + static_cast<int>(menu.localPlayers.size()) * 2;
         f.draw(); omitted();
         D6R_REQUIRE(f.text("******_") && !f.text("Configure"));
-        D6R_REQUIRE(f.text("Local players: 1 • Lobby 1–15 • Match 1–15"));
+        requireHostRosterCount(f, 1);
         D6R_REQUIRE(f.text("Start session") && f.text("Back"));
         // Equal surfaces, a centered pair and a 16px gap; focus adds 2px outside.
         for (int left: {117, 433})
@@ -1994,14 +2018,25 @@ D6R_TEST_CASE("NET-02 lower row and taller host lists retain ten rows scrolling 
             D6R_REQUIRE(fill(426, bottom, 398, 404 - bottom, Color(192)));
             D6R_REQUIRE(fill(48, bottom + 4, 354, 378 - bottom, Color::WHITE));
             D6R_REQUIRE(fill(428, bottom + 4, 394, 378 - bottom, Color::WHITE));
-            const auto count = textOrigin("Local players: 15 • Lobby 1–15 • Match 1–15");
-            D6R_REQUIRE_EQ(50.0f, count.x); D6R_REQUIRE_EQ(float(bottom - 20), count.y);
-            D6R_REQUIRE(count.y + 16 <= bottom);
+            if (host) {
+                const auto &count = requireHostRosterCount(f, 15);
+                D6R_REQUIRE(f.text("26660 <") && f.frame(222, 492, 590, 28, 2));
+                click(800, 394); // The header count does not take focus or change the roster.
+                D6R_REQUIRE_EQ(0, menu.focus);
+                D6R_REQUIRE_EQ(std::size_t(15), menu.localPlayers.size());
+                D6R_REQUIRE(count.vertices[0].y >= 382 && count.vertices[2].y <= 404);
+            } else {
+                const auto &count = reviewTextQuad(f, "Local players: 15 • Lobby 1–15 • Match 1–15");
+                D6R_REQUIRE_EQ(50.0f, count.vertices[0].x);
+                D6R_REQUIRE_EQ(182.0f, count.vertices[0].y);
+                D6R_REQUIRE(count.vertices[2].y <= bottom);
+                D6R_REQUIRE(!f.text("Local players: 15"));
+            }
             menu.port.clear(); f.draw();
             const auto reason = textOrigin(host ? "Enter a valid port (1–65535)."
                                                 : "Enter a valid address and port (1–65535).");
             D6R_REQUIRE_EQ(float(bottom - 64), reason.y);
-            D6R_REQUIRE(reason.y + 16 < count.y);
+            D6R_REQUIRE(reason.y + 16 < (host ? bottom : bottom - 20));
             D6R_REQUIRE(reason.y > (host ? 70 : 114));
             menu.port = "26660";
             const int base = menu.setupFields() + static_cast<int>(menu.availablePersons.size());
@@ -2033,6 +2068,10 @@ D6R_TEST_CASE("NET-02 lower row and taller host lists retain ten rows scrolling 
             click(770, last + 6);
             D6R_REQUIRE_EQ(std::size_t(14), menu.localPlayers.size());
             D6R_REQUIRE_EQ(std::size_t(15), menu.availablePersons.size());
+            if (host) {
+                f.draw(); requireHostRosterCount(f, 14);
+                D6R_REQUIRE(!f.text("Local players: 15"));
+            }
         }
     }
 }
@@ -2047,7 +2086,20 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
     // Disclosed deterministic draw/input fixture, not OS enumeration or capture evidence.
     menu.listening.available = std::vector<std::string>{"127.0.0.1", "10.1.2.3", "192.168.1.2"};
     menu.hostAddresses = menu.listening.rows();
-    f.draw(); D6R_REQUIRE(f.text("Listen on all (0.0.0.0)"));
+    const auto requireOverlay = [&] {
+        f.draw();
+        const auto &count = requireHostRosterCount(f, 1);
+        // The opaque popup is drawn after the header, not behind a duplicate count.
+        const auto popup = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &quad) {
+            return quad.material.getTexture() == Texture{} && quad.material.getColor() == Color(192)
+                && quad.vertices[0].x == 224 && quad.vertices[0].y == 202
+                && quad.vertices[2].x == 810 && quad.vertices[2].y == 454;
+        });
+        D6R_REQUIRE(popup != f.recorder.quads.end());
+        D6R_REQUIRE(&count < &*popup);
+        D6R_REQUIRE(count.vertices[0].x < popup->vertices[2].x);
+    };
+    requireOverlay(); D6R_REQUIRE(f.text("Listen on all (0.0.0.0)"));
     D6R_REQUIRE(f.text("Uses 0.0.0.0. The operating system controls coverage."));
     f.click(300, 338); D6R_REQUIRE(menu.listening.all && menu.listening.selected.empty());
     f.key(SDLK_TAB); D6R_REQUIRE_EQ(menu.hostAddresses.size() + 1, menu.hostAddressHighlight);
@@ -2058,9 +2110,11 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
     f.key(SDLK_DOWN); f.key(SDLK_DOWN); f.key(SDLK_SPACE);
     D6R_REQUIRE(menu.hostAddressSelectorOpen && !menu.listening.contains("10.1.2.3"));
     D6R_REQUIRE_EQ(std::string("Explicit: 2 addresses"), menu.listeningSummary());
+    requireOverlay();
     f.click(267, 50); D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
     f.key(SDLK_ESCAPE); D6R_REQUIRE(!menu.hostAddressSelectorOpen); D6R_REQUIRE_EQ(1, menu.focus);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.listening.selected.size() == 2);
+    f.draw(); requireHostRosterCount(f, 1);
     f.key(SDLK_RETURN); f.key(SDLK_SPACE); D6R_REQUIRE(menu.listening.all);
     f.key(SDLK_SPACE); D6R_REQUIRE(!menu.listening.all && menu.listening.selected.size() == 2);
     menu.listening.available = std::vector<std::string>{"127.0.0.1", "10.1.2.3"};
@@ -2527,11 +2581,11 @@ D6R_TEST_CASE("UX-NET-04 wheel handler reaches every participant in three and fi
     }
 }
 
-D6R_TEST_CASE("NET-SOLO setup capacity and ready one-player lobby retain existing Start controls") {
+D6R_TEST_CASE("NET-SOLO setup count and ready one-player lobby retain existing Start controls") {
     ReviewMenuFixture f;
     f.menu.setupScreen = NetworkMenu::SetupScreen::Host;
     f.draw();
-    D6R_REQUIRE(f.text("Local players: 1 • Lobby 1–15 • Match 1–15"));
+    requireHostRosterCount(f, 1);
     f.lobby();
     auto &state = *f.menu.runtime.current.canonical;
     state.participants.pop_back(); state.players.pop_back();
@@ -3375,9 +3429,10 @@ D6R_TEST_CASE("NET-DIR selected targets in both hosting modes stay read-only thr
             D6R_REQUIRE(f.text("Address (locked):") && f.text("Port (locked):"));
             D6R_REQUIRE(f.text(dedicated ? "Dedicated service • Selected from browser" : "Player-hosted session • Selected from browser"));
             D6R_REQUIRE(!f.text("↻") && !f.text("The first admitted participant controls the session."));
+            D6R_REQUIRE(f.text("Local players: " + std::to_string(localCount) + " • Lobby 1–15 • Match 1–15"));
             if (!dedicated) {
                 D6R_REQUIRE(f.text("Session: " + row.sessionId));
-                D6R_REQUIRE(50 + f.font.getTextWidth("Local players: 15 • Lobby 1–15 • Match 2–15", 16) <= 470 - 8);
+                D6R_REQUIRE(50 + f.font.getTextWidth("Local players: 15 • Lobby 1–15 • Match 1–15", 16) <= 470 - 8);
                 D6R_REQUIRE(470 + f.font.getTextWidth("Session: " + row.sessionId, 16) <= 810);
                 D6R_REQUIRE(!f.text("The service confirms identity, availability, and your role when you connect."));
                 const float scale = std::min(1.35f, std::min(float(size.first)/850, float(size.second)/700));

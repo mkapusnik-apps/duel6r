@@ -2,7 +2,7 @@
 
 Functional contract: [network-host-setup](../../screens/network-host-setup.md), including NET-HOST-IF-001–024 and NET-OWN-001. State `NET-02-password` consumes [NET-PASS-001 and NET-DIR-001/015](../../network-host-directory.md). Listening startup consumes [HSL-IF-001–005](../../network-host-service-lifecycle.md); publication consumes [NET-DIR-017–020](../../network-host-directory.md). Wireframes: [NET-02 editable](../wireframes/NET-02/NET-02.svg), [NET-02-LA wildcard popup](../wireframes/NET-02/NET-02-LA.svg), [NET-02-LE explicit popup](../wireframes/NET-02/NET-02-LE.svg), and [NET-02-P pending startup](../wireframes/NET-02/NET-02-P.svg). These variants do not add functional screen identities. NET-02-P remains unchanged.
 
-Visual impact covers the Listening interface field, popup, validation feedback, editable host footer, and taller setup lists. The footer omits static listing/direct-play help and idle readiness text and uses one bottom action row. This section supersedes the legacy single-address selector presentation in `docs/design.md`; unrelated styling and input rules remain authoritative. Product owns mode initialization, retention, eligibility, startup, and publication outcomes. No design-system token changes are required.
+Visual impact covers the Listening interface field, popup, validation feedback, editable host footer, and the setup lists and roster-header count. The footer omits static listing/direct-play help and idle readiness text and uses one bottom action row. This section supersedes the legacy single-address selector presentation in `docs/design.md`; unrelated styling and input rules remain authoritative. Product owns mode initialization, retention, eligibility, startup, and publication outcomes. No design-system token changes are required.
 
 ## Presentation and allocation
 
@@ -15,7 +15,7 @@ The [shared visual baseline](../../design.md#unified-network-presentation) appli
 - **UX-NET-02-005** Persons and Local players and controls must each have a title strip and an independently contained white list body. Both panels and list bodies must extend downward by 44 logical px without moving their top edges, headings, or first rows. Both lists must use the additional height for ten complete visible rows instead of eight at their existing row pitches; further entries must remain accessible through existing scrolling.
 - **UX-NET-02-006** Each player row must keep its existing control-assignment target separate from its Remove button.
 - **UX-NET-02-007** The setup lists must give remaining horizontal space to person and control values after row-action bounds are reserved.
-- **UX-NET-02-008** The fixed lower region must keep local-player count and conditional validation/input feedback above one centered bottom action row, with Start session on the left and Back on the right. Both buttons must use the original Back button's bottom position and 32-logical-pixel height, retain their current horizontal allocation and 16-logical-pixel gap, and keep the shared control-clearance rules. Count and feedback must move down by the same 44 logical px as the panel bottoms without entering either list or the action row.
+- **UX-NET-02-008** The fixed lower region must keep conditional validation/input feedback above one centered bottom action row, with Start session on the left and Back on the right. Both buttons must use the original Back button's bottom position and 32-logical-pixel height, retain their current horizontal allocation and 16-logical-pixel gap, and keep the shared control-clearance rules.
 - **UX-NET-02-009** The listening popup must overlay lower body content inside the canvas without moving the setup headings or footer.
 - **UX-NET-02-010** NET-02-P must present the existing startup status and timing help in a fixed status group above the sole Cancel action.
 - **UX-NET-02-011** Cancelling must use the same progress allocation without an enabled Cancel, Start session, or Back affordance.
@@ -35,7 +35,7 @@ These exact bounds use the existing 850 × 700 logical canvas and bottom-left or
 | Persons list body | 48 / 162 | 354 / 220 | Top remains y=382; height increases from 176 by 44 |
 | Local players and controls list body | 428 / 162 | 394 / 220 | Same top, bottom and height as Persons list body |
 
-Keep the first row at y=364 and the existing 18 px Persons / 22 px local-player row pitches. Keep control-assignment and Remove bounds separate. Place the count text origin at (50,138) instead of (50,182), and conditional feedback at (50,94) instead of (50,138), using the unchanged 16 px text. Retain blank idle feedback, readable conditional reasons, focus clearance and existing wrapping without covering count, lists or actions. Do not enlarge or move the listening popup into the added list area; its lower edge remains y=202. Other SVG positions remain structural approximations; the action bounds and this allocation table define the exact geometry.
+Keep the first row at y=364 and the existing 18 px Persons / 22 px local-player row pitches. Keep control-assignment and Remove bounds separate. Keep conditional feedback at (50,94) in the existing 16 px text. Retain blank idle feedback, readable conditional reasons, focus clearance and existing wrapping without covering lists or actions. Do not enlarge or move the listening popup into the added list area; its lower edge remains y=202. Other SVG positions remain structural approximations; the action bounds and this allocation table define the exact geometry.
 
 ## Hierarchy and controls
 
@@ -54,7 +54,7 @@ Keep the first row at y=364 and the existing 18 px Persons / 22 px local-player 
 
 ## Acceptance
 
-At 850 × 700, the Password label, visible Password controls, player count, validation, and footer must remain separate and readable. Expanded interface options must remain inside the canvas. Focus must remain visible without color. Directory registration failure must not be presented as hosted-session startup failure when the host service is running. NET-04 owns registration feedback.
+At 850 × 700, the Password label, visible Password controls, validation, and footer must remain separate and readable. With the popup closed, the complete roster heading and count must remain readable and visibly separated, including at `Local players: 15`. Expanded interface options must remain inside the canvas. Focus must remain visible without color. Directory registration failure must not be presented as hosted-session startup failure when the host service is running. NET-04 owns registration feedback.
 
 The editable representatives must show the default `Configure` state and the configured state with the focused mask and a separate `Remove` button. The two popup representatives must show wildcard coverage and an independent explicit subset without the old Password help in the exposed setup. The progress representative retains its prior scope. The [screenshot manifest](../screenshots/README.md#net-02-current-footer-capture-matrix) owns the artifacts.
 
@@ -102,7 +102,7 @@ The mode row is separate from the individual-address list. A checked wildcard ro
 - **UX-NET-02-044** The popup must reserve space for readable list-position feedback when its address rows overflow.
 - **UX-NET-02-045** The popup must keep its fixed controls and wrapped help inside the existing 850 × 700 logical canvas at every supported desktop scale.
 
-The popup ends above the local-player count and validation region. It can cover Password and the roster bodies temporarily; closing it restores their visibility without changing their allocation. The diagrams show approximate space allocation, not production typography or appearance. No mobile presentation is introduced.
+The popup ends above the validation region. It can cover Password and the roster panels, including the local-player count in the underlying header. Closing it restores their visibility without changing their allocation. The diagrams show approximate space allocation, not production typography or appearance. No mobile presentation is introduced.
 
 ## Listening UX acceptance
 
@@ -115,13 +115,13 @@ The popup ends above the local-player count and validation region. It can cover 
 
 Focused QA must also cover first explicit initialization, later mode restoration, a newly eligible unchecked address, stale-selection clearing, return focus, popup opening-input protection, maximum local slots, long names/control labels, invalid Port, and Cancel/Edit setup retention. Product criteria NET-HOST-IF-AC-001–007 and HSL-AC-019 own bind success, atomic cleanup, and reset behavior; screenshots alone cannot prove them. NET-04 owns publication-unavailable feedback and keeps its existing wireframes.
 
-## Hosted solo capacity and common Password
+## Local-player count and common Password
 
-Product-owned NET-SOLO and NET-PASS determine available startup and secret behavior. These requirements compose the current develop capacity presentation without changing listening, startup, or Local Play rules.
+Product-owned [NET-SOLO](../../network-play-first-release.md#hosted-solo-round-rules) and NET-PASS continue to govern hosted eligibility and password behavior. Presentation does not change capacity, listening, startup, or Local Play rules.
 
-- **UX-NET-02-046** Editable NET-02 and both listening-popup states must show `Match 1–15` in the existing capacity allocation while preserving Lobby 1–15 and the current local-player count.
-- **UX-NET-02-047** The representatives must use one valid local player/control and real eligible listening addresses without changing popup behavior or input targets.
+- **UX-NET-02-046** Show the live `Local players: N` count on the existing `LOCAL PLAYERS AND CONTROLS` header strip. Keep the title in place and right-align the count at the same baseline, with the same white 16-logical-pixel header text and a 6-logical-pixel right inset from the panel edge to mirror the title's left inset. The count is read-only text with no focus stop or pointer target. Do not duplicate the count below the panels or above the popup. Omit `Lobby 1–15` and `Match 1–15` without replacement in editable Host setup, including both popup states.
+- **UX-NET-02-047** The canonical NET-02, NET-02-LA, and NET-02-LE representatives must use one valid local player/control and real eligible listening addresses without changing popup behavior or input targets.
 - Common Password entry must retain product-owned UTF-8, byte-limit, whole-event rejection, masking, and context-erasure behavior.
 - Password rejection feedback must remain secret-free in the existing validation region.
 
-NET-02, NET-02-LA, and NET-02-LE retain these capacity/Password requirements and the shared editable footer above. NET-02-P and every unrelated diagram remain unchanged. The [current footer matrix](../screenshots/README.md#net-02-current-footer-capture-matrix) owns the affected representatives.
+NET-02, NET-02-LA, and NET-02-LE share these count and Password requirements and the editable footer above. NET-02-P and every unrelated diagram remain unchanged. The [current footer matrix](../screenshots/README.md#net-02-current-footer-capture-matrix) owns the affected representatives.
