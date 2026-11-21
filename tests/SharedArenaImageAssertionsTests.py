@@ -337,14 +337,14 @@ class SharedFinalTests(unittest.TestCase):
     def completed_frame(self, played=5, total=5):
         frame = self.frame(3, 0)
         text = f"Rounds: {played} | {total}"
-        left = 1232 - 24 - len(text) * 16
-        ScoreClosureTests.paint_box(frame, left - 8, 22, len(text) * 16 + 16, 32, (0, 0, 0))
-        self.paint_text(frame, text, left, 22, "black")
+        left = (images.WIDTH - len(text) * 16 - 16) // 2
+        ScoreClosureTests.paint_box(frame, left, 780, len(text) * 16 + 16, 40, (0, 0, 0))
+        self.paint_text(frame, text, left + 8, 784, "black")
         ScoreClosureTests.paint_box(frame, 536, 836, 208, 48, (0, 0, 255))
         self.paint_text(frame, "End of Game", 552, 844, "blue")
         return frame
 
-    def test_completed_summary_requires_final_shell_and_exact_count(self):
+    def test_completed_summary_requires_compact_score_and_exact_footer_count(self):
         for played, total, accepted in ((5, 5, True), (4, 5, False), (5, 6, False), (1, 1, False)):
             with self.subTest(played=played, total=total):
                 frame = self.completed_frame(played, total)
@@ -355,9 +355,11 @@ class SharedFinalTests(unittest.TestCase):
         images.assert_final_round_counter(self.completed_frame(12, 12), "12/12", str(images.FONT), 12, 12)
 
     def test_final_classifier_rejects_missing_notice_rows_and_nonfinal_shell(self):
+        geometry = images.compact_final_geometry(3, 0)
         for missing, box in (("notice", (536, 836, 208, 48)),
-                             ("row", (356, 234, 224, 32)),
-                             ("title", (50, 18, 1180, 40))):
+                              ("row", (geometry["left"], geometry["first"], geometry["name_width"], 32)),
+                              ("title", (geometry["left"] - 21, geometry["top"] + 28,
+                                         geometry["width"] + 42, 36))):
             with self.subTest(missing=missing):
                 frame = self.completed_frame()
                 ScoreClosureTests.paint_box(frame, *box, (0, 0, 0))
@@ -371,58 +373,67 @@ class SharedFinalTests(unittest.TestCase):
             for row in range(y, y + height):
                 offset = (row * images.WIDTH + x) * 3
                 frame[offset:offset + width * 3] = bytes(color) * width
-        fill(50, 18, 1180, 40, (0, 0, 255))
-        left, width = 356, 560
-        fill(left, 166, width, 36, (0, 0, 255))
-        self.paint_text(frame, "---SCORE---", left + (width - 176) // 2, 166, "blue")
-        y = 234 - scroll
+        geometry = images.compact_final_geometry(players, teams)
+        left, width, first, bottom = (geometry[k] for k in ("left", "width", "first", "bottom"))
+        fill(left - 21, geometry["top"] + 28, width + 42, 36, (0, 0, 255))
+        self.paint_text(frame, "---SCORE---", images.WIDTH // 2 - 88, geometry["top"] + 32, "blue")
+        y = first - (geometry["scroll"] if scroll else 0)
         # Uneven groups are deliberately ranked differently from roster order.
         order = [0, 3, 1, 2] if teams == 4 else list(range(teams or 1))
         colors = ((255, 0, 0), (0, 255, 0), (255, 255, 0), (255, 0, 255))
         for index, team in enumerate(order):
             if index:
-                if 234 <= y + 3 and y + 5 <= 712:
-                    fill(left, y + 3, width, 2, (255, 255, 255))
+                if first <= y + 2 and y + 4 <= bottom:
+                    fill(left, y + 2, width, 2, (255, 255, 255))
                 y += 8
             count = players
             if teams:
                 count = 1 + sum(player % teams == team for player in range(players))
             for row in range(count):
-                if 234 <= y and y + 32 <= 712:
+                if first <= y and y + 32 <= bottom:
                     color = colors[team] if teams and row == 0 else (0, 0, 100)
-                    fill(left, y, width, 32, color)
+                    fill(left, max(y - 1, first - 1), width, 32, color)
                     name = images.TEAM_NAMES[team] if teams and row == 0 else "P01"
-                    self.paint_text(frame, name, left + 8, y, "#%02x%02x%02x" % color,
+                    self.paint_text(frame, name, left + (0 if teams and row == 0 else 5), y, "#%02x%02x%02x" % color,
                                     "black" if teams and row == 0 else "yellow")
-                    fill(left + 224, y + 6, 24, 16, (255, 255, 0))
+                    fill(left + geometry["name_width"] + 16, y + 6, 24, 16, (255, 255, 0))
                 y += 32
         return frame
 
     def test_reference_final_and_uneven_ranked_teams(self):
         for players, teams in ((2, 0), (15, 0), (6, 3), (15, 4)):
             images.assert_shared_final_body(self.frame(players, teams), "final", players, teams)
-        images.assert_shared_final_body(self.frame(15, 4, scroll=154), "bottom", 15, 4, scroll=154)
+        images.assert_shared_final_body(self.frame(15, 4, scroll=1), "bottom", 15, 4, scroll=1)
+
+    def test_compact_footprints_and_obsolete_large_title(self):
+        short = images.compact_final_geometry(3, 0)
+        self.assertEqual((408, 464, 322, 256), tuple(short[k] for k in ("left", "width", "top", "height")))
+        full = images.compact_final_geometry(15, 4)
+        self.assertEqual((16, 748, 80), tuple(full[k] for k in ("top", "height", "scroll")))
+        frame = self.frame(3, 0)
+        ScoreClosureTests.paint_box(frame, 50, 18, 1180, 40, (0, 0, 255))
+        with self.assertRaisesRegex(AssertionError, "obsolete large"):
+            images.assert_shared_final_body(frame, "old-window", 3, 0)
 
     def test_missing_row_is_rejected(self):
         frame = self.frame(15, 0)
-        for y in range(234, 266):
-            offset = (y * images.WIDTH + 356) * 3
-            frame[offset:offset + 224 * 3] = bytes(224 * 3)
+        g = images.compact_final_geometry(15, 0)
+        ScoreClosureTests.paint_box(frame, g["left"], g["first"], g["name_width"], 32, (0, 0, 0))
         with self.assertRaisesRegex(AssertionError, "identity row missing"):
             images.assert_shared_final_body(frame, "missing", 15, 0)
 
     def test_missing_separator_is_rejected(self):
         frame = self.frame()
-        for y in range(397, 399):
-            offset = (y * images.WIDTH + 356) * 3
-            frame[offset:offset + 560 * 3] = bytes(560 * 3)
+        g = images.compact_final_geometry(15, 4)
+        ScoreClosureTests.paint_box(frame, g["left"], g["first"] + 5 * 32 + 2, g["width"], 2, (0, 0, 0))
         with self.assertRaisesRegex(AssertionError, "separator"):
             images.assert_shared_final_body(frame, "missing", 15, 4)
 
     def test_a_small_swatch_cannot_replace_the_full_team_row(self):
         frame = self.frame()
-        ScoreClosureTests.paint_box(frame, 356, 234, 560, 32, (0, 0, 0))
-        ScoreClosureTests.paint_box(frame, 364, 239, 12, 10, (255, 0, 0))
+        g = images.compact_final_geometry(15, 4)
+        ScoreClosureTests.paint_box(frame, g["left"], g["first"] - 1, g["width"], 33, (0, 0, 0))
+        ScoreClosureTests.paint_box(frame, g["left"] + 8, g["first"] + 5, 12, 10, (255, 0, 0))
         with self.assertRaisesRegex(AssertionError, "team fill missing"):
             images.assert_shared_final_body(frame, "missing", 15, 4)
 

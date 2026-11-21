@@ -18,21 +18,31 @@ UX owns the common whole-screen appearance in [design.md](../design.md) and [NET
 
 - Use the common final-screen presentation under `SUMMARY-VIEW-001`–`SUMMARY-VIEW-007`.
 - Show result state `Completed`.
-- Show the labeled match outcome as the configured final-round winner identity, winning team, or `No winner`.
-- Show the labeled last completed-round number and outcome separately from match outcome.
+- Retain the match outcome as the configured final-round winner identity, winning team, or `No winner` in the existing scrollable result detail, separate from cumulative scores. Do not repeat it as a fixed `Match outcome` caption above the main score table.
+- Retain the last completed-round number and outcome in the corresponding round detail. Do not add a duplicate fixed `Last completed round` row; completed match and final-round outcomes remain the same authoritative value.
 - Show mode, applicable team count and Friendly fire, Assistance, Quick Liquid, Burnable Trees, level plan, round limit, nonzero match seed, and completed-round count.
 - Show one row for each completed round with round number, level identity, orientation, winner or `No winner`, and authoritative roster order.
 - Show each player identity, owner participant, display name, applicable team, applicable `Departed` state, rounds played, shots, hits, kills, deaths, assists, wins, penalties, survival time, damage, assisted damage, and total points.
 - Show per-round player values and cumulative match values.
-- Show cumulative ranking separately from match outcome and last completed-round outcome.
+- Start with cumulative scores under the single `---SCORE---` strip, without an additional `SCORE` title or `Cumulative ranking` caption. Keep outcome and round detail distinguishable from that table.
 - Show team totals when the mode uses teams.
-- Place the exact label `Session only` beside the heading or result table and show `Not saved to local statistics or Elo` as supporting copy.
+- Keep exact `Session only` and `Not saved to local statistics or Elo` copy in the compact network supporting region outside the scrolling table.
 - Show host-only `Return to lobby` and `End session`; guests see a waiting status and `Leave`.
-- Keep `Session only`, `Completed`, match outcome, and last completed-round outcome available while the user navigates result content.
+- Keep `Session only`, `Completed`, and the no-persistence disclaimer visible while the user navigates result content. Outcome identities and last-round values must remain accessible through the existing result navigation; they need not occupy fixed rows.
 - Identify match settings, round results, and cumulative results as distinct content.
 - Let the result viewport scroll vertically when all sections do not fit.
 - Provide horizontal scrolling inside a table when all required columns do not fit.
 - Keep action controls visible while result content scrolls.
+
+### Score columns and supporting detail
+
+The cumulative score table and each per-round player score table must show player display names and exactly `K`, `A`, `D`, `K/D`, and `PTS`, in that order, matching Local Play. These mean kills, assists, deaths, kills-to-deaths ratio, and points. Use Local Play's existing integer and two-decimal K/D display convention, including its truncation and zero-death case; this changes presentation, not authoritative values.
+
+Cumulative scores retain their completed-round scope; each per-round score table retains that round's values. Team score rows must show summed player K, A, D, and PTS, with K/D calculated from the team's total kills and deaths rather than summed player ratios. Preserve authoritative player/team ordering and membership.
+
+Rank, player identity, owner participant, team/departure metadata, rounds played, shots, hits, wins, penalties, survival time, damage, and assisted damage must remain readable in supporting result/round detail through the existing navigation, explicitly associated with the same player and cumulative or round scope. Preserve each field's authoritative scope; do not invent a per-round rank. They must not add columns or identity/owner strings to the compact name-and-score table. Keep applicable `Departed` text in that detail and preserve complete display-name/identity access for duplicate or long names. No required field above may be dropped from the result or made inaccessible.
+
+The same score-column selection and full supporting-field access apply when these tables appear in retained `NET-04-R` results, including interrupted results. This does not redesign the retained lobby, add controls or change result availability. Active-play Tab, live ranking, non-final summaries and the final-round delay retain their existing contracts; no completed rows or new metrics are introduced there.
 
 ## Navigation and significant variants
 
@@ -54,9 +64,9 @@ UX owns the common whole-screen appearance in [design.md](../design.md) and [NET
 ## Truthful copy, disabled reasons, and input
 
 - `Session only` must remain visible without relying on tooltip or color.
-- `Completed`, `No winner`, `Departed`, rank, team, match outcome, and last completed-round outcome must remain visible as text.
+- `Completed` must remain visible as text. `No winner`, `Departed`, rank, team and each required outcome must remain readable as text in their applicable result or round detail, not inferred from color or cumulative position.
 - Column headings must identify every displayed result value.
-- The table must not use color or row position as the only rank, winner, team, or departure cue.
+- Required rank, winner, team, and departure information must remain explicit in the applicable result detail; color or score-row position alone must not substitute for it.
 - The table must not imply that the highest cumulative rank is the match outcome.
 - Result content must not disclose an endpoint, credential, raw filesystem value, or peer-supplied diagnostic value.
 - Guests see `Waiting for host to return to lobby or end session`; disabled host actions must not appear enabled.
@@ -66,5 +76,7 @@ UX owns the common whole-screen appearance in [design.md](../design.md) and [NET
 ## Acceptance
 
 `SUMMARY-VIEW-AC-001`–`SUMMARY-VIEW-AC-005` cover common appearance, result meaning, complete content, permissions, and persistence. `NET-RES-AC-001` retains complete departed and multiwinner coverage. Network round completion must retain its final delay before this screen; shared local appearance must not expose Return to lobby early. End session retains its existing availability during `NET-05`. Waiting players must not gain result rows before participation. A result with no winner must not acquire a winner from cumulative ranking.
+
+For score-column parity, verify the exact Local Play columns and formatting, Team aggregates, unchanged cumulative/per-round scope, and complete access to every displaced field in both final and retained results.
 
 UX owns the coordinated representative coverage, including existing [`SS-020`](../screenshots/README.md#ss-020). Earlier visual artifacts do not establish acceptance of the common final-screen appearance.

@@ -207,7 +207,7 @@ run_scenario() {
     [[ "$ready" == true ]] || fail "$label final summary assertion failed: $assertion"
 
     if (( player_count == 15 )); then
-        # The approved 32px rows now overflow. Exercise the real completed-only
+        # The compact panel's bounded32px rows overflow. Exercise the real completed-only
         # binding until it reaches the lower bound, not a synthesized plan/image.
         ready=false
         for _ in {1..100}; do

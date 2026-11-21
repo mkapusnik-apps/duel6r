@@ -4,10 +4,11 @@
 #include <limits>
 #include "Font.h"
 #include "renderer/Renderer.h"
+#include "ScoreSummaryGeometry.h"
 
 namespace Duel6::FinalSummaryPresentation {
     namespace {
-        constexpr int Glyph = 8, Pitch = 18, HeaderHeight = 64, ScoreHeaderHeight = 88, NavigationHeight = 36;
+        constexpr int Glyph = 8, Pitch = 18, HeaderHeight = 64, NavigationHeight = 36;
         const Color White(255), Black(0), Header(0, 0, 255);
 
         std::vector<std::size_t> boundaries(const std::string &text) {
@@ -57,38 +58,17 @@ namespace Duel6::FinalSummaryPresentation {
             return a;
         }
 
-        std::string identityText(const Identity &identity) {
-            std::string value = identity.name;
-            if (!identity.player.empty()) value += " / Player " + identity.player;
-            if (!identity.team.empty()) value += " / " + identity.team;
-            if (identity.departed) value += " / Departed";
-            return value;
+        int scoreColumnWidth(const std::string &heading) {
+            if (heading == "K" || heading == "A" || heading == "D") return 64;
+            if (heading == "K/D") return 96;
+            if (heading == "PTS") return 80;
+            return 0;
         }
 
-        std::string outcomeText(const Outcome &outcome) {
-            if (outcome.noWinner) return "No winner";
-            std::string value = outcome.winningTeam;
-            for (const auto &winner: outcome.winners) {
-                if (!value.empty()) value += " / ";
-                value += identityText(winner);
-            }
-            return value;
-        }
-
-        std::string fixedOutcome(const Outcome &outcome, const std::string &label, int width,
-                                 Table &overflow) {
-            const std::string complete = label + outcomeText(outcome);
-            if (textWidth(complete) <= width) return complete;
-            // The input is an established outcome, never a ranking-derived one.
-            // Keep match and last-round scope distinct even for identical winners.
-            const std::string scope = label.substr(0, label.size() - 2);
-            if (!outcome.winningTeam.empty())
-                overflow.rows.push_back({{scope, outcome.winningTeam, "", outcome.winningTeam, ""}});
-            for (const auto &winner: outcome.winners)
-                overflow.rows.push_back({{scope, winner.name, winner.player, winner.team,
-                                          winner.departed ? "Departed" : ""}});
-            return label + std::to_string(outcome.winners.size())
-                    + (outcome.winners.size() == 1 ? " winner" : " winners") + " / See outcome rows";
+        int scoreHeadingInset(const std::string &heading) {
+            if (heading == "K" || heading == "K/D") return 16;
+            if (heading == "A" || heading == "D") return 32;
+            return 0;
         }
 
         struct MeasuredTable {
@@ -101,28 +81,30 @@ namespace Duel6::FinalSummaryPresentation {
         std::vector<MeasuredTable> measure(const std::vector<Table> &tables, int availableWidth,
                                             ScrollBounds &bounds) {
             std::vector<MeasuredTable> result;
-            for (const auto &table: tables) {
+            for (std::size_t index = 0; index < tables.size(); ++index) {
+                const auto &table = tables[index];
                 MeasuredTable measured;
                 measured.table = &table;
                 measured.top = bounds.contentHeight;
                 if (table.score) {
-                    measured.header = ScoreHeaderHeight;
+                    measured.header = index == 0 ? 32 : 56;
                     measured.textHeight = measured.pitch = 32;
                 }
                 measured.height = measured.header;
                 for (std::size_t i = 0; i < table.columns.size(); ++i) {
                     const auto &column = table.columns[i];
-                    const int pipe = table.score && i > 0 ? 16 : 0;
-                    measured.widths.push_back(std::max(column.minimumWidth,
-                            textWidth(column.heading, measured.textHeight) + 16 + pipe));
+                    measured.widths.push_back(std::max({column.minimumWidth,
+                            table.score && column.numeric ? scoreColumnWidth(column.heading) : 0,
+                            textWidth(column.heading, measured.textHeight)
+                                + (table.score && i == 0 ? 48 : 16)}));
                 }
                 for (const auto &row: table.rows) {
                     if (row.teamSeparatorBefore) measured.height += 8;
                     measured.rowTops.push_back(measured.height);
                     measured.height += measured.pitch;
                     for (std::size_t i = 0; i < row.cells.size() && i < measured.widths.size(); ++i) {
-                        const int inset = i == 0 ? (row.nested ? 24 : 0)
-                                + (!table.score && row.teamColor ? 20 : 0) : table.score ? 16 : 0;
+                        const int inset = table.score && i == 0 ? 32
+                                : !table.score && i == 0 && row.teamColor ? 20 : 0;
                         measured.widths[i] = std::max(measured.widths[i],
                                 textWidth(row.cells[i], measured.textHeight) + 16 + inset);
                     }
@@ -185,66 +167,126 @@ namespace Duel6::FinalSummaryPresentation {
         plan.scope = model.scope;
         auto &layout = plan.layout;
         layout.width = clientWidth; layout.height = clientHeight;
-        const int panelWidth = std::max(0, std::min(1184, clientWidth - 32));
-        layout.panel = {(clientWidth - panelWidth) / 2, 16, panelWidth, std::max(0, clientHeight - 152)};
-        const auto &panel = layout.panel;
-        layout.title = {panel.x + 2, 18, panel.width - 4, 40};
-        layout.body = {panel.x + 16, 146, std::max(0, panel.width - 32), std::max(0, clientHeight - 298)};
-        layout.footer = {panel.x, clientHeight - 120, panel.width, 40};
+        const bool network = model.scope != Scope::Local;
         const int noticeWidth = textWidth("End of Game", 32) + 32;
         layout.notice = {(clientWidth - noticeWidth) / 2, clientHeight - 64, noticeWidth, 48};
         const std::string counter = "Rounds: " + std::to_string(model.completedRounds) + " | " + std::to_string(model.roundLimit);
         const int counterWidth = textWidth(counter, 32) + 16;
-        layout.counter = {panel.x + panel.width - 16 - counterWidth, 22, counterWidth, 32};
-        layout.rows = {layout.body.x + 16, layout.body.y + HeaderHeight,
-                       std::max(0, layout.body.width - 40),
-                       std::max(0, layout.body.height - HeaderHeight - NavigationHeight)};
-        layout.navigation = {layout.body.x + 16, layout.body.y + layout.body.height - 28,
-                             std::max(0, layout.body.width - 40), 24};
-        layout.horizontalBack = {layout.navigation.x, layout.navigation.y, 32, 24};
-        layout.horizontalForward = {layout.navigation.x + layout.navigation.width - 32,
-                                    layout.navigation.y, 32, 24};
+        layout.counter = {(clientWidth - counterWidth) / 2, layout.notice.y - 56, counterWidth, 40};
+        const std::vector<Action> allowed = model.scope == Scope::NetworkHost
+                ? std::vector<Action>{Action::ReturnToLobby, Action::EndSession}
+                : model.scope == Scope::NetworkGuest ? std::vector<Action>{Action::Leave} : std::vector<Action>{};
+        std::vector<std::string> status;
+        int clearBottom = layout.counter.y - 16;
+        if (network) {
+            status = {"Completed / Session only", "Not saved to local statistics or Elo"};
+            if (model.scope == Scope::NetworkGuest)
+                status.insert(status.begin(), "Waiting for host to return to lobby or end session");
+            const int actionWidth = model.scope == Scope::NetworkHost ? 436 : 200;
+            layout.footer = {(clientWidth - actionWidth) / 2, layout.counter.y - 56, actionWidth, 40};
+            layout.status = {16, layout.footer.y - 16 - int(status.size()) * Pitch,
+                             clientWidth - 32, int(status.size()) * Pitch};
+            clearBottom = layout.status.y - 16;
+        }
+
+        std::vector<Table> tables{model.cumulative};
+        tables.back().score = true;
+        if (network) {
+            // Keep the established match outcome after cumulative scores. Last
+            // round scope/number remains in the adapter's existing round detail.
+            Table outcomes{"Outcome identities", {{"Outcome scope"}, {"Complete display name"}, {"Player identity"},
+                                                  {"Team"}, {"Departure"}}, {}};
+            const auto &outcome = model.matchOutcome;
+            if (outcome.noWinner) outcomes.rows.push_back({{"Match", "No winner", "", "", ""}});
+            if (!outcome.winningTeam.empty())
+                outcomes.rows.push_back({{"Match", outcome.winningTeam, "", outcome.winningTeam, ""}});
+            for (const auto &winner: outcome.winners)
+                outcomes.rows.push_back({{"Match", winner.name, winner.player, winner.team,
+                                          winner.departed ? "Departed" : ""}});
+            if (!outcomes.rows.empty()) tables.push_back(std::move(outcomes));
+            tables.insert(tables.end(), model.settings.begin(), model.settings.end());
+            tables.insert(tables.end(), model.rounds.begin(), model.rounds.end());
+        }
+        // Measure content before allocating its frame. Hidden network history
+        // changes scroll bounds, never the primary score panel's desired height.
+        const int maximumWidth = std::max(1, clientWidth - 74);
+        auto measured = measure(tables, maximumWidth, plan.bounds);
+        const int viewportWidth = std::min(maximumWidth, measured.front().width);
+        plan.bounds = {};
+        measured = measure(tables, viewportWidth, plan.bounds);
+        const int primaryHeight = measured.front().height;
+        // A solo network result still needs one complete row under the tallest
+        // supporting header. This minimum is independent of history length.
+        const int desiredViewport = network ? std::max(primaryHeight, 88) : primaryHeight;
+        const int maximumHeight = std::max(1, clearBottom - 16);
+        const bool navigation = plan.bounds.contentHeight > desiredViewport
+                || plan.bounds.contentWidth > viewportWidth || desiredViewport + 128 > maximumHeight;
+        const int navHeight = navigation ? NavigationHeight : 0;
+        auto geometry = ScoreSummaryGeometry::centered(viewportWidth,
+                desiredViewport - 32 + navHeight, clientWidth, clientHeight);
+        geometry.height = std::min(geometry.height, maximumHeight);
+        geometry.top = std::min((clientHeight - geometry.height) / 2, clearBottom - geometry.height);
+        layout.panel = {geometry.left, geometry.top, geometry.width, geometry.height};
+        const auto &panel = layout.panel;
+        layout.title = {panel.x - ScoreSummaryGeometry::StripOverhang,
+                        panel.y + ScoreSummaryGeometry::StripTop,
+                        panel.width + 2 * ScoreSummaryGeometry::StripOverhang,
+                        ScoreSummaryGeometry::StripHeight};
+        layout.body = {panel.x + ScoreSummaryGeometry::SidePadding,
+                       panel.y + ScoreSummaryGeometry::ColumnsTop, viewportWidth,
+                       std::max(0, panel.height - 128)};
+        const int documentViewportHeight = std::max(0, layout.body.height - navHeight);
+        if (navigation) layout.navigation = {layout.body.x, layout.body.y + documentViewportHeight,
+                                            layout.body.width, 24};
+        plan.bounds.vertical = std::max(0, plan.bounds.contentHeight - documentViewportHeight);
+        plan.bounds.horizontal = std::max(0, plan.bounds.contentWidth - layout.body.width);
+        // Fixed 18px steps can skip the entire visibility interval of a 32px
+        // row under a 56px sticky header in a compact 96px viewport. Retain the
+        // normal step size but visit each row's exact alignment in both
+        // directions, without enlarging the panel or drawing partial rows.
+        std::vector<int> alignments{0, plan.bounds.vertical};
+        for (const auto &table: measured)
+            for (const int rowTop: table.rowTops)
+                alignments.push_back(clampedOffset(table.top + rowTop - table.header, plan.bounds.vertical));
+        std::sort(alignments.begin(), alignments.end());
+        for (const int alignment: alignments)
+            while (plan.bounds.verticalPositions.back() < alignment)
+                plan.bounds.verticalPositions.push_back(std::min(alignment, plan.bounds.verticalPositions.back() + Pitch));
+        if (network && plan.bounds.horizontal) {
+            layout.horizontalBack = {layout.navigation.x, layout.navigation.y, 32, 24};
+            layout.horizontalForward = {layout.navigation.x + layout.navigation.width - 32,
+                                         layout.navigation.y, 32, 24};
+        }
+        plan.scroll = {clampedOffset(requested.vertical, plan.bounds.vertical),
+                        clampedOffset(requested.horizontal, plan.bounds.horizontal)};
+        std::size_t stickyIndex = 0;
+        for (std::size_t i = 0; i < measured.size(); ++i)
+            if (measured[i].top <= plan.scroll.vertical) stickyIndex = i;
+        const auto hasVisibleRow = [&](const MeasuredTable &table) {
+            return std::any_of(table.rowTops.begin(), table.rowTops.end(), [&](int rowTop) {
+                const int y = table.top + rowTop - plan.scroll.vertical;
+                return y >= table.header && y + table.textHeight <= documentViewportHeight;
+            });
+        };
+        // A following section can expose a complete row before its document
+        // origin reaches the top. Once the old section has no visible rows,
+        // that row's own section and columns must own the sticky header.
+        if (!hasVisibleRow(measured[stickyIndex]))
+            for (std::size_t i = stickyIndex + 1; i < measured.size(); ++i)
+                if (hasVisibleRow(measured[i])) { stickyIndex = i; break; }
+        layout.rows = {layout.body.x, layout.body.y + measured[stickyIndex].header, layout.body.width,
+                       std::max(0, documentViewportHeight - measured[stickyIndex].header)};
 
         fill(plan, {0, 0, clientWidth, clientHeight}, Color(128, 0, 0, model.curtainAlpha));
         fill(plan, panel, Color(255, 255, 255, 80));
         fill(plan, {panel.x + 2, panel.y + 2, panel.width - 4, panel.height - 4}, Color(0, 0, 255, 80));
         fill(plan, layout.title, Header);
-        text(plan, panel.x + 16, 22, "SCORE", 32);
+        text(plan, panel.x + (panel.width - textWidth("---SCORE---", 32)) / 2,
+             panel.y + ScoreSummaryGeometry::CaptionTop, "---SCORE---", 32);
         fill(plan, layout.counter, Black);
-        text(plan, layout.counter.x + 8, layout.counter.y, counter, 32);
-        if (model.scope == Scope::Local) text(plan, layout.body.x, 66, "Local Play");
-        else {
-            text(plan, layout.body.x, 66, model.scope == Scope::NetworkGuest
-                    ? "Completed / Session only / Waiting for host to return to lobby or end session"
-                    : "Completed / Session only");
-            text(plan, layout.body.x, 82, "Not saved to local statistics or Elo");
-        }
-        Table outcomes{"Outcome identities", {{"Outcome scope"}, {"Complete display name"}, {"Player identity"},
-                                             {"Team"}, {"Departure"}}, {}};
-        const auto match = fixedOutcome(model.matchOutcome, "Match outcome: ", layout.body.width, outcomes);
-        const auto last = fixedOutcome(model.lastRoundOutcome,
-                "Last completed round: " + std::to_string(model.lastRoundNumber) + " / ", layout.body.width, outcomes);
-        text(plan, layout.body.x, 102, match);
-        text(plan, layout.body.x, 120, last);
-
-        std::vector<Table> tables;
-        if (!outcomes.rows.empty()) tables.push_back(std::move(outcomes));
-        tables.push_back(model.cumulative);
-        tables.back().title = "Cumulative ranking";
-        tables.back().score = true;
-        tables.insert(tables.end(), model.settings.begin(), model.settings.end());
-        tables.insert(tables.end(), model.rounds.begin(), model.rounds.end());
-        const auto measured = measure(tables, layout.rows.width, plan.bounds);
-        const int documentViewportHeight = std::max(0, layout.body.height - NavigationHeight);
-        plan.bounds.vertical = std::max(0, plan.bounds.contentHeight - documentViewportHeight);
-        plan.bounds.horizontal = std::max(0, plan.bounds.contentWidth - layout.rows.width);
-        plan.scroll = {clampedOffset(requested.vertical, plan.bounds.vertical),
-                       clampedOffset(requested.horizontal, plan.bounds.horizontal)};
-        std::size_t stickyIndex = 0;
-        for (std::size_t i = 0; i < measured.size(); ++i)
-            if (measured[i].top <= plan.scroll.vertical) stickyIndex = i;
-        layout.rows.y = layout.body.y + measured[stickyIndex].header;
-        layout.rows.height = std::max(0, layout.body.height - measured[stickyIndex].header - NavigationHeight);
+        text(plan, layout.counter.x + 8, layout.counter.y + 4, counter, 32);
+        for (std::size_t i = 0; i < status.size(); ++i)
+            text(plan, (clientWidth - textWidth(status[i])) / 2, layout.status.y + int(i) * Pitch, status[i]);
 
         const auto tableLeft = [&](const MeasuredTable &table) {
             const int overflow = std::max(0, table.width - layout.rows.width);
@@ -255,22 +297,19 @@ namespace Duel6::FinalSummaryPresentation {
         auto drawHeading = [&](const MeasuredTable &table, int top, const Rect &clip) {
             const bool score = table.table->score;
             const int originX = tableLeft(table);
-            if (score) {
-                const Rect strip{std::max(layout.rows.x, originX), top + 20,
-                                 std::min(table.width, layout.rows.width), 36};
-                fill(plan, intersection(strip, clip), Header);
-                clippedText(plan, strip.x + (strip.width - textWidth("---SCORE---", 32)) / 2,
-                            top + 20, "---SCORE---", clip, 32);
-            } else fill(plan, intersection({layout.rows.x, top + 4, layout.rows.width, 28}, clip), Header);
-            // The section label stays fixed on BOTH axes; only table columns
-            // follow horizontal navigation. Ranking never loses its scope label.
-            clippedText(plan, layout.rows.x + 8, top + (score ? 0 : 10), table.table->title, clip);
+            const bool primary = table.table == &tables.front();
+            if (!primary) {
+                if (!score) fill(plan, intersection({layout.rows.x, top + 4, layout.rows.width, 28}, clip), Header);
+                clippedText(plan, layout.rows.x + 8, top + (score ? 0 : 10), table.table->title, clip);
+            }
             int x = originX;
             for (std::size_t c = 0; c < table.widths.size(); ++c) {
                 const auto &column = table.table->columns[c];
-                const int tx = column.numeric ? x + table.widths[c] - 8
-                        - textWidth(column.heading, table.textHeight) : x + 8 + (score && c > 0 ? 16 : 0);
-                clippedText(plan, tx, top + (score ? 56 : 42), column.heading, clip, table.textHeight);
+                const int standard = score && column.numeric ? scoreColumnWidth(column.heading) : 0;
+                const int tx = standard ? x + table.widths[c] - standard + scoreHeadingInset(column.heading)
+                        : column.numeric ? x + table.widths[c] - 8 - textWidth(column.heading, table.textHeight)
+                        : x + (score ? 5 : 8);
+                clippedText(plan, tx, top + (primary ? 0 : score ? 24 : 42), column.heading, clip, table.textHeight);
                 x += table.widths[c];
             }
         };
@@ -281,6 +320,14 @@ namespace Duel6::FinalSummaryPresentation {
             const auto &table = measured[t];
             const bool score = table.table->score;
             const int top = layout.body.y + table.top - plan.scroll.vertical;
+            // Never show a section's rows beneath another section's headings.
+            // Nonsticky sections retain continuous inline presentation only
+            // when their complete header allocation is inside the row viewport.
+            if (t < stickyIndex || (t != stickyIndex
+                    && (top < layout.rows.y || top + table.header > layout.rows.y + layout.rows.height))) {
+                rowNumber += table.table->rows.size();
+                continue;
+            }
             if (t != stickyIndex) drawHeading(table, top, layout.rows);
             std::optional<Color> teamSurface;
             for (std::size_t r = 0; r < table.table->rows.size(); ++r) {
@@ -289,7 +336,7 @@ namespace Duel6::FinalSummaryPresentation {
                 if (row.teamColor) teamSurface = row.teamColor->withAlpha(178);
                 const int y = top + table.rowTops[r];
                 if (row.teamSeparatorBefore) fill(plan,
-                        intersection({score ? tableLeft(table) : layout.rows.x, y - 5,
+                        intersection({score ? tableLeft(table) : layout.rows.x, y - 6,
                                       score ? table.width : layout.rows.width, 2}, layout.rows), Color(255, 255, 255, 178));
                 if (y < layout.rows.y || y + table.textHeight > layout.rows.y + layout.rows.height) continue;
                 if (!firstVisible) firstVisible = rowNumber;
@@ -298,11 +345,12 @@ namespace Duel6::FinalSummaryPresentation {
                 if (score) {
                     const Color surface = row.teamColor ? *teamSurface : row.nested && teamSurface
                             ? teamSurface->scale(0.2f) : Color(0, 0, 255, 178);
-                    fill(plan, intersection({x, y, table.width, table.textHeight}, layout.rows), surface);
+                    const Rect surfaceClip{layout.rows.x, layout.rows.y - 1, layout.rows.width, layout.rows.height + 1};
+                    fill(plan, intersection({x, y - 1, table.width, table.textHeight}, surfaceClip), surface);
                 }
                 for (std::size_t c = 0; c < table.widths.size(); ++c) {
                     if (c < row.cells.size()) {
-                        int inset = 8 + (c == 0 && row.nested ? 24 : 0);
+                        int inset = score ? (c == 0 ? row.teamColor ? 0 : 5 : 16) : 8;
                         if (!score && c == 0 && row.teamColor) {
                             fill(plan, intersection({x + inset, y + 3, 12, 10}, layout.rows), *row.teamColor);
                             inset += 20;
@@ -310,11 +358,10 @@ namespace Duel6::FinalSummaryPresentation {
                         const Color color = !score ? White : row.teamColor ? Black
                                 : table.table->columns[c].numeric ? Color::YELLOW : row.identityColor;
                         if (score && c > 0) {
-                            clippedText(plan, x + 8, y, "|", layout.rows, 32, row.teamColor ? Black : Color::YELLOW);
-                            inset += 16;
+                            clippedText(plan, x, y, "|", layout.rows, 32, row.teamColor ? Black : Color::YELLOW);
                         }
                         const int tx = table.table->columns[c].numeric
-                                ? x + table.widths[c] - 8 - textWidth(row.cells[c], table.textHeight) : x + inset;
+                                ? x + table.widths[c] - (score ? 0 : 8) - textWidth(row.cells[c], table.textHeight) : x + inset;
                         clippedText(plan, tx, y, row.cells[c], layout.rows, table.textHeight, color);
                     }
                     x += table.widths[c];
@@ -322,7 +369,7 @@ namespace Duel6::FinalSummaryPresentation {
             }
         }
         if (plan.bounds.vertical) {
-            const Rect track{layout.body.x + layout.body.width - 12, layout.rows.y, 8, layout.rows.height};
+            const Rect track{layout.body.x + layout.body.width + 4, layout.rows.y, 8, layout.rows.height};
             fill(plan, track, Color(0, 0, 0, 120));
             const int thumb = std::min(track.height, std::max(16,
                     track.height * documentViewportHeight / std::max(1, plan.bounds.contentHeight)));
@@ -330,27 +377,28 @@ namespace Duel6::FinalSummaryPresentation {
                     * plan.scroll.vertical / plan.bounds.vertical);
             fill(plan, {track.x + 1, y, 6, thumb}, Color(192));
         }
-        if (plan.bounds.vertical || plan.bounds.horizontal || model.scope != Scope::Local) {
+        if (navigation) {
             const auto &nav = layout.navigation;
-            const std::string feedback = "Rows " + std::to_string(firstVisible) + "-" + std::to_string(lastVisible)
-                    + "/" + std::to_string(plan.bounds.totalRows) + " / Position "
-                    + std::to_string(plan.scroll.horizontal / Glyph + 1) + "-"
-                    + std::to_string(std::min(plan.bounds.contentWidth, plan.scroll.horizontal + layout.rows.width) / Glyph)
-                    + "/" + std::to_string((plan.bounds.contentWidth + Glyph - 1) / Glyph);
+            std::string feedback;
+            if (plan.bounds.vertical) feedback = "Rows " + std::to_string(firstVisible) + "-" + std::to_string(lastVisible)
+                    + "/" + std::to_string(plan.bounds.totalRows);
+            if (plan.bounds.horizontal) {
+                if (!feedback.empty()) feedback += " / ";
+                feedback += "Position " + std::to_string(plan.scroll.horizontal / Glyph + 1) + "-"
+                        + std::to_string(std::min(plan.bounds.contentWidth, plan.scroll.horizontal + layout.rows.width) / Glyph)
+                        + "/" + std::to_string((plan.bounds.contentWidth + Glyph - 1) / Glyph);
+            }
             // Local feedback is read-only: no new clickable controls or bindings.
-            if (model.scope != Scope::Local) {
+            if (network && plan.bounds.horizontal) {
                 button(plan, layout.horizontalBack, "<", plan.scroll.horizontal > 0, false, false);
                 button(plan, layout.horizontalForward, ">", plan.scroll.horizontal < plan.bounds.horizontal, false, false);
-                if (model.navigationFocused) frame(plan, {nav.x - 2, nav.y - 2, nav.width + 4, nav.height + 4}, Black);
             }
+            if (network && model.navigationFocused) frame(plan, {nav.x - 2, nav.y - 2, nav.width + 4, nav.height + 4}, Black);
             const Rect feedbackBounds{nav.x + 40, nav.y, std::max(0, nav.width - 80), nav.height};
             clippedText(plan, feedbackBounds.x, nav.y + 4, feedback, feedbackBounds);
         }
 
         int actionX = layout.footer.x;
-        const std::vector<Action> allowed = model.scope == Scope::NetworkHost
-                ? std::vector<Action>{Action::ReturnToLobby, Action::EndSession}
-                : model.scope == Scope::NetworkGuest ? std::vector<Action>{Action::Leave} : std::vector<Action>{};
         for (Action action: allowed) {
             const auto found = std::find_if(model.actions.begin(), model.actions.end(),
                     [action](const ActionState &state) { return state.action == action; });
@@ -396,8 +444,16 @@ namespace Duel6::FinalSummaryPresentation {
     }
 
     void move(Scroll &scroll, const ScrollBounds &bounds, int rows, int columns) {
-        scroll.vertical = clampedOffset(static_cast<std::int64_t>(scroll.vertical) + static_cast<std::int64_t>(rows) * Pitch,
-                                        bounds.vertical);
+        scroll.vertical = clampedOffset(scroll.vertical, bounds.vertical);
+        if (rows) {
+            const auto &positions = bounds.verticalPositions;
+            const auto next = rows > 0 ? std::upper_bound(positions.begin(), positions.end(), scroll.vertical)
+                                      : std::lower_bound(positions.begin(), positions.end(), scroll.vertical);
+            const auto index = std::clamp<std::int64_t>(
+                    (next - positions.begin()) + static_cast<std::int64_t>(rows) - (rows > 0 ? 1 : 0),
+                    0, static_cast<std::int64_t>(positions.size()) - 1);
+            scroll.vertical = positions[index];
+        }
         scroll.horizontal = clampedOffset(static_cast<std::int64_t>(scroll.horizontal) + static_cast<std::int64_t>(columns) * Glyph,
                                           bounds.horizontal);
     }

@@ -4,6 +4,8 @@
 
 #include <SDL2/SDL.h>
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <iomanip>
 #include <cctype>
 #include <cstring>
@@ -271,6 +273,60 @@ namespace Duel6 {
             return lines;
         }
 
+        // Display-only sums retain replicated counters without narrowing them to
+        // Person's Int32 storage, including teams whose totals exceed UInt64.
+        struct ResultScoreTotal {
+            static constexpr std::uint64_t Base = 1000000000;
+            std::array<std::uint32_t, 3> digits{};
+            void add(std::uint64_t value) {
+                for (auto &digit: digits) {
+                    const auto sum = digit + value % Base;
+                    value = value / Base + sum / Base;
+                    digit = static_cast<std::uint32_t>(sum % Base);
+                }
+            }
+            std::string text() const {
+                std::ostringstream out;
+                bool started = false;
+                for (auto i = digits.size(); i-- > 0;) {
+                    if (!started && !digits[i] && i) continue;
+                    if (started) out << std::setw(9) << std::setfill('0');
+                    out << digits[i]; started = true;
+                }
+                return out.str();
+            }
+            float asFloat() const {
+                long double value = 0;
+                for (auto i = digits.size(); i-- > 0;) value = value * Base + digits[i];
+                return static_cast<float>(value);
+            }
+        };
+
+        std::string resultPoints(ResultScoreTotal positive, ResultScoreTotal negative) {
+            const bool below = std::lexicographical_compare(positive.digits.rbegin(), positive.digits.rend(),
+                                                            negative.digits.rbegin(), negative.digits.rend());
+            if (below) std::swap(positive, negative);
+            std::int64_t borrow = 0;
+            for (std::size_t i = 0; i < positive.digits.size(); ++i) {
+                auto digit = std::int64_t(positive.digits[i]) - negative.digits[i] - borrow;
+                borrow = digit < 0 ? 1 : 0;
+                if (borrow) digit += static_cast<std::int64_t>(ResultScoreTotal::Base);
+                positive.digits[i] = static_cast<std::uint32_t>(digit);
+            }
+            return (below ? "-" : "") + positive.text();
+        }
+
+        std::string resultRatio(float kills, float deaths) {
+            // Same float division/truncated hundredths and zero-death convention
+            // as Person and the existing non-final network score presentation.
+            const float ratio = deaths ? kills / deaths : kills;
+            const auto whole = std::floor(static_cast<long double>(ratio));
+            std::ostringstream out;
+            out << std::fixed << std::setprecision(0) << std::setw(2) << whole << '.' << std::setw(2) << std::setfill('0')
+                << static_cast<int>((ratio - static_cast<float>(whole)) * 100);
+            return out.str();
+        }
+
         FinalSummaryPresentation::Model finalResultModel(const Network::Replication::CanonicalState &state, bool host) {
             namespace F = FinalSummaryPresentation;
             namespace R = Network::Replication;
@@ -301,39 +357,67 @@ namespace Duel6 {
             model.matchOutcome = outcome(result->outcome);
             if (!result->rounds.empty()) model.lastRoundOutcome = outcome(result->rounds.back().outcome);
             model.cumulative.title = "CUMULATIVE RANKING";
-            model.cumulative.columns = {{"Player / identity / owner / team / state"}, {"Rank", true},
-                {"K", true}, {"A", true}, {"D", true}, {"K/D", true}, {"PTS", true}, {"R", true},
-                {"Sh", true}, {"Hi", true}, {"W", true}, {"P", true}, {"Survival ticks", true},
-                {"Damage", true}, {"Assist dmg", true}};
+            model.cumulative.columns = {{""}, {"K", true}, {"A", true}, {"D", true}, {"K/D", true}, {"PTS", true}};
             const auto playerRow = [&](const R::RetainedResultPlayer &player,
-                                       const R::RetainedResultStatistics &s, bool nested) {
-                std::ostringstream ratio;
-                ratio << std::fixed << std::setprecision(2) << (s.deaths ? double(s.kills) / double(s.deaths) : double(s.kills));
-                std::string label = player.displayName + " / Player " + std::to_string(player.playerId)
-                        + " / Participant " + std::to_string(player.participantId);
-                if (player.team) label += " / " + teamName(player.team);
-                if (player.departed) label += " / Departed";
-                return F::Row{{label, std::to_string(player.rank), std::to_string(s.kills), std::to_string(s.assists),
-                    std::to_string(s.deaths), ratio.str(), std::to_string(s.totalPoints), std::to_string(s.roundsPlayed),
-                    std::to_string(s.shots), std::to_string(s.hits), std::to_string(s.wins), std::to_string(s.penalties),
-                    std::to_string(s.survivalTicks), std::to_string(s.damage), std::to_string(s.assistedDamage)}, nested};
+                                        const R::RetainedResultStatistics &s, bool nested) {
+                return F::Row{{player.displayName, std::to_string(s.kills), std::to_string(s.assists),
+                    std::to_string(s.deaths), resultRatio(float(s.kills), float(s.deaths)), std::to_string(s.totalPoints)}, nested};
             };
-            if (result->teams.empty()) {
-                for (const auto &player: result->players) if (player.cumulative.roundsPlayed)
-                    model.cumulative.rows.push_back(playerRow(player, player.cumulative, false));
-            } else {
+            const auto statisticsFor = [](const R::RetainedResultPlayer &player, unsigned round)
+                    -> const R::RetainedResultStatistics * {
+                if (!round) return player.cumulative.roundsPlayed ? &player.cumulative : nullptr;
+                return round <= player.rounds.size() && player.rounds[round - 1].roundsPlayed
+                        ? &player.rounds[round - 1] : nullptr;
+            };
+            const auto appendScores = [&](F::Table &table, unsigned round) {
+                if (result->teams.empty()) {
+                    for (const auto &player: result->players)
+                        if (const auto *s = statisticsFor(player, round)) table.rows.push_back(playerRow(player, *s, false));
+                    return;
+                }
                 static const Color colors[] = {Color::WHITE, Color(255,0,0), Color(0,255,0), Color(255,255,0), Color(255,0,255)};
                 for (const auto &team: result->teams) {
-                    F::Row row; row.cells.resize(model.cumulative.columns.size());
-                    row.cells[0] = teamName(team.team); row.cells[1] = std::to_string(team.rank);
-                    row.cells[6] = std::to_string(team.totalPoints); row.teamColor = colors[team.team];
-                    row.teamSeparatorBefore = !model.cumulative.rows.empty();
-                    model.cumulative.rows.push_back(std::move(row));
-                    for (const auto id: team.rankedPlayerIds)
-                        if (const auto *player = playerFor(id); player && player->cumulative.roundsPlayed)
-                            model.cumulative.rows.push_back(playerRow(*player, player->cumulative, true));
+                    std::vector<F::Row> children;
+                    ResultScoreTotal kills, assists, deaths, positive, negative;
+                    for (const auto id: team.rankedPlayerIds) if (const auto *player = playerFor(id))
+                        if (const auto *s = statisticsFor(*player, round)) {
+                            children.push_back(playerRow(*player, *s, true));
+                            kills.add(s->kills); assists.add(s->assists); deaths.add(s->deaths);
+                            if (s->totalPoints >= 0) positive.add(static_cast<std::uint64_t>(s->totalPoints));
+                            else negative.add(static_cast<std::uint64_t>(-(s->totalPoints + 1)) + 1);
+                        }
+                    F::Row row{{teamName(team.team), kills.text(), assists.text(), deaths.text(),
+                            resultRatio(kills.asFloat(), deaths.asFloat()), resultPoints(positive, negative)}};
+                    row.teamColor = colors[team.team]; row.teamSeparatorBefore = !table.rows.empty();
+                    table.rows.push_back(std::move(row));
+                    table.rows.insert(table.rows.end(), children.begin(), children.end());
                 }
-            }
+            };
+            appendScores(model.cumulative, 0);
+            const auto appendPlayerDetails = [&](std::vector<F::Table> &tables, unsigned round) {
+                for (const auto &player: result->players) if (const auto *s = statisticsFor(player, round)) {
+                    // The sticky scope + stable player ID owns every field even
+                    // when the display-name row is outside the viewport.
+                    F::Table detail{(round ? "ROUND " + std::to_string(round) : "CUMULATIVE")
+                            + " PLAYER " + std::to_string(player.playerId), {{"Field"}, {"Value"}}, {}};
+                    detail.rows = {{{"Display name", player.displayName}},
+                        {{"Player identity", std::to_string(player.playerId)}},
+                        {{"Owner participant", std::to_string(player.participantId)}},
+                        {{"Team", player.team ? teamName(player.team) : "No team"}},
+                        {{"Result departure", player.departed ? "Departed" : "Retained"}}};
+                    if (!round) detail.rows.push_back({{"Rank", std::to_string(player.rank)}});
+                    for (const auto &[field, value]: std::vector<std::pair<std::string, std::uint64_t>>{
+                            {"Rounds played", s->roundsPlayed}, {"Shots", s->shots}, {"Hits", s->hits},
+                            {"Wins", s->wins}, {"Penalties", s->penalties}, {"Survival ticks", s->survivalTicks},
+                            {"Damage", s->damage}, {"Assisted damage", s->assistedDamage}})
+                        detail.rows.push_back({{field, std::to_string(value)}});
+                    tables.push_back(std::move(detail));
+                }
+            };
+            appendPlayerDetails(model.settings, 0);
+            for (const auto &team: result->teams)
+                model.settings.push_back({"CUMULATIVE TEAM " + teamName(team.team), {{"Field"}, {"Value"}},
+                        {{{"Rank", std::to_string(team.rank)}}}});
             F::Table settings{"MATCH SETTINGS", {{"Setting"}, {"Value"}}, {}};
             settings.rows = {{{"Mode", result->mode}}, {{"Teams", std::to_string(result->teamCount)}},
                 {{"Friendly fire", onOff(result->friendlyFire)}}, {{"Assistance", onOff(result->assistance)}},
@@ -357,10 +441,9 @@ namespace Duel6 {
                 model.rounds.push_back(std::move(details));
                 F::Table statistics{title + " PLAYER RESULTS", model.cumulative.columns, {}};
                 statistics.score = true;
-                for (const auto &player: result->players)
-                    if (round.number <= player.rounds.size() && player.rounds[round.number - 1].roundsPlayed)
-                        statistics.rows.push_back(playerRow(player, player.rounds[round.number - 1], false));
+                appendScores(statistics, round.number);
                 model.rounds.push_back(std::move(statistics));
+                appendPlayerDetails(model.rounds, round.number);
             }
             return model;
         }
@@ -389,12 +472,29 @@ namespace Duel6 {
             const auto model = finalResultModel(state, false);
             const auto append = [&](const FinalSummaryPresentation::Table &table) {
                 std::string headings;
-                for (const auto &column: table.columns) headings += column.heading + "  ";
+                std::vector<std::size_t> widths(table.columns.size());
+                if (table.score || &table == &model.cumulative) {
+                    widths = {0, 4, 4, 4, 6, 5};
+                    for (const auto &row: table.rows)
+                        for (std::size_t c = 0; c < row.cells.size(); ++c)
+                            widths[c] = std::max(widths[c], utf8Length(row.cells[c]) + (c ? 1 : row.nested ? 4 : 0));
+                    for (std::size_t c = 0; c < table.columns.size(); ++c) {
+                        if (c) headings += " ";
+                        headings += std::string(widths[c] - utf8Length(table.columns[c].heading), ' ')
+                                + table.columns[c].heading;
+                    }
+                } else for (const auto &column: table.columns) headings += column.heading + "  ";
                 lines.push_back({table.title, table.title, headings, true});
                 lines.push_back({headings, table.title, headings});
                 for (const auto &row: table.rows) {
                     std::string text = row.nested ? "    " : "";
-                    for (const auto &cell: row.cells) text += cell + "  ";
+                    for (std::size_t c = 0; c < row.cells.size(); ++c) {
+                        const auto &cell = row.cells[c];
+                        if (table.score || &table == &model.cumulative) {
+                            if (c) text += "|" + std::string(widths[c] - utf8Length(cell), ' ') + cell;
+                            else text += cell + std::string(widths[c] - utf8Length(text) - utf8Length(cell), ' ');
+                        } else text += cell + "  ";
+                    }
                     lines.push_back({std::move(text), table.title, headings});
                 }
             };
@@ -2809,6 +2909,7 @@ namespace Duel6 {
         if (start < lines.size() && lines[start].sectionHeading) ++start;
         std::size_t shown = 0;
         for (std::size_t index = start; index < lines.size() && shown < bounds.visibleRows; ++index, ++shown, y -= 18) {
+            if (retained && lines[index].section != section) break;
             const std::size_t horizontal = std::min<std::size_t>(appliedHorizontal, utf8Length(lines[index].text));
             drawText(50, y, utf8Slice(lines[index].text, horizontal, 94));
         }

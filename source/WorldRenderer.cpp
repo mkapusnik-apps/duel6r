@@ -37,6 +37,7 @@
 #include "ArenaPresentation.h"
 #include "ArenaScene.h"
 #include "RoundSummaryCounter.h"
+#include "ScoreSummaryGeometry.h"
 
 namespace Duel6 {
     WorldRenderer::WorldRenderer(Duel6::AppService &appService, const Duel6::Game &game)
@@ -138,8 +139,10 @@ namespace Duel6 {
             roundProgress = Format("Rounds: {0}|{1}") << game.getPlayedRounds() << game.getSettings().getMaxRounds();
         }
 
-        int x = video.getScreen().getClientWidth() / 2 - width / 2;
-        int y = video.getScreen().getClientHeight() / 2 - height / 2;
+        const auto frame = ScoreSummaryGeometry::centered(width, height - 96,
+                video.getScreen().getClientWidth(), video.getScreen().getClientHeight());
+        int x = frame.left + ScoreSummaryGeometry::SidePadding;
+        int y = video.getScreen().getClientHeight() - frame.top - frame.height + 32;
         const Int32 panelBottom = y - Int32(fontSize);
         const Int32 panelHeight = height + 2 * Int32(fontSize);
         const Int32 footerBottom = showRoundProgress
@@ -211,7 +214,7 @@ namespace Duel6 {
         }
         model.matchOutcome = model.lastRoundOutcome;
         model.cumulative.title = "CUMULATIVE RANKING";
-        model.cumulative.columns = {{"Player / team"}, {"K", true}, {"A", true}, {"D", true},
+        model.cumulative.columns = {{""}, {"K", true}, {"A", true}, {"D", true},
                                     {"K/D", true}, {"PTS", true}};
         const Ranking ranking = game.getMode().getRanking(game.getPlayers());
         const bool teamRanking = dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;

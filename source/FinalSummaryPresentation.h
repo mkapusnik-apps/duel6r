@@ -81,7 +81,7 @@ namespace Duel6::FinalSummaryPresentation {
     };
     struct Layout {
         int width = 0, height = 0;
-        Rect panel, title, body, footer, notice, counter;
+        Rect panel, title, body, status, footer, notice, counter;
         Rect rows, navigation, horizontalBack, horizontalForward;
     };
     struct Scroll {
@@ -92,6 +92,9 @@ namespace Duel6::FinalSummaryPresentation {
         int vertical = 0, horizontal = 0;
         int contentHeight = 0, contentWidth = 0;
         std::size_t totalRows = 0;
+        // Include complete-row alignments between the ordinary 18px steps.
+        // Both directions follow the same positions, including exact endpoints.
+        std::vector<int> verticalPositions{0};
     };
     struct ActionRegion {
         ActionState state;
@@ -138,8 +141,9 @@ namespace Duel6::FinalSummaryPresentation {
     // Returns input consumption, not whether an offset changed. Never consumes
     // unrelated keys, final-wait inputs, console input or wheel outside the body.
     bool navigateLocal(Scroll &scroll, const Plan &plan, const LocalNavigation &input);
-    // Shared bounded movement for EXISTING network bindings: 1 vertical unit is
-    // an 18px row, 1 horizontal unit an 8px glyph. Page movement remains 8 rows.
+    // Shared bounded movement for EXISTING bindings: vertical steps are at most
+    // 18px and stop at complete-row alignments; horizontal units are 8px glyphs.
+    // Page movement remains eight vertical steps.
     // Caller retains focus traversal, pointer ownership, confirms and controller.
     void move(Scroll &scroll, const ScrollBounds &bounds, int rows, int columns);
 }

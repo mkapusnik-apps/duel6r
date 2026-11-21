@@ -14,7 +14,7 @@ namespace {
         result.completedRounds = result.lastRoundNumber = result.roundLimit = 123;
         result.matchOutcome = {false, "", {{"Final winner"}}};
         result.lastRoundOutcome = result.matchOutcome;
-        result.cumulative.columns = {{"Rank / Player"}, {"K", true}, {"A", true}, {"D", true},
+        result.cumulative.columns = {{""}, {"K", true}, {"A", true}, {"D", true},
                                      {"K/D", true}, {"PTS", true}};
         result.cumulative.rows = {{{"1 Cumulative leader", "14", "2", "3", "4.67", "19"}},
                                   {{"2 Final winner", "3", "0", "4", "0.75", "4"}}};
@@ -63,44 +63,50 @@ namespace {
     }
 }
 
-D6R_TEST_CASE("Local and network finals share the complete client pixel shell at all approved desktop sizes") {
+D6R_TEST_CASE("Compact finals have one interim score strip and separate measured final cues at supported sizes") {
     for (const auto size: {std::pair<int, int>{850, 700}, {1280, 720}, {1280, 900}, {1920, 1080}}) {
         const auto local = compose(ordinary(), size.first, size.second);
         const auto host = compose(ordinary(Scope::NetworkHost), size.first, size.second);
         const auto guest = compose(ordinary(Scope::NetworkGuest), size.first, size.second);
-        for (const auto *other: {&host, &guest}) {
-            sameRect(local.layout.panel, other->layout.panel);
-            sameRect(local.layout.body, other->layout.body);
-            sameRect(local.layout.title, other->layout.title);
-            sameRect(local.layout.counter, other->layout.counter);
-            sameRect(local.layout.footer, other->layout.footer);
-            sameRect(local.layout.notice, other->layout.notice);
+        for (const auto *p: {&local, &host, &guest}) {
+            D6R_REQUIRE_EQ(1, std::count_if(p->commands.begin(), p->commands.end(), [](const auto &c) {
+                return c.text == "---SCORE---";
+            }));
+            D6R_REQUIRE(!hasText(*p, "SCORE"));
+            D6R_REQUIRE(p->layout.title.x >= 16);
+            D6R_REQUIRE(p->layout.title.x + p->layout.title.width <= size.first - 16);
+            D6R_REQUIRE(p->layout.panel.y >= 16);
+            D6R_REQUIRE_EQ(p->layout.panel.x - 5, p->layout.title.x);
+            D6R_REQUIRE_EQ(p->layout.panel.width + 10, p->layout.title.width);
+            D6R_REQUIRE_EQ(36, p->layout.title.height);
+            const auto &counter = findText(*p, "Rounds: 123 | 123");
+            D6R_REQUIRE_EQ(counter.bounds.width + 16, p->layout.counter.width);
+            D6R_REQUIRE_EQ(40, p->layout.counter.height);
+            D6R_REQUIRE_EQ(size.first / 2, p->layout.counter.x + p->layout.counter.width / 2);
+            D6R_REQUIRE_EQ(16, p->layout.notice.y - p->layout.counter.y - p->layout.counter.height);
+            D6R_REQUIRE_EQ(16, size.second - p->layout.notice.y - p->layout.notice.height);
+            D6R_REQUIRE_EQ(Color(128, 0, 0, 200), p->commands.front().color);
+            D6R_REQUIRE_EQ(32, findText(*p, "---SCORE---").size);
         }
-        D6R_REQUIRE_EQ(16, local.layout.panel.y);
-        D6R_REQUIRE_EQ(size.second - 136, local.layout.panel.y + local.layout.panel.height);
-        D6R_REQUIRE(local.layout.panel.x >= 16);
-        D6R_REQUIRE(local.layout.panel.width <= 1184);
-        D6R_REQUIRE_EQ(16, local.layout.footer.y - local.layout.panel.y - local.layout.panel.height);
-        D6R_REQUIRE_EQ(16, local.layout.notice.y - local.layout.footer.y - local.layout.footer.height);
-        D6R_REQUIRE_EQ(16, size.second - local.layout.notice.y - local.layout.notice.height);
-        const auto &score = findText(local, "SCORE");
-        D6R_REQUIRE(score.bounds.x + score.bounds.width + 16 <= local.layout.counter.x);
-        const auto &counter = findText(local, "Rounds: 123 | 123");
-        D6R_REQUIRE_EQ(counter.bounds.width + 16, local.layout.counter.width);
-        D6R_REQUIRE_EQ(32, score.size);
-        D6R_REQUIRE_EQ(32, findText(local, "End of Game").size);
-        D6R_REQUIRE_EQ(Color(128, 0, 0, 200), local.commands.front().color);
+        D6R_REQUIRE_EQ(0, local.layout.footer.height);
+        D6R_REQUIRE_EQ(0, local.layout.status.height);
+        D6R_REQUIRE_EQ(0, local.layout.navigation.height);
+        D6R_REQUIRE_EQ((size.second - local.layout.panel.height) / 2, local.layout.panel.y);
+        D6R_REQUIRE_EQ(224, local.layout.panel.height); // Actual OVER-02:160 + two32px rows.
+        D6R_REQUIRE_EQ(16, host.layout.counter.y - host.layout.footer.y - host.layout.footer.height);
+        D6R_REQUIRE_EQ(16, guest.layout.footer.y - guest.layout.status.y - guest.layout.status.height);
+        D6R_REQUIRE(guest.layout.panel.y + guest.layout.panel.height + 16 <= guest.layout.status.y);
     }
 }
 
-D6R_TEST_CASE("Final scope and outcome text never promote cumulative leader or claim a local save") {
+D6R_TEST_CASE("Compact local captions disappear without mutating outcomes and network detail retains No winner") {
     auto model = ordinary();
     const auto local = compose(model, 1280, 720);
-    D6R_REQUIRE(hasText(local, "Local Play"));
-    D6R_REQUIRE(hasText(local, "Match outcome: Final winner"));
-    D6R_REQUIRE(hasText(local, "Last completed round: 123 / Final winner"));
-    D6R_REQUIRE(hasText(local, "Cumulative ranking"));
+    for (const auto *removed: {"Local Play", "Match outcome: Final winner",
+                              "Last completed round: 123 / Final winner", "Cumulative ranking", "Player / team"})
+        D6R_REQUIRE(!hasText(local, removed));
     D6R_REQUIRE(hasText(local, "1 Cumulative leader"));
+    D6R_REQUIRE_EQ("Final winner", model.matchOutcome.winners.front().name);
     for (const auto &command: local.commands) {
         D6R_REQUIRE(command.text.find("Session only") == std::string::npos);
         D6R_REQUIRE(command.text.find("saved") == std::string::npos);
@@ -111,11 +117,13 @@ D6R_TEST_CASE("Final scope and outcome text never promote cumulative leader or c
     model.matchOutcome = {}; model.lastRoundOutcome = {};
     model.cumulative.rows.resize(1); // permitted solo result, not a new winner
     const auto solo = compose(model, 850, 700);
-    D6R_REQUIRE(hasText(solo, "Completed / Session only / Waiting for host to return to lobby or end session"));
+    D6R_REQUIRE(hasText(solo, "Completed / Session only"));
+    D6R_REQUIRE(hasText(solo, "Waiting for host to return to lobby or end session"));
     D6R_REQUIRE(hasText(solo, "Not saved to local statistics or Elo"));
-    D6R_REQUIRE(hasText(solo, "Match outcome: No winner"));
-    D6R_REQUIRE(hasText(solo, "Last completed round: 123 / No winner"));
-    D6R_REQUIRE_EQ(std::size_t(1), solo.bounds.totalRows);
+    D6R_REQUIRE(!hasText(solo, "No winner")); // Cumulative scores remain the initial view.
+    const auto detail = compose(model, 850, 700, {INT_MAX, 0});
+    D6R_REQUIRE(hasText(detail, "No winner"));
+    D6R_REQUIRE_EQ(std::size_t(2), solo.bounds.totalRows);
 }
 
 D6R_TEST_CASE("Final role actions retain order permission focus geometry and disabled hit testing") {
@@ -135,7 +143,7 @@ D6R_TEST_CASE("Final role actions retain order permission focus geometry and dis
     const auto guest = compose(model, 1280, 900);
     D6R_REQUIRE_EQ(std::size_t(1), guest.actions.size());
     D6R_REQUIRE_EQ(Action::Leave, guest.actions[0].state.action);
-    D6R_REQUIRE_EQ(first.x, guest.actions[0].bounds.x);
+    D6R_REQUIRE_EQ(640, guest.actions[0].bounds.x + guest.actions[0].bounds.width / 2);
     model.scope = Scope::Local;
     const auto local = compose(model, 1280, 900);
     D6R_REQUIRE(local.actions.empty());
@@ -148,7 +156,7 @@ D6R_TEST_CASE("Four team final nesting keeps fifteen profiles and exactly three 
     const auto plan = compose(model, 1280, 900);
     D6R_REQUIRE_EQ(std::size_t(19), plan.bounds.totalRows);
     D6R_REQUIRE(plan.bounds.vertical > 0);
-    D6R_REQUIRE_EQ(88 + 19 * 32 + 3 * 8, plan.bounds.contentHeight);
+    D6R_REQUIRE_EQ(32 + 19 * 32 + 3 * 8, plan.bounds.contentHeight);
     std::set<std::string> seen;
     for (int offset = 0; offset <= plan.bounds.vertical + 18; offset += 18) {
         const auto page = compose(model, 1280, 900, {offset, 0});
@@ -165,34 +173,33 @@ D6R_TEST_CASE("Four team final nesting keeps fifteen profiles and exactly three 
         ++separators;
         D6R_REQUIRE_EQ(2, command.bounds.height);
     }
-    D6R_REQUIRE_EQ(std::size_t(2), separators); // Third band is below the initial viewport.
+    D6R_REQUIRE(separators > 0 && separators <= 3);
     const auto minimum = compose(model, 1280, 720);
     D6R_REQUIRE(minimum.bounds.vertical > 0);
     const auto bottom = compose(model, 1280, 720, {INT_MAX, INT_MAX});
     D6R_REQUIRE(hasText(bottom, "Profile 15"));
     D6R_REQUIRE(hasText(bottom, "K/D"));
     D6R_REQUIRE(hasText(bottom, "PTS"));
-    D6R_REQUIRE(hasText(bottom, "Cumulative ranking"));
+    D6R_REQUIRE(hasText(bottom, "---SCORE---"));
     sameRect(minimum.layout.footer, bottom.layout.footer);
     sameRect(minimum.layout.notice, bottom.layout.notice);
 }
 
-D6R_TEST_CASE("Fourteen departed Predator winners have complete scoped outcome rows before ranking") {
+D6R_TEST_CASE("Fourteen departed Predator winners remain complete in outcome detail after cumulative scores") {
     auto model = ordinary(Scope::NetworkGuest);
     model.matchOutcome = {false, "", {}};
     for (int i = 1; i <= 14; ++i)
         model.matchOutcome.winners.push_back({"Marine " + std::to_string(i), std::to_string(100 + i), "", i == 14});
     model.lastRoundOutcome = model.matchOutcome;
     const auto plan = compose(model, 1280, 720);
-    D6R_REQUIRE(hasText(plan, "Match outcome: 14 winners / See outcome rows"));
-    D6R_REQUIRE(hasText(plan, "Last completed round: 123 / 14 winners / See outcome rows"));
-    D6R_REQUIRE(hasText(plan, "Outcome identities"));
-    D6R_REQUIRE_EQ(std::size_t(30), plan.bounds.totalRows);
+    D6R_REQUIRE(hasText(plan, "1 Cumulative leader"));
+    D6R_REQUIRE(!hasText(plan, "Outcome identities"));
+    D6R_REQUIRE_EQ(std::size_t(16), plan.bounds.totalRows);
     std::set<std::string> seen;
     for (int y = 0; y <= plan.bounds.vertical + 18; y += 18) {
         const auto page = compose(model, 1280, 720, {y, 0});
         for (const auto &command: page.commands) if (command.kind == Command::Kind::Text) seen.insert(command.text);
-        D6R_REQUIRE(hasText(page, "Match outcome: 14 winners / See outcome rows"));
+        D6R_REQUIRE(hasText(page, "---SCORE---"));
         D6R_REQUIRE(hasText(page, "Not saved to local statistics or Elo"));
     }
     for (int i = 1; i <= 14; ++i) {
@@ -200,8 +207,8 @@ D6R_TEST_CASE("Fourteen departed Predator winners have complete scoped outcome r
         D6R_REQUIRE(seen.count(std::to_string(100 + i)));
     }
     D6R_REQUIRE(seen.count("Departed"));
-    D6R_REQUIRE(seen.count("Match outcome"));
-    D6R_REQUIRE(seen.count("Cumulative ranking"));
+    D6R_REQUIRE(seen.count("Match"));
+    D6R_REQUIRE(seen.count("Outcome identities"));
 }
 
 D6R_TEST_CASE("Final body exposes long UTF8 values intact with no ellipsis and numeric cells aligned right") {
@@ -230,10 +237,10 @@ D6R_TEST_CASE("Final body exposes long UTF8 values intact with no ellipsis and n
     }
     D6R_REQUIRE(foundLast); D6R_REQUIRE(foundAccent);
     const auto last = compose(model, 850, 700, {0, INT_MAX});
-    D6R_REQUIRE(hasText(last, "Cumulative ranking"));
+    D6R_REQUIRE(hasText(last, "---SCORE---"));
     const auto &points = findText(last, "19");
     const auto &heading = findText(last, "PTS");
-    D6R_REQUIRE_EQ(points.bounds.x + points.bounds.width, heading.bounds.x + heading.bounds.width);
+    D6R_REQUIRE_EQ(points.bounds.x + points.bounds.width, heading.bounds.x + heading.bounds.width + 32);
     D6R_REQUIRE_EQ(value, model.cumulative.rows[0].cells[0]);
 }
 
@@ -264,7 +271,8 @@ D6R_TEST_CASE("Final completed-only local navigation isolates console wait wheel
     D6R_REQUIRE_EQ(56, scroll.horizontal);
     input.shift = false;
     D6R_REQUIRE(navigateLocal(scroll, plan, input));
-    D6R_REQUIRE_EQ(std::max(0, vertical - 18), scroll.vertical);
+    D6R_REQUIRE(scroll.vertical < vertical);
+    D6R_REQUIRE(vertical - scroll.vertical <= 18);
     input.input = LocalInput::Other;
     D6R_REQUIRE(!navigateLocal(scroll, plan, input));
     move(scroll, plan.bounds, INT_MAX, INT_MAX);
@@ -286,38 +294,41 @@ D6R_TEST_CASE("Network required details stay after cumulative results and keep c
     model.rounds.push_back(round);
     const auto top = compose(model, 1280, 720);
     const auto bottom = compose(model, 1280, 720, {INT_MAX, 0});
-    D6R_REQUIRE(hasText(top, "Cumulative ranking"));
+    D6R_REQUIRE(hasText(top, "1 Cumulative leader"));
     D6R_REQUIRE(hasText(bottom, "Per-round results"));
     D6R_REQUIRE(hasText(bottom, "Assisted damage"));
     D6R_REQUIRE(hasText(bottom, "50"));
     D6R_REQUIRE_EQ(top.layout.body.y + 42, findText(bottom, "Assisted damage").bounds.y);
     D6R_REQUIRE(hasText(bottom, "Completed / Session only"));
-    D6R_REQUIRE(hasText(bottom, "Match outcome: Final winner"));
-    D6R_REQUIRE_EQ(std::size_t(54), bottom.bounds.totalRows);
+    D6R_REQUIRE(!hasText(bottom, "Match outcome: Final winner"));
+    D6R_REQUIRE_EQ(std::size_t(55), bottom.bounds.totalRows);
 }
 
-D6R_TEST_CASE("Final network table retains every supplied identity ownership and statistic across horizontal navigation") {
+D6R_TEST_CASE("Final supporting table retains every supplied identity ownership and statistic across horizontal navigation") {
     auto model = ordinary(Scope::NetworkGuest);
-    model.cumulative.columns = {{"Rank", true}, {"Display name"}, {"Player identity"}, {"Owner participant"},
+    Table detail{"CUMULATIVE PLAYER 18446744073709551614",
+        {{"Rank", true}, {"Display name"}, {"Player identity"}, {"Owner participant"},
             {"Team"}, {"Departure"}, {"Rounds played", true}, {"Shots", true}, {"Hits", true},
             {"Kills", true}, {"Deaths", true}, {"Assists", true}, {"Wins", true}, {"Penalties", true},
-            {"Survival ticks", true}, {"Damage", true}, {"Assisted damage", true}, {"Points", true}};
+            {"Survival ticks", true}, {"Damage", true}, {"Assisted damage", true}, {"Points", true}}, {}};
     const std::vector<std::string> values{"1", "Retained identity", "18446744073709551614",
             "18446744073709551613", "Bravo", "Departed", "100", "101", "102", "103", "104",
             "105", "106", "107", "108", "109", "110", "207"};
-    model.cumulative.rows = {{values}};
+    model.cumulative.rows = {{{"Retained identity", "103", "105", "104", "0.99", "207"}}};
+    detail.rows = {{values}};
+    model.settings.push_back(detail);
     const auto initial = compose(model, 1280, 720);
     std::set<std::string> observed;
     for (int x = 0; x <= initial.bounds.horizontal + 8; x += 8) {
-        const auto plan = compose(model, 1280, 720, {0, x});
+        const auto plan = compose(model, 1280, 720, {initial.bounds.vertical, x});
         for (const auto &command: plan.commands)
             if (command.kind == Command::Kind::Text) observed.insert(command.text);
-        D6R_REQUIRE(hasText(plan, "Cumulative ranking"));
+        D6R_REQUIRE(hasText(plan, "---SCORE---"));
     }
     for (const auto &value: values) D6R_REQUIRE(observed.count(value));
-    for (const auto &column: model.cumulative.columns) D6R_REQUIRE(observed.count(column.heading));
-    D6R_REQUIRE_EQ(values, model.cumulative.rows.front().cells);
-    D6R_REQUIRE_EQ(std::size_t(1), initial.bounds.totalRows);
+    for (const auto &column: detail.columns) D6R_REQUIRE(observed.count(column.heading));
+    D6R_REQUIRE_EQ(values, model.settings.front().rows.front().cells);
+    D6R_REQUIRE_EQ(std::size_t(3), initial.bounds.totalRows);
 }
 
 D6R_TEST_CASE("Final reference score tables center measured content and preserve supplied local life colors") {
@@ -333,19 +344,18 @@ D6R_TEST_CASE("Final reference score tables center measured content and preserve
         D6R_REQUIRE_EQ(32, winner.bounds.y - leader.bounds.y);
         D6R_REQUIRE_EQ(Color::RED, leader.color);
         D6R_REQUIRE_EQ(Color::YELLOW, winner.color);
-        D6R_REQUIRE_EQ(16, findText(plan, "Cumulative ranking").size);
-        D6R_REQUIRE_EQ(plan.layout.body.y, findText(plan, "Cumulative ranking").bounds.y);
+        D6R_REQUIRE(!hasText(plan, "Cumulative ranking"));
         const auto &strip = findText(plan, "---SCORE---");
         D6R_REQUIRE_EQ(32, strip.size);
-        D6R_REQUIRE_EQ(plan.layout.body.y + 20, strip.bounds.y);
-        D6R_REQUIRE_EQ(plan.layout.body.y + 56, findText(plan, "PTS").bounds.y);
-        D6R_REQUIRE_EQ(plan.layout.body.y + 88, leader.bounds.y);
+        D6R_REQUIRE_EQ(plan.layout.panel.y + 32, strip.bounds.y);
+        D6R_REQUIRE_EQ(plan.layout.body.y, findText(plan, "PTS").bounds.y);
+        D6R_REQUIRE_EQ(plan.layout.body.y + 32, leader.bounds.y);
         const auto surface = std::find_if(plan.commands.begin(), plan.commands.end(), [&](const Command &command) {
-            return command.kind == Command::Kind::Fill && command.bounds.y == leader.bounds.y
+            return command.kind == Command::Kind::Fill && command.bounds.y == leader.bounds.y - 1
                     && command.color == Color(0, 0, 255, 178);
         });
         D6R_REQUIRE(surface != plan.commands.end());
-        D6R_REQUIRE(surface->bounds.width < plan.layout.rows.width);
+        D6R_REQUIRE_EQ(surface->bounds.width, plan.layout.rows.width);
         D6R_REQUIRE_EQ(plan.layout.rows.x + (plan.layout.rows.width - surface->bounds.width) / 2, surface->bounds.x);
         D6R_REQUIRE_EQ(surface->bounds.x + (surface->bounds.width - strip.bounds.width) / 2, strip.bounds.x);
         D6R_REQUIRE_EQ(32, surface->bounds.height);
@@ -372,10 +382,10 @@ D6R_TEST_CASE("Final Team score rows use complete named fills subdued children a
     for (const auto &command: plan.commands) {
         if (command.kind != Command::Kind::Fill) continue;
         D6R_REQUIRE(!(command.bounds.width == 12 && command.bounds.height == 10));
-        if (command.bounds.y == team.bounds.y && command.bounds.height == 32) {
+        if (command.bounds.y == team.bounds.y - 1 && command.bounds.height >= 31) {
             parentSurface = command.color == Color::RED.withAlpha(178);
         }
-        if (command.bounds.y == child.bounds.y && command.bounds.height == 32) {
+        if (command.bounds.y == child.bounds.y - 1 && command.bounds.height == 32) {
             childSurface = command.color == Color::RED.withAlpha(178).scale(0.2f);
         }
     }
@@ -411,14 +421,58 @@ D6R_TEST_CASE("Final mixed score and supporting tables retain independent sticky
                 }
                 sameRect(first.layout.notice, plan.layout.notice);
                 sameRect(first.layout.footer, plan.layout.footer);
-                D6R_REQUIRE(hasText(plan, "Match outcome: 14 winners / See outcome rows"));
+                D6R_REQUIRE_EQ(1, std::count_if(plan.commands.begin(), plan.commands.end(), [](const auto &c) {
+                    return c.text == "---SCORE---";
+                }));
             }
         }
         D6R_REQUIRE(seen.count("Mode")); D6R_REQUIRE(seen.count("Duel 16"));
         const auto bottom = compose(model, size.first, size.second, {INT_MAX, 0});
         D6R_REQUIRE(hasText(bottom, "Round 123 player statistics"));
         D6R_REQUIRE(hasText(bottom, "---SCORE---"));
-        D6R_REQUIRE_EQ(bottom.layout.body.y + 56, findText(bottom, "PTS").bounds.y);
+        D6R_REQUIRE_EQ(bottom.layout.body.y + 24, findText(bottom, "PTS").bounds.y);
         D6R_REQUIRE_EQ(Color::WHITE, findText(bottom, "1 Cumulative leader").color);
     }
+}
+
+D6R_TEST_CASE("Short network panel height follows primary rows not hidden outcome settings or history") {
+    for (const auto scope: {Scope::NetworkHost, Scope::NetworkGuest}) {
+        auto model = ordinary(scope);
+        const auto shortPlan = compose(model, 1280, 900);
+        model.settings = {{"Settings", {{"Field"}, {"Value"}}, {}}};
+        model.settings.front().rows.resize(100, Row{{"Seed", "123456789"}});
+        model.rounds = {{"Round 99 player results", model.cumulative.columns, {}, true}};
+        model.rounds.front().rows.resize(150, model.cumulative.rows.front());
+        model.matchOutcome.winners.resize(14, Identity{std::string(64, 'x'), "123"});
+        const auto withHistory = compose(model, 1280, 900);
+        sameRect(shortPlan.layout.panel, withHistory.layout.panel);
+        D6R_REQUIRE(withHistory.bounds.vertical > shortPlan.bounds.vertical);
+        D6R_REQUIRE_EQ((900 - shortPlan.layout.panel.height) / 2, shortPlan.layout.panel.y);
+        model.cumulative.rows.push_back(model.cumulative.rows.front());
+        D6R_REQUIRE_EQ(shortPlan.layout.panel.height + 32, compose(model, 1280, 900).layout.panel.height);
+    }
+}
+
+D6R_TEST_CASE("Fitting compact local table has actual interim width no navigation and no reserved network rows") {
+    auto model = ordinary();
+    model.cumulative.rows = {{{"Ada", "0", "0", "0", " 0.00", "1"}},
+                             {{"Bea", "0", "0", "1", " 0.00", "-1"}},
+                             {{"Cora", "0", "0", "1", " 0.00", "-1"}}};
+    const auto plan = compose(model, 1280, 900);
+    D6R_REQUIRE_EQ(512, plan.layout.panel.width); // OVER-02:(longest4+26)*16+32.
+    D6R_REQUIRE_EQ(256, plan.layout.panel.height);
+    D6R_REQUIRE_EQ(384, plan.layout.panel.x);
+    D6R_REQUIRE_EQ(322, plan.layout.panel.y);
+    D6R_REQUIRE_EQ(0, plan.bounds.vertical); D6R_REQUIRE_EQ(0, plan.bounds.horizontal);
+    D6R_REQUIRE_EQ(0, plan.layout.navigation.height);
+    D6R_REQUIRE_EQ(0, plan.layout.footer.height); D6R_REQUIRE_EQ(0, plan.layout.status.height);
+    D6R_REQUIRE_EQ(0, plan.layout.horizontalBack.width);
+    D6R_REQUIRE(!hasText(plan, "<")); D6R_REQUIRE(!hasText(plan, ">"));
+    D6R_REQUIRE_EQ(plan.layout.panel.x + 21, findText(plan, "Ada").bounds.x);
+    D6R_REQUIRE_EQ(plan.layout.panel.y + 96, findText(plan, "Ada").bounds.y);
+    D6R_REQUIRE_EQ(32, findText(plan, "Bea").bounds.y - findText(plan, "Ada").bounds.y);
+    D6R_REQUIRE_EQ(64, findText(plan, "A").bounds.x - findText(plan, "K").bounds.x - 16);
+    // Captions are not stripped from real data by a text-based filter.
+    model.cumulative.rows.front().cells[0] = "Match outcome";
+    D6R_REQUIRE(hasText(compose(model, 1280, 900), "Match outcome"));
 }
