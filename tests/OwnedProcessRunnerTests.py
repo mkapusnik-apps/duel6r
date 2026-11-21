@@ -76,6 +76,26 @@ while not ((root / "departing").exists() and (root / "child").exists()): time.sl
 
 
 class DescendantDiscoveryTests(unittest.TestCase):
+    def test_exited_process_task_iteration_preserves_other_owned_branches(self):
+        for error in (FileNotFoundError(errno.ENOENT, "vanished process"),
+                      ProcessLookupError(errno.ESRCH, "exited process")):
+            with self.subTest(errno=error.errno):
+                def tasks(path):
+                    if path == Path("/proc/300/task"):
+                        raise error
+                    yield path / path.parent.name
+                with patch.object(Path, "iterdir", tasks), patch.object(
+                        Path, "read_text", lambda path: {100: "200 300", 200: "400", 400: ""}[int(path.parent.name)]):
+                    self.assertEqual({200, 300, 400}, descendants(100))
+
+    def test_other_task_iteration_errors_are_not_treated_as_disappearance(self):
+        for error in (PermissionError(errno.EACCES, "denied task directory"),
+                      OSError(errno.EIO, "task directory I/O failure")):
+            with self.subTest(errno=error.errno), patch.object(Path, "iterdir", side_effect=error):
+                with self.assertRaises(OSError) as caught:
+                    descendants(100)
+                self.assertIs(error, caught.exception)
+
     def test_exited_task_children_read_preserves_other_owned_branches(self):
         for error in (FileNotFoundError(errno.ENOENT, "vanished task"),
                       ProcessLookupError(errno.ESRCH, "exited task")):

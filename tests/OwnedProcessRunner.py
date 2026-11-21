@@ -28,7 +28,8 @@ def descendants(pid):
         parent = pending.pop()
         try:
             tasks = list(Path(f"/proc/{parent}/task").iterdir())
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
+            # A discovered process can exit before its task directory is listed.
             continue
         for task in tasks:
             try:
