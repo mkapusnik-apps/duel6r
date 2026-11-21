@@ -63,6 +63,9 @@ namespace Duel6 {
         std::string playerHostedPort = std::to_string(Network::DefaultServerPort);
         std::string password;
         std::string passwordFeedback;
+        bool hostPasswordEditorOpen = false;
+        SDL_Keycode hostPasswordActivationKey = SDLK_UNKNOWN;
+        bool hostPasswordActivationTextPending = false;
         Client::DirectoryBrowser browser;
         std::string selectedListing;
         std::string selectedSessionIdentity;
@@ -105,7 +108,7 @@ namespace Duel6 {
 
         void beforeStart(Context *) override;
         void beforeClose(Context *) override;
-        void activate();
+        void activate(SDL_Keycode keyboardSource = SDLK_UNKNOWN);
         void showConfirmation(Confirmation value);
         void back();
         void moveFocus(int direction);
@@ -121,7 +124,14 @@ namespace Duel6 {
         bool localReadyEligible(std::string &reason) const;
         bool endpoint(Network::Endpoint &result) const;
         bool editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const;
-        int setupFields() const { return 3; }
+        static constexpr int PasswordFocus = 2, HostPasswordRemoveFocus = 3;
+        bool editingPassword() const {
+            return focus == PasswordFocus
+                && (setupScreen == SetupScreen::Join || (setupScreen == SetupScreen::Host && hostPasswordEditorOpen));
+        }
+        int setupFields() const {
+            return HostPasswordRemoveFocus + (setupScreen == SetupScreen::Host && hostPasswordEditorOpen ? 1 : 0);
+        }
         bool boundSelection() const { return setupScreen == SetupScreen::Join && joinFromBrowser && browserSelection.has_value(); }
         bool boundDedicated() const { return boundSelection() && browserSelection->dedicated(); }
         std::vector<std::string> boundContextLines() const;

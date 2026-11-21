@@ -2,7 +2,7 @@
 
 ## Status, purpose, and requirements
 
-`NET-02-password` is the optional password setup state under [NET-PASS-001](../network-host-directory.md). The host must be able to start without a password or set a session password before startup. Listening mode and selection follow [NET-HOST-IF-001 through NET-HOST-IF-024](../network-play-first-release.md#host-listening-address). The default is IPv4 wildcard `0.0.0.0` through `Listen on all`; explicit mode permits multiple individual choices. [HSL-IF-001 through HSL-IF-005](../network-host-service-lifecycle.md) own startup and all-or-nothing binding. [NET-DIR-017 through NET-DIR-020](../network-host-directory.md) own concrete endpoint publication. Functional acceptance uses NET-HOST-IF-AC-001 through NET-HOST-IF-AC-007, HSL-AC-019, and NET-DIR-AC-006 in addition to existing unaffected criteria. Current unified host settings and presentation remain owned by [NET-02](../design/screens/NET-02.md). This is player-hosted setup, not dedicated-service administration.
+`NET-02-password` is the optional password setup state under [NET-PASS-001](../network-host-directory.md#optional-password). Listening mode and selection follow [NET-HOST-IF-001 through NET-HOST-IF-024](../network-play-first-release.md#host-listening-address). The default is IPv4 wildcard `0.0.0.0` through `Listen on all`; explicit mode permits multiple individual choices. [HSL-IF-001 through HSL-IF-005](../network-host-service-lifecycle.md) own startup and all-or-nothing binding. [NET-DIR-017 through NET-DIR-020](../network-host-directory.md) own concrete endpoint publication. Functional acceptance uses NET-HOST-IF-AC-001 through NET-HOST-IF-AC-007, HSL-AC-019, and NET-DIR-AC-006 in addition to existing unaffected criteria. Current unified host settings and presentation remain owned by [NET-02](../design/screens/NET-02.md). This is player-hosted setup, not dedicated-service administration.
 
 This screen is implemented and accepted for issue #38 at checkpoint `e70a057819c97100b083c3cdaae5dc24566435cd`. It collects the listening interface, direct listening port, and host local players before creating a player-hosted session. It implements `NET-AC-001`, updated `NET-AC-002`, `NET-AC-003`, `NET-AC-004`, `NET-AC-005`, `NET-AC-009`, `NET-AC-015`, `NET-AC-016`, `NET-AC-017`, `NET-AC-019`, `NET-HOST-IF-001` through `NET-HOST-IF-012`, and `NET-HOST-IF-AC-001` through `NET-HOST-IF-AC-006` in [`docs/network-play-first-release.md`](../network-play-first-release.md).
 It preserves `INP-001` through `INP-010` and implements `NIN-OWN-006` and `NIN-BOUND-003` in [`docs/network-authoritative-player-input.md`](../network-authoritative-player-input.md).
@@ -17,6 +17,13 @@ Issue #31 must not implement this graphical screen.
 Issue #38 owns its graphical controls, focus, disabled reasons, and visual evidence.
 
 Entry is `NET-01` → Host. Successful confirmed startup enters `NET-04`; startup failure enters `NET-08`; Back returns to `NET-01` before a session exists.
+
+## Password setup
+
+- Fresh Host setup must offer `Configure` with no active or focusable Password editor or password `Remove` action. `Configure` must replace itself with the existing Password editor and a separate `Remove` action.
+- Password `Remove` must erase the entered password, clear any password-entry feedback, and restore `Configure` without changing other host settings. Configuring again must open an empty editor.
+- Start session must use no password when the editor is closed or empty. An empty editor must not block otherwise valid startup, even after deleting all text. A non-empty value must retain its exact meaning under [NET-PASS-001–002 and NET-PASS-011–013](../network-host-directory.md#optional-password), including passwords containing only spaces.
+- Completed startup Cancel and `Edit setup` must preserve any same-context password for continued editing under NET-PASS-013. Existing context-erasure rules still apply.
 
 ## Listening functional states
 
@@ -110,7 +117,7 @@ The current linked UX specification owns unified host settings, control grouping
 - No dedicated-service administration, automatic LAN discovery, or NAT control may appear. NET-PASS owns optional password setup. Listening selection must follow the current trust policy.
 - Interface enumeration and selection must not change an interface, route, firewall, Docker network, NAT rule, port-forwarding rule, or other network infrastructure.
 - Interface enumeration must not discover another host or session.
-- Editable focus order is Port → `Listening interface` → Persons/local-player controls in reading order → Start session → Back.
+- Editable focus order is defined in the [NET-02 presentation contract](../design/screens/NET-02.md#hierarchy-and-controls).
 - The selector must use a textual focus indicator that does not rely on color.
 - The host must be able to open the popup and independently toggle enabled checkboxes with pointer, keyboard, or controller input.
 - Keyboard or controller directional input must move through interface options while the selector is open.
