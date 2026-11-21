@@ -2276,7 +2276,7 @@ D6R_TEST_CASE("UX-NET-04 participant width top and settings bottom align without
                     D6R_REQUIRE(fill(40, 164, 220, 24, Color(192))); // Ready stays below both panels.
                 } else {
                     D6R_REQUIRE(fill(406, 350, 410, 132, Color(192))); // Compact result layout unchanged.
-                    D6R_REQUIRE(fill(40, 54, 220, 24, Color(192)));
+                    D6R_REQUIRE(fill(40, 54, host ? 88 : 220, 24, Color(192)));
                 }
                 D6R_REQUIRE_EQ(before, lobbyConfigurationFingerprint(f.menu.runtime.snapshot()));
                 D6R_REQUIRE(f.menu.runtime.pendingHostCommands.empty());
@@ -2295,11 +2295,80 @@ D6R_TEST_CASE("UX-NET-04 participant width top and settings bottom align without
     }
 }
 
+D6R_TEST_CASE("UX-NET-04 current totals and first readiness blocker stay in their own regions") {
+    ReviewMenuFixture f;
+    auto &menu = f.menu;
+    for (bool retained: {false, true}) {
+        f.lobby(true, retained);
+        menu.runtime.current.endpoint = {"127.0.0.1", 26660};
+        auto &state = *menu.runtime.current.canonical;
+        // A reserved guest stays in the two admitted participants and owns two
+        // slots even though it is not connected and some rows are offscreen.
+        auto third = state.players.back();
+        third.playerId = 103; third.rosterPosition = 2;
+        state.players.push_back(third);
+        auto &guest = state.participants.back();
+        guest.ownedPlayerIds.push_back(third.playerId);
+        guest.connection = Network::Replication::ConnectionState::Reconnecting;
+        f.draw();
+
+        const auto requireText = [&](const std::string &text, int x, int y) {
+            auto count = 0;
+            for (const auto &quad: f.recorder.quads)
+                for (const auto &entry: f.font.fontCache.entryList)
+                    if (entry.texture == quad.material.getTexture() && entry.text == text
+                        && quad.vertices[0].x == x && quad.vertices[0].y == y)
+                        ++count;
+            D6R_REQUIRE_EQ(1, count);
+        };
+        requireText("2", retained ? 384 : 552, retained ? 458 : 464);
+        requireText("3", retained ? 384 : 552, retained ? 394 : 366);
+        requireText("Waiting for Guest 2 to reconnect.", 42, 116);
+        requireText("Ready", retained ? 64 : 130, retained ? 58 : 168);
+        D6R_REQUIRE(f.text("Host • Network session • 127.0.0.1:26660"));
+        D6R_REQUIRE(f.text("Directory: Unavailable • Retry publication (F5)"));
+        D6R_REQUIRE(!f.text("Session is still running. Share the endpoint for direct connection."));
+        D6R_REQUIRE(!f.text("Optional scripts are disabled for network play."));
+        D6R_REQUIRE(!f.text("Ready / Not ready"));
+
+        guest.connection = Network::Replication::ConnectionState::Connected;
+        for (bool hostReady: {false, true}) {
+            state.participants.front().ready = hostReady;
+            f.draw();
+            const std::string reason = hostReady ? "Waiting for Guest 2 to be ready."
+                                                 : "Waiting for Host to be ready.";
+            const auto &quad = reviewTextQuad(f, reason);
+            requireText(reason, retained ? 136 : 268, retained ? 58 : 168);
+            D6R_REQUIRE(quad.vertices[2].x <= (retained ? 400 : 566));
+            const auto copies = std::count_if(f.recorder.quads.begin(), f.recorder.quads.end(),
+                    [&](const auto &draw) { return draw.material.getTexture() == quad.material.getTexture(); });
+            D6R_REQUIRE_EQ(1, copies);
+            if (!hostReady) requireText("Not ready", retained ? 48 : 114, retained ? 58 : 168);
+        }
+        if (retained) {
+            menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
+            f.click(150, 66); f.click(150, 66, false); // Feedback is not part of the narrower toggle.
+            D6R_REQUIRE_EQ(0, menu.focus);
+            D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
+            f.click(100, 66); f.click(100, 66, false);
+            D6R_REQUIRE_EQ(2, menu.focus);
+            D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+            menu.runtime.pendingHostCommands.clear();
+            menu.runtime.supervisor.reset();
+        }
+        f.lobby(false, retained);
+        f.draw();
+        requireText("Not ready", 114, retained ? 58 : 168);
+        D6R_REQUIRE(!f.text("Waiting for Guest 2 to be ready."));
+        D6R_REQUIRE(f.text("Host settings and authoritative roster order are read-only."));
+    }
+}
+
 D6R_TEST_CASE("UX-NET-04 composed lobby keeps fifteen owned slots pointer targets and Guest permissions independent of layout") {
     ReviewMenuFixture f;
     const auto &controls = f.service.getControlsManager().get(0);
     // Deterministic draw/input extremes, not live admission or native capture evidence.
-    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}})
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}})
         for (bool dedicated: {false, true}) for (bool host: {true, false}) for (bool retained: {false, true}) {
             f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
             f.lobby(host, retained); f.menu.runtime.current.publicSession = dedicated;
@@ -2328,9 +2397,11 @@ D6R_TEST_CASE("UX-NET-04 composed lobby keeps fifteen owned slots pointer target
                 f.menu.focus = slot * 2; f.menu.syncLobbyScroll(f.menu.runtime.snapshot()); f.draw();
                 if (retained) {
                     D6R_REQUIRE(f.text("Person: Slot " + std::to_string(slot + 1)));
-                    D6R_REQUIRE(f.frame(46, 362, 180, 22, 2));
+                    D6R_REQUIRE(f.frame(46, 350, 180, 22, 2));
                     D6R_REQUIRE(f.text("State: Completed") && f.text("PgUp/PgDn • ←/→"));
-                    click(230, 370);
+                    click(230, 376); // The old controls location no longer activates the field.
+                    D6R_REQUIRE_EQ(static_cast<int>(slot * 2), f.menu.focus);
+                    click(230, 359);
                 } else {
                     const int first = std::min(f.menu.setupScroll, 9);
                     const int row = 322 - (static_cast<int>(slot) - first) * 24;
@@ -3994,12 +4065,12 @@ D6R_TEST_CASE("UX-NET review retained host reorder help is inert until baseline 
     f.lobby(true, true); menu.runtime.supervisor = std::make_unique<Client::HostServiceSupervisor>();
     const std::string help = "Reorder: Tab/↑↓/pad ↑↓; Enter/Space/Confirm";
     const auto unchanged = lobbyConfigurationFingerprint(menu.runtime.snapshot());
-    f.draw(); D6R_REQUIRE(f.text(help)); D6R_REQUIRE(!f.frame(40, 386, 360, 24, 2));
-    f.click(100, 398); f.click(100, 398, false);
+    f.draw(); D6R_REQUIRE(f.text(help)); D6R_REQUIRE(!f.frame(40, 370, 360, 22, 2));
+    f.click(100, 380); f.click(100, 380, false);
     D6R_REQUIRE_EQ(0, menu.focus); D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
     for (int i = 0; i < 12 && menu.focus != 12; ++i) f.key(SDLK_TAB);
     D6R_REQUIRE_EQ(12, menu.focus); f.draw();
-    D6R_REQUIRE(f.text("> Reorder 1. Ada")); D6R_REQUIRE(f.frame(40, 386, 360, 24, 2));
+    D6R_REQUIRE(f.text("> Reorder 1. Ada")); D6R_REQUIRE(f.frame(40, 370, 360, 22, 2));
     f.key(SDLK_SPACE);
     D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
     D6R_REQUIRE(menu.runtime.pendingHostCommands.front() == Network::HostComposition::serializeRosterMove(101, 1));
@@ -4010,14 +4081,16 @@ D6R_TEST_CASE("UX-NET review retained host reorder help is inert until baseline 
     D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
     D6R_REQUIRE(menu.runtime.pendingHostCommands.front() == Network::HostComposition::serializeRosterMove(101, 1));
     menu.runtime.pendingHostCommands.clear();
-    f.click(100, 398); D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
-    f.click(100, 398, false); D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+    f.click(100, 398); f.click(100, 398, false); // The new title strip is not a target.
+    D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
+    f.click(100, 380); D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
+    f.click(100, 380, false); D6R_REQUIRE_EQ(std::size_t(1), menu.runtime.pendingHostCommands.size());
     D6R_REQUIRE(menu.runtime.pendingHostCommands.front() == Network::HostComposition::serializeRosterMove(101, 1));
     D6R_REQUIRE_EQ(unchanged, lobbyConfigurationFingerprint(menu.runtime.snapshot()));
     menu.runtime.pendingHostCommands.clear();
     f.lobby(false, true); f.draw(); D6R_REQUIRE(!f.text(help));
     D6R_REQUIRE(f.text("Host settings and authoritative roster order are read-only."));
-    f.click(100, 398); D6R_REQUIRE_EQ(0, menu.focus);
+    f.click(100, 380); D6R_REQUIRE_EQ(0, menu.focus);
     D6R_REQUIRE(menu.runtime.pendingHostCommands.empty());
 }
 
