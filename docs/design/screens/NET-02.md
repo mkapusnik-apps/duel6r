@@ -9,7 +9,7 @@ Visual impact covers the Listening interface field, popup, validation feedback, 
 The [shared visual baseline](../../design.md#unified-network-presentation) applies.
 
 - **UX-NET-02-001** The host task must keep a fixed title and endpoint region above two equal-height setup panels.
-- **UX-NET-02-002** Endpoint labels must occupy a fixed left column while the remaining width contains separately framed Port, Listening interface, and Password values.
+- **UX-NET-02-002** Endpoint labels must occupy a fixed left column while the remaining width contains the framed Port and Listening interface fields and the current Password controls.
 - **UX-NET-02-003** The editable Port must keep its five digits visible without horizontal scrolling.
 - **UX-NET-02-004** The collapsed interface selector must show the listening mode and selection summary defined below.
 - **UX-NET-02-005** Persons and Local players and controls must each have a title strip and an independently contained white list body. Both panels and list bodies must extend downward by 44 logical px without moving their top edges, headings, or first rows. Both lists must use the additional height for ten complete visible rows instead of eight at their existing row pitches; further entries must remain accessible through existing scrolling.
@@ -42,29 +42,21 @@ Keep the first row at y=364 and the existing 18 px Persons / 22 px local-player 
 - The screen must retain Port, Listening interface, Persons, Local players and controls, and its existing footer.
 - Listening interface must present the eligible loopback, assigned private, and assigned public unicast IPv4 choices defined by NET-HOST-IF-002–003.
 - Public address scope must not imply guaranteed Internet reachability.
-- A field labeled `Password` must follow Listening interface.
-- The password field must use the full endpoint-field width.
-- Help below the field must say `Password optional`.
-- The field must mask entered characters.
-- The initial password field must be empty.
+- Keep the existing `Password` label and row after Listening interface. Show `Configure` alone in the row's value area by default. When the editor is open, keep the existing masked field inset on the left and place a separately framed `Remove` button to its right, on the same row. Give the editor the remaining width after reserving room for `Remove` and the shared control clearance.
+- Omit `Password optional` in all Host setup states without replacement help. Switching the Password controls must not move the other endpoint fields, roster panels, feedback, footer, or listening popup.
 - The UI must not place a password in a heading, status line, directory row, or endpoint.
-- Port must keep initial focus.
-- Password must follow Listening interface in focus order.
-- Existing person and control actions must follow Password in focus order.
-- The endpoint block may grow by two text rows.
-- The roster region must shrink by that same height.
+- Port must keep initial focus. Traversal must go from Port to Listening interface, then to `Configure` or the editor followed by `Remove`, then through the existing roster controls in reading order to Start session and Back. Activating `Configure` must focus the editor; activating the password `Remove` must return focus to `Configure`. Both buttons must use the existing pointer, keyboard and controller interaction and focus treatments.
 - Roster headings and the footer must remain fixed.
 - Long rosters must scroll inside their existing regions.
 - Editable host setup must omit `Listing does not guarantee reachability.`, `Direct play remains available.`, and `Ready to start a player-hosted session.` without replacement text. Existing errors, disabled reasons, input-rejection feedback, and non-static statuses must remain visible when present.
-- Password validation must appear beside the field without exposing its value.
 - Starting and Cancelling must retain their existing locked setup and Cancel behavior.
 - Startup copy must not imply successful directory registration.
 
 ## Acceptance
 
-At 850 × 700, the password label, mask, help, player count, validation, and footer must remain separate and readable. Expanded interface options must remain inside the canvas. Field focus must remain visible without color. Directory registration failure must not be presented as hosted-session startup failure when the host service is running. NET-04 owns registration feedback.
+At 850 × 700, the Password label, visible Password controls, player count, validation, and footer must remain separate and readable. Expanded interface options must remain inside the canvas. Focus must remain visible without color. Directory registration failure must not be presented as hosted-session startup failure when the host service is running. NET-04 owns registration feedback.
 
-The editable representative must show that fields and row actions remain recognizable while Password is focused. The two popup representatives must show wildcard coverage and an independent explicit subset. The progress representative retains its prior scope when its presentation remains unchanged. Capture details are in the [current footer matrix](../screenshots/README.md#net-02-current-footer-capture-matrix).
+The editable representatives must show the default `Configure` state and the configured state with the focused mask and a separate `Remove` button. The two popup representatives must show wildcard coverage and an independent explicit subset without the old Password help in the exposed setup. The progress representative retains its prior scope. The [screenshot manifest](../screenshots/README.md#net-02-current-footer-capture-matrix) owns the artifacts.
 
 ## Listening summary and popup
 

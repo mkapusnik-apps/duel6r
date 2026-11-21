@@ -38,6 +38,11 @@ namespace Duel6 {
         constexpr Int32 CanvasWidth = 850, CanvasHeight = 700;
         constexpr int SetupVisibleRows = 8, SetupFirstRow = 364, SetupHeading = 386;
         constexpr Int32 EndpointFirstBottom = 494, EndpointPitch = 32, EndpointHeight = 24;
+        constexpr Int32 EndpointLeft = 224, EndpointWidth = 586;
+        constexpr Int32 PasswordBottom = EndpointFirstBottom - 2 * EndpointPitch;
+        constexpr Int32 HostPasswordRemoveWidth = 104, HostPasswordGap = EndpointPitch - EndpointHeight;
+        constexpr Int32 HostPasswordRemoveLeft = EndpointLeft + EndpointWidth - HostPasswordRemoveWidth;
+        constexpr Int32 HostPasswordEditorWidth = HostPasswordRemoveLeft - HostPasswordGap - EndpointLeft;
         constexpr Int32 InterfaceFirstOption = 326;
         constexpr std::size_t InterfaceVisibleRows = 3;
         constexpr Int32 LobbyReadyBottom = 164;
@@ -767,6 +772,8 @@ namespace Duel6 {
     void NetworkMenu::clearPassword() {
         Network::Trust::secureEraseMemory(password.data(), password.size()); password.clear();
         hostSetup.password.reset(); passwordFeedback.clear();
+        hostPasswordEditorOpen = false;
+        hostPasswordOpenedWithSpace = false;
     }
 
     void NetworkMenu::clearConfirmedPassword() {
@@ -1168,11 +1175,21 @@ namespace Duel6 {
                 }
                 return;
             }
-            if (!boundSelection() && pointerInside(x, y, 224, EndpointFirstBottom, 586, EndpointHeight)) { focus = 0; return; }
-            if (pointerInside(x, y, 224, EndpointFirstBottom - 2 * EndpointPitch, 586, EndpointHeight)) { focus = 2; return; }
-            if (!boundSelection() && pointerInside(x, y, 224, EndpointFirstBottom - EndpointPitch, 586, EndpointHeight)) {
+            if (!boundSelection() && pointerInside(x, y, EndpointLeft, EndpointFirstBottom, EndpointWidth, EndpointHeight)) { focus = 0; return; }
+            const bool host = setupScreen == SetupScreen::Host;
+            const auto passwordWidth = host && hostPasswordEditorOpen ? HostPasswordEditorWidth : EndpointWidth;
+            if (pointerInside(x, y, EndpointLeft, PasswordBottom, passwordWidth, EndpointHeight)) {
+                focus = PasswordFocus;
+                if (host && !hostPasswordEditorOpen) activate();
+                return;
+            }
+            if (host && hostPasswordEditorOpen
+                && pointerInside(x, y, HostPasswordRemoveLeft, PasswordBottom, HostPasswordRemoveWidth, EndpointHeight)) {
+                focus = HostPasswordRemoveFocus; activate(); return;
+            }
+            if (!boundSelection() && pointerInside(x, y, EndpointLeft, EndpointFirstBottom - EndpointPitch, EndpointWidth, EndpointHeight)) {
                 focus = 1;
-                if (setupScreen == SetupScreen::Host) activate();
+                if (host) activate();
                 return;
             }
             const std::size_t firstPerson = static_cast<std::size_t>(setupPersonsScroll);
@@ -1192,7 +1209,7 @@ namespace Duel6 {
                 }
             }
             const int footer = playerBase + static_cast<int>(localPlayers.size()) * 2;
-            const auto &bounds = setupScreen == SetupScreen::Host ? HostSetupFooter : JoinSetupFooter;
+            const auto &bounds = host ? HostSetupFooter : JoinSetupFooter;
             std::string reason;
             if (setupValid(reason) && pointerInside(x, y, bounds.primaryX, bounds.primaryY, 300, 32)) {
                 focus = footer; activate(); return;
@@ -1540,6 +1557,17 @@ namespace Duel6 {
                 hostAddressSelectorOpen = true;
                 return;
             }
+            if (setupScreen == SetupScreen::Host) {
+                if (focus == PasswordFocus && !hostPasswordEditorOpen) {
+                    hostPasswordEditorOpen = true;
+                    return;
+                }
+                if (focus == HostPasswordRemoveFocus && hostPasswordEditorOpen) {
+                    clearPassword();
+                    focus = PasswordFocus;
+                    return;
+                }
+            }
             if (focus < fields) return;
             int action = focus - fields;
             if (action < static_cast<int>(availablePersons.size())) {
@@ -1575,7 +1603,8 @@ namespace Duel6 {
                 hostSetup.localPlayerAppearances.push_back(player.appearance);
             }
             if (setupScreen == SetupScreen::Host) {
-                hostSetup.password = std::make_shared<Network::SessionPassword>(password);
+                hostSetup.password = hostPasswordEditorOpen && !password.empty()
+                    ? std::make_shared<Network::SessionPassword>(password) : nullptr;
                 // The graphical client loads data/ and levels/ from its working
                 // content root, including the normal flat packaged runtime.
                 (void) runtime.startHost(target, serverExecutable(), networkResources(), hostSetup, localPlayers, additionalListenHosts());
@@ -1738,13 +1767,14 @@ namespace Duel6 {
     bool NetworkMenu::editingEndpoint(const Client::NetworkRuntimeSnapshot &snapshot) const {
         return confirmation == Confirmation::None && !hostAddressSelectorOpen
                && snapshot.journey == Client::NetworkJourney::Inactive
-               && (((setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join) && focus == 2)
+               && (editingPassword()
                    || (setupScreen == SetupScreen::Host && focus == 0)
-                     || (setupScreen == SetupScreen::Join && !boundSelection() && (focus == 0 || focus == 1)));
+                   || (setupScreen == SetupScreen::Join && !boundSelection() && (focus == 0 || focus == 1)));
     }
 
     void NetworkMenu::keyEvent(const KeyPressEvent &event) {
         if (!event.isPressed() || event.isRepeat()) return;
+        hostPasswordOpenedWithSpace = false;
         const auto snap = runtime.snapshot();
         clearConfirmedPassword();
         if (event.getCode() == SDLK_F5 && snap.host && !snap.publicSession) {
@@ -1765,13 +1795,19 @@ namespace Duel6 {
             consume(controls.getLeft(), Network::Input::MoveLeft);
             consume(controls.getRight(), Network::Input::MoveRight);
         };
-        const auto activateKey = [&] { consumeKey(); activate(); };
+        const auto activateKey = [&] {
+            const bool spaceOnConfigure = event.getCode() == SDLK_SPACE && snap.journey == Client::NetworkJourney::Inactive
+                && confirmation == Confirmation::None && setupScreen == SetupScreen::Host && focus == PasswordFocus
+                && !hostPasswordEditorOpen;
+            consumeKey(); activate();
+            if (spaceOnConfigure && hostPasswordEditorOpen) hostPasswordOpenedWithSpace = true;
+        };
         const auto backKey = [&] { consumeKey(); back(); };
         const auto focusKey = [&](int direction) { consumeKey(); moveFocus(direction); };
         // Keep text keys consumed even if a later event moves focus before the
         // next input poll. Explicit navigation below still handles its own keys.
         if (editingEndpoint(snap)) consumeKey();
-        if (focus == 2 && editingEndpoint(snap)
+        if (editingPassword() && editingEndpoint(snap)
             && event.getCode() == SDLK_v && event.hasModifier(SysEvent::KeyModifier::CTRL)) {
             char *text = SDL_GetClipboardText();
             if (text) { enterText(text); Network::Trust::secureEraseMemory(text, std::strlen(text)); SDL_free(text); }
@@ -1869,34 +1905,36 @@ namespace Duel6 {
                      && event.hasModifier(SysEvent::KeyModifier::SHIFT) ? -1 : 1);
         else if (event.getCode() == SDLK_UP) focusKey(-1);
         else if (event.getCode() == SDLK_RETURN || event.getCode() == SDLK_SPACE) activateKey();
-        else if ((setupScreen == SetupScreen::Host || setupScreen == SetupScreen::Join)
-                 && snap.journey == Client::NetworkJourney::Inactive) {
-            std::string *field = focus == 2 ? &password
+        else if (event.getCode() == SDLK_BACKSPACE && editingEndpoint(snap)) {
+            const bool passwordField = editingPassword();
+            std::string *field = passwordField ? &password
                     : setupScreen == SetupScreen::Join && focus == 0 ? &address : &port;
-            if (((setupScreen == SetupScreen::Join && !boundSelection() && (focus == 0 || focus == 1))
-                 || (setupScreen == SetupScreen::Host && focus == 0) || focus == 2)
-                && event.getCode() == SDLK_BACKSPACE && !field->empty()) {
+            if (!field->empty()) {
                 consumeKey();
-                if (focus == 2) {
+                if (passwordField) {
                     std::size_t begin = field->size() - 1;
                     while (begin > 0 && (static_cast<unsigned char>((*field)[begin]) & 0xc0) == 0x80) --begin;
                     Network::Trust::secureEraseMemory(field->data() + begin, field->size() - begin);
                     field->resize(begin);
                     passwordFeedback.clear();
+                    if (setupScreen == SetupScreen::Host && password.empty()) hostSetup.password.reset();
                 } else { field->pop_back(); clearPassword(); }
             }
         }
     }
 
     void NetworkMenu::textInputEvent(const TextInputEvent &event) {
+        // SDL emits text after the key press that opened Configure. A held
+        // activation Space must not silently configure a password.
+        if (hostPasswordOpenedWithSpace && service.getInput().isPressed(SDLK_SPACE)
+            && std::string_view(event.getText()) == " ") return;
         enterText(event.getText());
     }
 
     void NetworkMenu::enterText(std::string_view text) {
         clearConfirmedPassword();
-        if (runtime.snapshot().journey != Client::NetworkJourney::Inactive
-            || (setupScreen != SetupScreen::Host && setupScreen != SetupScreen::Join)) return;
-        if (focus == 2) {
+        if (!editingEndpoint(runtime.snapshot())) return;
+        if (editingPassword()) {
             if (text.size() > 128 - password.size() || !Network::SessionPassword::valid(text)) {
                 passwordFeedback = "Use valid UTF-8, no control characters and at most 128 bytes.";
                 return;
@@ -1905,14 +1943,11 @@ namespace Duel6 {
             return;
         }
         const bool addressField = setupScreen == SetupScreen::Join && focus == 0;
-        const bool portField = setupScreen == SetupScreen::Host ? focus == 0 : focus == 1;
-        if (boundSelection()) return;
-        if (!addressField && !portField) return;
         std::string *field = addressField ? &address : &port;
         // Keep rejected syntax recognizable instead of deleting URL punctuation,
         // whitespace or port signs and accidentally connecting to a different name.
         // One overflow character leaves overlength input invalid until corrected.
-        const std::size_t limit = portField ? 6u : 254u;
+        const std::size_t limit = addressField ? 254u : 6u;
         if (field->size() < limit && !text.empty()) {
             field->append(text.substr(0, limit - field->size()));
             clearPassword();
@@ -3044,10 +3079,10 @@ namespace Duel6 {
             else drawClippedText(50, 524, browserSelection && setupScreen == SetupScreen::Join
                 ? "Selected session: " + browserSelection->endpoint.host + ":" + std::to_string(browserSelection->endpoint.port)
                  : setupScreen == SetupScreen::Join ? "Direct connection" : SetupScope, 94);
-            for (int field = 0; field < 3; ++field) {
-                if (boundSelection() && field < 2)
-                    drawButton(224, EndpointFirstBottom - field * EndpointPitch, 586, EndpointHeight, "", false, false);
-                else drawField(224, EndpointFirstBottom - field * EndpointPitch, 586, EndpointHeight, focus == field);
+            for (int field = 0; field < PasswordFocus; ++field) {
+                if (boundSelection())
+                    drawButton(EndpointLeft, EndpointFirstBottom - field * EndpointPitch, EndpointWidth, EndpointHeight, "", false, false);
+                else drawField(EndpointLeft, EndpointFirstBottom - field * EndpointPitch, EndpointWidth, EndpointHeight, focus == field);
             }
             Int32 y = EndpointFirstBottom + 4;
             if (setupScreen == SetupScreen::Join) {
@@ -3065,12 +3100,23 @@ namespace Duel6 {
                 drawClippedText(228, y, listeningSummary(), 64);
                 drawText(786, y, "v");
             }
-            drawText(50, 434, "Password:");
-            const std::string mask(utf8Length(password), '*');
-            const auto shownMask = mask + (focus == 2 ? "_" : "");
-            drawText(228, 434, utf8Length(shownMask) > 72 ? utf8Slice(shownMask, utf8Length(shownMask) - 72, 72) : shownMask);
-            drawText(50, 410, browserSelection && setupScreen == SetupScreen::Join && browserSelection->passwordRequired
-                ? "Password required" : "Password optional");
+            const bool host = setupScreen == SetupScreen::Host;
+            drawText(50, PasswordBottom + 4, "Password:");
+            if (host && !hostPasswordEditorOpen) {
+                drawButton(EndpointLeft, PasswordBottom, EndpointWidth, EndpointHeight, "Configure", focus == PasswordFocus);
+            } else {
+                const auto width = host ? HostPasswordEditorWidth : EndpointWidth;
+                drawField(EndpointLeft, PasswordBottom, width, EndpointHeight, focus == PasswordFocus);
+                const auto visible = static_cast<std::size_t>(host ? (width - 8) / font.getCharWidth() : 72);
+                auto mask = std::string(utf8Length(password), '*') + (focus == PasswordFocus ? "_" : "");
+                if (mask.size() > visible) mask.erase(0, mask.size() - visible);
+                drawText(EndpointLeft + 4, PasswordBottom + 4, mask);
+                if (host)
+                    drawButton(HostPasswordRemoveLeft, PasswordBottom, HostPasswordRemoveWidth, EndpointHeight,
+                               "Remove", focus == HostPasswordRemoveFocus);
+                else drawText(50, 410, browserSelection && browserSelection->passwordRequired
+                              ? "Password required" : "Password optional");
+            }
             if (boundDedicated()) {
                 const auto context = boundContextLines();
                 for (std::size_t line = 0; line < context.size(); ++line)
@@ -3122,11 +3168,11 @@ namespace Duel6 {
                     ? "Endpoint-only first contact does not authenticate host identity."
                     : "The host confirms availability when you connect.");
             const int footer = playerBase + static_cast<int>(localPlayers.size()) * 2;
-            const auto &bounds = setupScreen == SetupScreen::Host ? HostSetupFooter : JoinSetupFooter;
+            const auto &bounds = host ? HostSetupFooter : JoinSetupFooter;
             drawButton(bounds.primaryX, bounds.primaryY, 300, 32,
-                       setupScreen == SetupScreen::Host ? "Start session" : "Connect", focus == footer, valid);
+                       host ? "Start session" : "Connect", focus == footer, valid);
             drawButton(bounds.backX, bounds.backY, 300, 32, "Back", focus == footer + 1);
-            if (setupScreen == SetupScreen::Host && hostAddressSelectorOpen) {
+            if (host && hostAddressSelectorOpen) {
                 drawPanel(224, 202, 586, 252, "LISTENING INTERFACE");
                 const auto checkbox = [&](Int32 bottom, const std::string &label, bool checked, bool selected, bool enabled) {
                     drawButton(238, bottom + 4, 16, 16, checked ? "x" : "", false, enabled);

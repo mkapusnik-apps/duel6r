@@ -1879,7 +1879,6 @@ D6R_TEST_CASE("NET-ENTRY common Direct return retains one endpoint and clears sc
 D6R_TEST_CASE("NET-02 editable footer keeps one action row conditional feedback and matching input bounds") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
-    const int footer = menu.setupFields() + static_cast<int>(menu.localPlayers.size()) * 2;
     const auto click = [&](int x, int y) {
         const auto &screen = f.video.getScreen();
         const float scale = std::min(1.35f, std::min(float(screen.getClientWidth()) / 850,
@@ -1892,14 +1891,17 @@ D6R_TEST_CASE("NET-02 editable footer keeps one action row conditional feedback 
     const auto omitted = [&] {
         D6R_REQUIRE(!f.text("Listing does not guarantee reachability. Direct play remains available."));
         D6R_REQUIRE(!f.text("Ready to start a player-hosted session."));
+        D6R_REQUIRE(!f.text("Password optional"));
     };
     for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720},
                            std::pair{1280, 900}, std::pair{1920, 1080}}) {
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 2;
-        menu.port = "26660"; menu.password = "masked"; menu.pointerHeld = false;
+        menu.port = "26660"; menu.pointerHeld = false;
+        f.key(SDLK_RETURN); menu.enterText("masked");
+        const int footer = menu.setupFields() + static_cast<int>(menu.localPlayers.size()) * 2;
         f.draw(); omitted();
-        D6R_REQUIRE(f.text("******_") && f.text("Password optional"));
+        D6R_REQUIRE(f.text("******_") && !f.text("Configure"));
         D6R_REQUIRE(f.text("Local players: 1 • Lobby 1–15 • Match 1–15"));
         D6R_REQUIRE(f.text("Start session") && f.text("Back"));
         // Equal surfaces, a centered pair and a 16px gap; focus adds 2px outside.
@@ -1918,11 +1920,12 @@ D6R_TEST_CASE("NET-02 editable footer keeps one action row conditional feedback 
         click(250, 50);
         D6R_REQUIRE_EQ(2, menu.focus);
         D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
-        menu.focus = 0; menu.enterText("26660"); f.draw(); omitted();
+        menu.port = "2666"; menu.focus = 0; menu.enterText("0"); f.draw(); omitted();
         D6R_REQUIRE(!f.text("Enter a valid port (1–65535)."));
-        menu.passwordFeedback = "Use valid UTF-8, no control characters and at most 128 bytes.";
+        D6R_REQUIRE(f.text("Configure"));
+        menu.focus = 2; f.key(SDLK_RETURN); menu.enterText("\n");
         f.draw(); D6R_REQUIRE(f.text(menu.passwordFeedback)); omitted();
-        menu.passwordFeedback.clear();
+        menu.focus = 0;
         // Start dispatch can be observed without launching a service: the disclosed
         // invalid composition is rejected by the existing serializer before startup.
         menu.hostSetup.mode = "invalid-test-mode"; menu.hostSetup.localPlayerNames.clear();
@@ -2130,7 +2133,7 @@ D6R_TEST_CASE("NET-02 popup traversal and overflow retain fixed bounds at suppor
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host);
 }
 
-D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Ready hit bounds aligned") {
+D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps Host password controls Join help and Ready hit bounds aligned") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
     const auto textPosition = [&](const std::string &text) {
@@ -2159,34 +2162,60 @@ D6R_TEST_CASE("UX-NET geometry keeps endpoint gaps external password help and Re
     for (const auto &size: {std::pair{850,700}, std::pair{1280,720}, std::pair{1920,1080}}) {
         f.video.screen = ScreenParameters(size.first,size.second,24,24,0,false);
         for (auto setup: {NetworkMenu::SetupScreen::Host, NetworkMenu::SetupScreen::Join}) {
-            menu.runtime.current = {}; menu.setupScreen = setup;
+            menu.runtime.current = {}; menu.clearPassword(); menu.setupScreen = setup; menu.focus = 0;
+            const bool host = setup == NetworkMenu::SetupScreen::Host;
             menu.listening = {}; menu.address = "127.0.0.1"; menu.port = "26660";
-            menu.hostAddresses.clear(); menu.password = "masked";
+            menu.hostAddresses.clear();
             menu.browserSelection = Client::DirectoryListing{};
             menu.browserSelection->passwordRequired = true;
+            if (host) {
+                f.draw(); D6R_REQUIRE(f.text("Configure") && fill(224,430,586,24,Color(192)));
+                D6R_REQUIRE(!fill(224,430,586,24,Color::WHITE) && !f.text("Password optional"));
+                click(300,455); D6R_REQUIRE_EQ(0, menu.focus); // Gap above the Password row is inert.
+                click(800,442); D6R_REQUIRE_EQ(2, menu.focus); // Configure owns the entire allocation.
+                D6R_REQUIRE(menu.hostPasswordEditorOpen && menu.password.empty());
+            }
+            menu.focus = 2; menu.enterText("masked");
             f.draw();
-            for (int y: {494,462,430}) D6R_REQUIRE(fill(224,y,586,24,Color::WHITE));
+            for (int y: {494,462}) D6R_REQUIRE(fill(224,y,586,24,Color::WHITE));
             D6R_REQUIRE_EQ(8,494-(462+24)); D6R_REQUIRE_EQ(8,462-(430+24));
-            D6R_REQUIRE(f.text(menu.focus == 2 ? "******_" : "******"));
-            D6R_REQUIRE_EQ(setup == NetworkMenu::SetupScreen::Join, f.text("Password required"));
-            if (setup == NetworkMenu::SetupScreen::Join) {
+            D6R_REQUIRE(f.text("******_") && !f.text("masked"));
+            D6R_REQUIRE_EQ(!host, f.text("Password required"));
+            if (!host) {
+                D6R_REQUIRE(fill(224,430,586,24,Color::WHITE));
                 const auto cue = textPosition("Password required");
                 D6R_REQUIRE_EQ(50.0f,cue.x); D6R_REQUIRE_EQ(410.0f,cue.y);
                 D6R_REQUIRE(cue.y+16 <= 430); // Common required/optional help remains outside the inset.
                 D6R_REQUIRE(cue.x+f.font.getTextWidth("Password required",16) < 810);
                 menu.browserSelection->passwordRequired = false; f.draw();
-                D6R_REQUIRE(!f.text("Password required")); // Direct/optional setup is unchanged.
+                D6R_REQUIRE(!f.text("Password required") && f.text("Password optional"));
+            } else {
+                D6R_REQUIRE(fill(224,430,474,24,Color::WHITE) && fill(706,430,104,24,Color(192)));
+                D6R_REQUIRE(f.frame(222,428,478,28,2) && !f.text("Configure") && !f.text("Password optional"));
+                menu.enterText(std::string(122, 'x')); f.draw();
+                const auto &mask = reviewTextQuad(f, std::string(57, '*') + "_");
+                D6R_REQUIRE(mask.vertices[0].x >= 228 && mask.vertices[2].x <= 694);
+                D6R_REQUIRE(mask.vertices[0].y >= 430 && mask.vertices[2].y <= 454);
+                menu.focus = 0;
+                click(701,442); D6R_REQUIRE_EQ(0, menu.focus); // Eight-pixel gap is not a control.
+                click(696,442); D6R_REQUIRE_EQ(2, menu.focus);
+                click(708,442,false); D6R_REQUIRE(menu.hostPasswordEditorOpen);
+                click(708,442); D6R_REQUIRE_EQ(2, menu.focus);
+                D6R_REQUIRE(!menu.hostPasswordEditorOpen && menu.password.empty());
+                f.draw(); D6R_REQUIRE(f.text("Configure") && f.frame(222,428,590,28,2));
             }
             menu.focus = 2; click(300,506,false); D6R_REQUIRE_EQ(2,menu.focus);
             click(300,506); D6R_REQUIRE_EQ(0,menu.focus);
             click(300,474); D6R_REQUIRE_EQ(1,menu.focus);
-            if (setup == NetworkMenu::SetupScreen::Host) menu.back();
+            if (host) menu.back();
             click(300,442); D6R_REQUIRE_EQ(2,menu.focus);
             click(300,490); D6R_REQUIRE_EQ(2,menu.focus); // Eight-pixel gaps are not controls.
             click(300,458); D6R_REQUIRE_EQ(2,menu.focus);
-            if (setup == NetworkMenu::SetupScreen::Host) {
+            if (host) {
                 menu.focus = 1; f.key(SDLK_RETURN); D6R_REQUIRE(menu.hostAddressSelectorOpen);
                 f.draw(); D6R_REQUIRE(fill(232,276,570,76,Color::WHITE));
+                click(740,442); D6R_REQUIRE(menu.hostAddressSelectorOpen && menu.hostPasswordEditorOpen);
+                D6R_REQUIRE_EQ(1, menu.focus); // Popup owns clicks even over the password Remove action.
                 click(744,226); D6R_REQUIRE(!menu.hostAddressSelectorOpen);
                 D6R_REQUIRE(menu.listening.all);
                 D6R_REQUIRE_EQ(1,menu.focus);
@@ -3121,7 +3150,9 @@ D6R_TEST_CASE("NET-PASS actual Host and Direct endpoint edits erase password sta
         menu.port = "26660"; menu.address = "127.0.0.1";
         const auto count = menu.localPlayers.size();
         const auto setPassword = [&] {
-            menu.focus = 2; menu.enterText(" retained é ");
+            menu.focus = 2;
+            if (screen == NetworkMenu::SetupScreen::Host && !menu.hostPasswordEditorOpen) f.key(SDLK_RETURN);
+            menu.enterText(" retained é ");
             menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
         };
         setPassword();
@@ -3131,6 +3162,7 @@ D6R_TEST_CASE("NET-PASS actual Host and Direct endpoint edits erase password sta
         menu.enterText(""); D6R_REQUIRE(!menu.password.empty());
         f.key(SDLK_BACKSPACE);
         D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password && menu.localPlayers.size() == count);
+        D6R_REQUIRE(!menu.hostPasswordEditorOpen);
         D6R_REQUIRE_EQ(std::string("2666"), menu.port);
         setPassword(); menu.focus = screen == NetworkMenu::SetupScreen::Host ? 0 : 1;
         menu.enterText("0"); D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password);
@@ -4196,26 +4228,109 @@ D6R_TEST_CASE("NET-ADM reviewed presenter uses authoritative per-player arrival 
     D6R_REQUIRE(recording.lines.empty());
 }
 
-D6R_TEST_CASE("NET-DIR NET-PASS password setup preserves complete UTF8 input and bounded editable correction") {
-    char name[] = "duel6r-password-editor-tests"; char *arguments[] = {name};
-    Application application(1, arguments);
-    NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
-    menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 2;
-    menu.textInputEvent(TextInputEvent(u8"së"));
-    D6R_REQUIRE_EQ(std::string(u8"së"), menu.password);
-    menu.keyEvent(KeyPressEvent(SDLK_BACKSPACE, SysEvent::ButtonState::PRESSED, 0));
-    D6R_REQUIRE_EQ(std::string("s"), menu.password);
-    menu.password = std::string(127, 'x');
-    menu.textInputEvent(TextInputEvent(u8"ë"));
+D6R_TEST_CASE("NET-02 Host password Configure Remove and Start handoff preserve only exact nonempty input") {
+    using Journey = Client::NetworkJourney;
+    ReviewMenuFixture f;
+    ReviewController controller(f);
+    auto &menu = f.menu;
+    const auto paste = [&](const std::string &value) {
+        D6R_REQUIRE(SDL_SetClipboardText(value.c_str()) == 0);
+        menu.keyEvent(KeyPressEvent(SDLK_v, SysEvent::ButtonState::PRESSED, KMOD_CTRL));
+        D6R_REQUIRE(SDL_SetClipboardText("") == 0);
+    };
+    f.key(SDLK_RETURN);
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.focus == 0);
+    // Reject the composition at the existing runtime boundary to inspect the
+    // menu's real Start handoff without starting a listener or a child process.
+    menu.hostSetup.mode = "invalid-test-mode";
+    menu.availablePersons = {"Ada"};
+    const auto start = [&](std::string_view expected) {
+        std::string reason;
+        D6R_REQUIRE(menu.setupValid(reason) && reason.empty());
+        menu.hostSetup.localPlayerNames.clear();
+        menu.focus = menu.setupFields() + static_cast<int>(menu.availablePersons.size() + menu.localPlayers.size() * 2);
+        f.key(SDLK_RETURN);
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Journey::Inactive && menu.focus == 0);
+        D6R_REQUIRE_EQ(std::string("Ada"), menu.hostSetup.localPlayerNames.at(0));
+        D6R_REQUIRE_EQ(!expected.empty(), bool(menu.hostSetup.password));
+        auto setup = menu.hostSetup; setup.mode = "Deathmatch";
+        const auto decoded = Network::HostComposition::deserialize(Network::HostComposition::serializeSetup(setup));
+        D6R_REQUIRE(decoded && decoded->setup);
+        const auto handedOff = decoded->setup->password;
+        D6R_REQUIRE_EQ(!expected.empty(), handedOff && handedOff->required());
+        D6R_REQUIRE_EQ(std::string(expected), handedOff ? std::string(handedOff->value()) : std::string());
+    };
+    f.draw(); D6R_REQUIRE(f.text("Configure") && !f.text("_") && !f.text("Password optional"));
+    start("");
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(1, menu.focus);
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(2, menu.focus);
+    D6R_REQUIRE(!menu.editingEndpoint(menu.runtime.snapshot()));
+    menu.textInputEvent(TextInputEvent("ignored")); paste("also ignored"); f.key(SDLK_BACKSPACE);
+    D6R_REQUIRE(menu.password.empty() && menu.passwordFeedback.empty());
+    f.key(SDLK_TAB); f.draw(); D6R_REQUIRE(f.text("> Ada • Selected")); // No hidden Remove stop.
+    menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+    D6R_REQUIRE_EQ(2, menu.focus);
+    f.application.keyEvent(menu, KeyPressEvent(SDLK_SPACE, SysEvent::ButtonState::PRESSED, 0));
+    menu.textInputEvent(TextInputEvent(" ")); // SDL follows a printable activation key with text.
+    f.application.keyEvent(menu, KeyPressEvent(SDLK_SPACE, SysEvent::ButtonState::RELEASED, 0));
+    D6R_REQUIRE(menu.editingEndpoint(menu.runtime.snapshot()) && menu.password.empty());
+    f.draw(); D6R_REQUIRE(f.text("_") && !f.text("Configure"));
+    start("");
+
+    menu.focus = 2; menu.textInputEvent(TextInputEvent(u8"së"));
+    f.key(SDLK_BACKSPACE); D6R_REQUIRE_EQ(std::string("s"), menu.password);
+    menu.enterText(std::string(126, 'x')); menu.textInputEvent(TextInputEvent(u8"ë"));
     D6R_REQUIRE_EQ(std::size_t(127), menu.password.size());
-    menu.password = u8"a password ë";
-    Network::HostComposition::Setup setup;
-    setup.localPlayerNames = {"Host"};
-    setup.password = std::make_shared<Network::SessionPassword>(menu.password);
-    setup.localPlayerAppearances.resize(1);
-    const auto decoded = Network::HostComposition::deserialize(Network::HostComposition::serializeSetup(setup));
-    D6R_REQUIRE(decoded && decoded->setup && decoded->setup->password);
-    D6R_REQUIRE_EQ(menu.password, std::string(decoded->setup->password->value()));
+    D6R_REQUIRE(!menu.passwordFeedback.empty());
+    const std::string feedback = menu.passwordFeedback;
+    f.draw(); D6R_REQUIRE(f.text(feedback) && !f.text(menu.password));
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(3, menu.focus);
+    f.draw(); D6R_REQUIRE(f.frame(704,428,108,28,2));
+    f.key(SDLK_TAB); f.draw(); D6R_REQUIRE(f.text("> Ada • Selected"));
+    f.key(SDLK_UP);
+    menu.textInputEvent(TextInputEvent("ignored")); paste("also ignored");
+    D6R_REQUIRE_EQ(std::size_t(127), menu.password.size());
+    f.key(SDLK_RETURN);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    D6R_REQUIRE(menu.password.empty() && menu.passwordFeedback.empty() && !menu.hostSetup.password);
+    f.draw(); D6R_REQUIRE(f.text("Configure") && !f.text(feedback));
+    start("");
+
+    for (int i = 0; i < 2; ++i) controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    controller.pulse(SDL_CONTROLLER_BUTTON_A);
+    D6R_REQUIRE(menu.editingPassword() && menu.password.empty());
+    paste("  "); start("  ");
+    menu.focus = 2; f.key(SDLK_BACKSPACE); f.key(SDLK_BACKSPACE);
+    D6R_REQUIRE(menu.editingPassword() && menu.password.empty() && !menu.hostSetup.password);
+    start("");
+    menu.focus = 2; paste(u8" Exact-Case é ");
+    start(u8" Exact-Case é ");
+
+    // Exercise the real menu transitions with a lifecycle fixture, not a
+    // live startup. Cancel completes through the existing observer callback.
+    menu.runtime.current.host = true; menu.runtime.current.journey = Journey::Starting;
+    f.key(SDLK_ESCAPE);
+    D6R_REQUIRE(menu.runtime.snapshot().journey == Journey::Cancelling);
+    Client::HostServiceSnapshot stopped{};
+    stopped.state = Client::HostServiceState::NoService;
+    menu.runtime.observeHostLifecycle(stopped);
+    menu.update(0);
+    D6R_REQUIRE(menu.runtime.snapshot().journey == Journey::Inactive && menu.hostPasswordEditorOpen);
+    menu.runtime.current.host = true; menu.runtime.current.journey = Journey::Failure;
+    menu.runtime.current.retryAllowed = false;
+    menu.focus = 0; f.key(SDLK_RETURN); // Edit setup.
+    D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Host && menu.focus == 0);
+    D6R_REQUIRE(menu.hostPasswordEditorOpen && menu.password == u8" Exact-Case é ");
+    for (int i = 0; i < 3; ++i) controller.pulse(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    D6R_REQUIRE_EQ(3, menu.focus);
+    controller.pulse(SDL_CONTROLLER_BUTTON_A);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    D6R_REQUIRE(menu.password.empty() && !menu.hostSetup.password && !menu.hostPasswordEditorOpen);
+    D6R_REQUIRE_EQ(std::string("26660"), menu.port);
+    D6R_REQUIRE_EQ(std::size_t(1), menu.localPlayers.size());
+    D6R_REQUIRE(menu.listening.all);
+    start("");
 }
 
 D6R_TEST_CASE("NET-DIR browser selection blocks stale full closed and removed sessions") {
@@ -4250,7 +4365,7 @@ D6R_TEST_CASE("NET-DIR browser selection blocks stale full closed and removed se
     D6R_REQUIRE_EQ(row.id, menu.selectedListing);
 }
 
-D6R_TEST_CASE("NET-DIR NET-PASS setup rosters retain scrolling and pointer removal below password help") {
+D6R_TEST_CASE("NET-DIR NET-PASS setup rosters retain scrolling and pointer removal below endpoint rows") {
     char name[] = "duel6r-setup-roster-tests"; char *arguments[] = {name};
     Application application(1, arguments);
     NetworkMenu menu(*application.service, application.gameResources, {}, [] {});
@@ -4444,7 +4559,7 @@ D6R_TEST_CASE("PR83 capture Application K2 endpoint text holds do not invoke Bac
         if (screen == NetworkMenu::SetupScreen::Host) {
             key(SDLK_TAB, true); key(SDLK_TAB, false); menu.update(0);
         }
-        key(SDLK_TAB, true); key(SDLK_TAB, false); menu.update(0); // Leave the new password editor.
+        key(SDLK_TAB, true); key(SDLK_TAB, false); menu.update(0); // Leave the Password control.
         key(SDLK_1, true); menu.update(0);
         D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
         key(SDLK_1, false); menu.update(0);
