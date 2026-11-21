@@ -716,19 +716,23 @@ D6R_TEST_CASE("UX-NET native frames preserve scaled press activation fields sele
         clear(); menu.render();
         D6R_REQUIRE(fill(224, 494, 586, 24, Color::WHITE));
         D6R_REQUIRE(fill(224, 462, 586, 24, Color::WHITE));
-        D6R_REQUIRE(fill(224, 430, 586, 24, Color::WHITE));
+        D6R_REQUIRE(fill(224, 430, 586, 24, Color(192)));
+        textPosition("Configure");
         D6R_REQUIRE(fill(48, 162, 354, 220, Color::WHITE));
         D6R_REQUIRE(fill(428, 162, 394, 220, Color::WHITE));
         click(223, 440, true); D6R_REQUIRE_EQ(0, menu.focus);
         click(225, 440, true); D6R_REQUIRE_EQ(2, menu.focus);
         menu.textInputEvent(TextInputEvent("disposable"));
         clear(); menu.render();
+        D6R_REQUIRE(fill(224, 430, 474, 24, Color::WHITE));
+        D6R_REQUIRE(fill(706, 430, 104, 24, Color(192)));
+        textPosition("Remove");
         textPosition("**********_");
         D6R_REQUIRE(fill(117, 38, 300, 32, Color(192))); // Disabled Start still has a surface and boundary.
         D6R_REQUIRE(std::any_of(recorder.frames.begin(), recorder.frames.end(), [](const auto &frame) {
             return frame.position.x == 117 && frame.position.y == 38 && frame.width == 1;
         }));
-        menu.password.clear();
+        menu.clearPassword();
     }
     menu.pointerHeld = false; menu.focus = 0;
     clear(); menu.drawButton(100, 100, 160, 32, "Action", true);
@@ -3114,11 +3118,17 @@ D6R_TEST_CASE("NET-PASS confirmed admission wipes editable state even when first
     using J = Client::NetworkJourney;
     ReviewMenuFixture f;
     auto &menu = f.menu;
+    const auto prepareEditableJoin = [&](const std::string &value) {
+        menu.runtime.reset(); menu.clearPassword();
+        // Each case starts in editable Join, not the confirmation opened by a prior recovery case.
+        menu.confirmation = NetworkMenu::Confirmation::None;
+        menu.setupScreen = NetworkMenu::SetupScreen::Join;
+        menu.focus = 2; menu.enterText(value);
+        D6R_REQUIRE_EQ(value, menu.password);
+    };
     for (bool dedicated: {false, true}) for (bool updateFirst: {true, false})
         for (auto firstSeen: {J::Reconnecting, J::HostEnded, J::Failure, J::Inactive}) {
-        menu.runtime.reset(); menu.clearPassword();
-        menu.setupScreen = NetworkMenu::SetupScreen::Join;
-        menu.focus = 2; menu.enterText("editable before admission");
+        prepareEditableJoin("editable before admission");
         menu.hostSetup.password = std::make_shared<Network::SessionPassword>(menu.password);
         menu.runtime.current.publicSession = dedicated;
         menu.runtime.current.localParticipantId = 2;
@@ -3132,8 +3142,7 @@ D6R_TEST_CASE("NET-PASS confirmed admission wipes editable state even when first
         D6R_REQUIRE(!menu.runtime.takeConfirmedAdmission()); // Only a secret-free event was retained, now consumed.
     }
     for (auto neverAdmitted: {J::Inactive, J::Starting, J::Cancelling, J::Failure}) {
-        menu.runtime.reset(); menu.setupScreen = NetworkMenu::SetupScreen::Join;
-        menu.focus = 2; menu.enterText("same context correction");
+        prepareEditableJoin("same context correction");
         menu.runtime.current.journey = neverAdmitted;
         menu.runtime.current.failure = "Connection not authorized.";
         menu.update(0);
