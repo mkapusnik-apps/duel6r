@@ -3181,7 +3181,8 @@ namespace Duel6 {
             drawPanel(46, panelBottom, 358, panelHeight, "PERSONS");
             drawPanel(playerPanelLeft, panelBottom, playerPanelWidth, panelHeight, "LOCAL PLAYERS AND CONTROLS");
             const auto localCount = "Local players: " + std::to_string(localPlayers.size());
-            if (host) {
+            // The popup ends inside the roster panel, so it would leave part of the count visible.
+            if (host && !hostAddressSelectorOpen) {
                 const int countWidth = font.getTextWidth(localCount, font.getCharHeight());
                 drawText(playerPanelLeft + playerPanelWidth - 6 - countWidth,
                          panelBottom + panelHeight - 18, localCount, Color::WHITE);

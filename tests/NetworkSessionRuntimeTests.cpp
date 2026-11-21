@@ -938,6 +938,18 @@ namespace {
         throw std::runtime_error("missing text quad");
     }
 
+    void requireHostCountLabels(const ReviewMenuFixture &f, int expected) {
+        int labels = 0;
+        for (const auto &quad: f.recorder.quads)
+            for (const auto &entry: f.font.fontCache.entryList) {
+                if (entry.texture != quad.material.getTexture()) continue;
+                D6R_REQUIRE(entry.text.find("Lobby 1–15") == std::string::npos);
+                D6R_REQUIRE(entry.text.find("Match 1–15") == std::string::npos);
+                if (entry.text.find("Local players: ") == 0) ++labels;
+            }
+        D6R_REQUIRE_EQ(expected, labels);
+    }
+
     const Test::RecordingRenderer::Quad &requireHostRosterCount(const ReviewMenuFixture &f, int players) {
         const auto label = "Local players: " + std::to_string(players);
         const auto &title = reviewTextQuad(f, "LOCAL PLAYERS AND CONTROLS");
@@ -950,15 +962,7 @@ namespace {
         D6R_REQUIRE_EQ(Color::WHITE, count.material.getColor());
         D6R_REQUIRE_EQ(818.0f, count.vertices[2].x);
         D6R_REQUIRE_EQ(float(f.font.getTextWidth(label, 16)), count.vertices[2].x - count.vertices[0].x);
-        int labels = 0;
-        for (const auto &quad: f.recorder.quads)
-            for (const auto &entry: f.font.fontCache.entryList) {
-                if (entry.texture != quad.material.getTexture()) continue;
-                D6R_REQUIRE(entry.text.find("Lobby 1–15") == std::string::npos);
-                D6R_REQUIRE(entry.text.find("Match 1–15") == std::string::npos);
-                if (entry.text.find("Local players: ") == 0) ++labels;
-            }
-        D6R_REQUIRE_EQ(1, labels);
+        requireHostCountLabels(f, 1);
         return count;
     }
 
@@ -2080,6 +2084,7 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
     ReviewMenuFixture f;
     auto &menu = f.menu;
     menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 1;
+    f.draw(); requireHostRosterCount(f, 1);
     f.key(SDLK_RETURN);
     D6R_REQUIRE(menu.hostAddressSelectorOpen && menu.listening.all);
     D6R_REQUIRE_EQ(0u, menu.hostAddressHighlight); // Opening input cannot toggle mode.
@@ -2088,16 +2093,16 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
     menu.hostAddresses = menu.listening.rows();
     const auto requireOverlay = [&] {
         f.draw();
-        const auto &count = requireHostRosterCount(f, 1);
-        // The opaque popup is drawn after the header, not behind a duplicate count.
+        // The right edge of the count would extend beyond the opaque popup.
+        requireHostCountLabels(f, 0);
+        const auto &title = reviewTextQuad(f, "LOCAL PLAYERS AND CONTROLS");
         const auto popup = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &quad) {
             return quad.material.getTexture() == Texture{} && quad.material.getColor() == Color(192)
                 && quad.vertices[0].x == 224 && quad.vertices[0].y == 202
                 && quad.vertices[2].x == 810 && quad.vertices[2].y == 454;
         });
         D6R_REQUIRE(popup != f.recorder.quads.end());
-        D6R_REQUIRE(&count < &*popup);
-        D6R_REQUIRE(count.vertices[0].x < popup->vertices[2].x);
+        D6R_REQUIRE(&title < &*popup);
     };
     requireOverlay(); D6R_REQUIRE(f.text("Listen on all (0.0.0.0)"));
     D6R_REQUIRE(f.text("Uses 0.0.0.0. The operating system controls coverage."));
@@ -2130,6 +2135,7 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
     D6R_REQUIRE(menu.setupValid(reason)); f.draw();
     D6R_REQUIRE(f.text("Individual addresses could not be listed."));
     f.click(744, 226); D6R_REQUIRE(!menu.hostAddressSelectorOpen && menu.focus == 1);
+    f.draw(); requireHostRosterCount(f, 1);
 }
 
 D6R_TEST_CASE("PA-NET-02-01 popup checked enabled frames remain reversed while disabled coverage stays flat") {
