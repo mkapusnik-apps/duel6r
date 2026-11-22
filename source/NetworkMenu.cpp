@@ -45,7 +45,13 @@ namespace Duel6 {
         constexpr Int32 HostPasswordEditorWidth = HostPasswordRemoveLeft - HostPasswordGap - EndpointLeft;
         constexpr Int32 InterfaceFirstOption = 326;
         constexpr std::size_t InterfaceVisibleRows = 3;
-        constexpr Int32 LobbyReadyBottom = 164;
+        constexpr Int32 LobbyReadyLeft = 40, LobbyReadyHeight = 24;
+        constexpr Int32 LobbyReadyBottom = 164, LobbyRetainedReadyBottom = 54;
+        constexpr char LobbyReadinessReasonSuffix[] = " to be ready.";
+
+        constexpr Int32 lobbyReadyWidth(bool retained, bool host) {
+            return retained && host ? 88 : 220;
+        }
         constexpr Float32 CanvasMaximumScale = 1.35f;
         constexpr int BrowserVisibleRows = 10;
         struct SetupFooterBounds {
@@ -214,6 +220,14 @@ namespace Duel6 {
             if (found == state.participants.end()) return "Departed participant";
             return found->host ? "Host" : "Guest " + std::to_string(
                     static_cast<unsigned>(std::distance(state.participants.begin(), found)) + 1);
+        }
+
+        bool confirmedLocalReady(const Client::NetworkRuntimeSnapshot &snap) {
+            if (!snap.canonical) return false;
+            const auto &participants = snap.canonical->participants;
+            const auto participant = std::find_if(participants.begin(), participants.end(),
+                    [&snap](const auto &value) { return value.participantId == snap.localParticipantId; });
+            return participant != participants.end() && participant->ready;
         }
 
         std::string playerLifecycleLabel(const Network::Replication::CanonicalState &state,
@@ -523,6 +537,7 @@ namespace Duel6 {
         constexpr Int32 LobbyControlLeft = 228;
         constexpr Int32 LobbyControlWidth = 170;
         constexpr Int32 LobbyControlRowHeight = 18;
+        constexpr Int32 LobbyRetainedReorderBottom = 372, LobbyRetainedReorderHeight = 18;
 
         struct LobbySettingRectangle {
             Int32 left = 0;
@@ -552,7 +567,7 @@ namespace Duel6 {
         }
 
         LobbyControlRectangles lobbyControlRectangles(std::size_t offset, bool retained) {
-            return {(retained ? 364 : 243) - static_cast<Int32>(offset) * LobbyControlRowHeight};
+            return {(retained ? 352 : 243) - static_cast<Int32>(offset) * LobbyControlRowHeight};
         }
 
         VisibleWindow localControlWindow(int focus, std::size_t playerCount, bool retained) {
@@ -965,7 +980,9 @@ namespace Duel6 {
             return !p.ready;
         });
         if (unready != state.participants.end()) {
-            reason = "Waiting for " + participantLabel(state, unready->participantId) + " to be ready."; return false;
+            reason = "Waiting for " + participantLabel(state, unready->participantId)
+                    + LobbyReadinessReasonSuffix;
+            return false;
         }
         return true;
     }
@@ -1271,7 +1288,8 @@ namespace Duel6 {
                 }
             }
             const int readyIndex = static_cast<int>(localPlayers.size()) * 2;
-            if (pointerInside(x, y, 40, retained ? 54 : LobbyReadyBottom, 220, 24)) {
+            if (pointerInside(x, y, LobbyReadyLeft, retained ? LobbyRetainedReadyBottom : LobbyReadyBottom,
+                              lobbyReadyWidth(retained, snap.host), LobbyReadyHeight)) {
                 std::string reason; if (localReadyEligible(reason)) { focus = readyIndex; activate(); }
                 return;
             }
@@ -1297,9 +1315,9 @@ namespace Duel6 {
                         : std::min<std::size_t>(6, roster.size() - visibleRoster.first);
                 for (std::size_t offset = 0; offset < visibleRosterCount; ++offset) {
                     const std::size_t index = visibleRoster.first + offset;
-                    const Int32 rowY = retained ? 388 : 319 - static_cast<Int32>(offset) * 24;
+                    const Int32 rowY = retained ? LobbyRetainedReorderBottom : 319 - static_cast<Int32>(offset) * 24;
                     if (pointerInside(x, y, retained ? 42 : 528, rowY,
-                                      retained ? 356 : 34, 20)) {
+                                      retained ? 356 : 34, retained ? LobbyRetainedReorderHeight : 20)) {
                         focus = readyIndex + 10 + static_cast<int>(index); activate(); return;
                     }
                 }
@@ -1622,13 +1640,11 @@ namespace Duel6 {
                 return;
             }
             int action = focus - static_cast<int>(localPlayers.size()) * 2;
-            bool ready = false;
-            if (snap.canonical) {
-                const auto participant = std::find_if(snap.canonical->participants.begin(), snap.canonical->participants.end(),
-                        [&snap](const auto &value) { return value.participantId == snap.localParticipantId; });
-                if (participant != snap.canonical->participants.end()) ready = participant->ready;
+            if (action == 0) {
+                std::string reason;
+                if (localReadyEligible(reason)) runtime.setReady(!confirmedLocalReady(snap));
+                return;
             }
-            if (action == 0) { std::string reason; if (localReadyEligible(reason)) runtime.setReady(!ready); return; }
             --action;
             if (snap.host) {
                 const bool contentBlocked = snap.canonical
@@ -2683,30 +2699,41 @@ namespace Duel6 {
 
     void NetworkMenu::drawLobby(const Client::NetworkRuntimeSnapshot &snap) const {
         const auto &state = *snap.canonical;
+        // A retained snapshot can still carry departed players and their owners
+        // before the lobby roster is rebuilt. Reserved players are not departed.
+        const auto admitted = [](const auto &player) {
+            return player.lifeState != Network::Replication::LifeState::Departed;
+        };
+        const auto playerTotal = std::count_if(state.players.begin(), state.players.end(), admitted);
+        const auto participantTotal = std::count_if(state.participants.begin(), state.participants.end(),
+                [&](const auto &participant) {
+                    return std::any_of(state.players.begin(), state.players.end(), [&](const auto &player) {
+                        return player.ownerParticipantId == participant.participantId && admitted(player);
+                    });
+                });
+        const auto drawTitleCount = [this](Int32 right, Int32 y, std::size_t count) {
+            const auto text = std::to_string(count);
+            drawText(right - 6 - font.getTextWidth(text, font.getCharHeight()), y, text, Color::WHITE);
+        };
         if (snap.publicSession) {
-            drawText(42, 528, std::string(snap.host ? "Host" : "Guest") + " • Dedicated session • "
-                     + std::to_string(state.participants.size()) + " participants • "
-                     + std::to_string(state.players.size()) + " players");
+            drawText(42, 528, std::string(snap.host ? "Host" : "Guest") + " • Dedicated session");
             drawClippedText(42, 508, "Endpoint: " + snap.endpoint.host + ":" + std::to_string(snap.endpoint.port), 96);
             drawWrappedText(42, 488, snap.host ? "You control this session. Leaving ends it for everyone."
                                              : "The host controls this session. It ends when the host leaves.", 96, 2);
         } else drawClippedText(42, snap.host ? 528 : 516, (snap.host ? "Host" : "Guest")
                                + std::string(" • Network session • ") + snap.endpoint.host + ":"
-                               + std::to_string(snap.endpoint.port) + " • "
-                               + std::to_string(state.participants.size()) + " participants • "
-                               + std::to_string(state.players.size()) + " players", 96);
+                                + std::to_string(snap.endpoint.port), 96);
         if (snap.host && !snap.publicSession) {
             if (snap.directoryAvailable || snap.directoryRegistering)
                 drawText(42, 504, snap.directoryAvailable ? "Directory: Listed" : "Directory: Registering…");
             else drawButton(40, 500, 650, 24, "Directory: Unavailable • Retry publication (F5)",
                             focus == publicationFocusIndex(snap, localPlayers.size()));
-            if (!snap.directoryAvailable && !snap.directoryRegistering)
-                drawText(42, 484, "Session is still running. Share the endpoint for direct connection.");
         }
         const Int32 participantTop = snap.publicSession ? 476 : state.result.available ? (snap.host ? 476 : 500) : 482;
         const Int32 participantBottom = state.result.available ? 410 : 392;
         const Int32 participantWidth = state.result.available ? 358 : 526;
         drawPanel(40, participantBottom, participantWidth, participantTop - participantBottom, "PARTICIPANTS");
+        drawTitleCount(40 + participantWidth, participantTop - 18, participantTotal);
         renderer.quadXY(Vector(42, participantTop - 40), Vector(participantWidth - 4, 20), Color(170));
         drawText(44, participantTop - 36, "Role"); drawText(142, participantTop - 36, "Connection");
         drawText(254, participantTop - 36, "Readiness"); drawText(350, participantTop - 36, "Owned");
@@ -2727,6 +2754,7 @@ namespace Duel6 {
         const bool retainedResult = state.result.available;
         if (!retainedResult) {
             drawPanel(40, 196, 526, 188, "PLAYERS AND CONTROLS");
+            drawTitleCount(566, 366, playerTotal);
             renderer.quadXY(Vector(42, 344), Vector(522, 20), Color(170));
             drawText(44, 346, "Pos  Owner       Person                  Control");
             drawText(520, 346, "Order");
@@ -2769,6 +2797,11 @@ namespace Duel6 {
                 }
             }
         } else {
+            // Fit the compact strip above the roster row and owned fields, leaving
+            // the retained-result panel and its input region at y=350 and below.
+            renderer.quadXY(Vector(42, 392), Vector(354, 18), Color(0, 0, 200));
+            drawText(46, 394, "PLAYERS AND CONTROLS", Color::WHITE);
+            drawTitleCount(398, 394, playerTotal);
             std::vector<Network::Replication::PlayerState> roster = state.players;
             std::sort(roster.begin(), roster.end(), [](const auto &left, const auto &right) {
                 return left.rosterPosition < right.rosterPosition;
@@ -2779,8 +2812,9 @@ namespace Duel6 {
                 const auto &player = roster[std::min<std::size_t>(setupScroll, roster.size() - 1)];
                 if (snap.host) {
                     // Help only: the existing reorder target appears after traversal.
-                    drawText(42, 390, "Reorder: Tab/↑↓/pad ↑↓; Enter/Space/Confirm");
-                } else drawClippedText(42, 390, "Roster " + std::to_string(player.rosterPosition + 1) + "/"
+                    drawText(42, LobbyRetainedReorderBottom + 1, "Reorder: Tab/↑↓/pad ↑↓; Enter/Space/Confirm");
+                } else drawClippedText(42, LobbyRetainedReorderBottom + 1,
+                        "Roster " + std::to_string(player.rosterPosition + 1) + "/"
                         + std::to_string(roster.size()) + " • " + player.displayName + " • "
                         + participantLabel(state, player.ownerParticipantId), 44);
             }
@@ -2831,14 +2865,16 @@ namespace Duel6 {
             drawFocusKeyline(rectangle.left, rectangle.bottom, rectangle.width, rectangle.height, selected);
         }
         std::string readyReason;
-        drawButton(40, retainedResult ? 54 : LobbyReadyBottom, 220, 24, "Ready / Not ready", focus == readyIndex,
+        const Int32 readyBottom = retainedResult ? LobbyRetainedReadyBottom : LobbyReadyBottom;
+        const Int32 readyWidth = lobbyReadyWidth(retainedResult, snap.host);
+        drawButton(LobbyReadyLeft, readyBottom, readyWidth, LobbyReadyHeight,
+                   confirmedLocalReady(snap) ? "Ready" : "Not ready", focus == readyIndex,
                    localReadyEligible(readyReason));
         if (!snap.host && retainedResult) {
             const auto &status = state.messages.status;
             if (!status.empty() && status != "lobby" && status != "Lobby") {
-                // A separate, bounded status region to the right of the script
-                // policy. Its 16px text ends at y=108, leaving 8px before the
-                // read-only line at y=116 and 16px above the footer targets.
+                // Keep status in its existing bounded region between the
+                // read-only line and footer.
                 drawClippedText(448, 92, status, 45);
             }
         } else if (state.messages.status != "Lobby" && (!snap.host || !retainedResult))
@@ -2852,18 +2888,22 @@ namespace Duel6 {
             const auto visibleRoster = rosterWindow(focus, roster.size(), rosterBase, retainedResult);
             if (retainedResult && visibleRoster.count != 0) {
                 const auto selectedRoster = visibleRoster.first;
-                drawButton(42, 388, 356, 20, utf8Clipped("> Reorder " + std::to_string(selectedRoster + 1) + ". "
+                drawButton(42, LobbyRetainedReorderBottom, 356, LobbyRetainedReorderHeight,
+                           utf8Clipped("> Reorder " + std::to_string(selectedRoster + 1) + ". "
                                 + roster[selectedRoster].displayName, 43), true);
             }
             std::string reason; const bool eligible = startEligible(snap, reason);
-            drawClippedText(42, 116, reason.empty() ? "All participants are ready." : reason, 96);
-            drawText(42, 94, "Optional scripts are disabled for network play.");
+            const std::string_view readinessSuffix = LobbyReadinessReasonSuffix;
+            if (reason.size() >= readinessSuffix.size()
+                && reason.compare(reason.size() - readinessSuffix.size(), readinessSuffix.size(), readinessSuffix) == 0)
+                drawText(LobbyReadyLeft + readyWidth + 8, readyBottom + 4, reason);
+            else
+                drawClippedText(42, 116, reason.empty() ? "All participants are ready." : reason, 96);
             const int startIndex = readyIndex + 10 + static_cast<int>(roster.size());
             drawButton(408, 54, 210, 24, "Start match", focus == startIndex, eligible);
             drawButton(670, 54, 150, 24, "End session", focus == startIndex + 1);
         } else {
             drawText(42, 116, "Host settings and authoritative roster order are read-only.");
-            drawText(42, 94, "Optional scripts are disabled for network play.");
             drawButton(645, 54, 175, 24, "Leave session", focus == readyIndex + 1);
         }
         if (state.result.available) drawResult(state, true);

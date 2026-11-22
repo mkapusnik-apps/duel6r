@@ -4,7 +4,7 @@ Representative desktop context: 1920 by 1080 px with the scaled 850 by 700 retro
 
 [![NET-04 — Current lobby structure](../../design/wireframes/NET-04/NET-04.svg)](../../design/wireframes/NET-04/NET-04.svg)
 
-This reuses the current canonical SVG unchanged. The [functional owner](../network-lobby.md) and [NET-04 presentation owner](../../design/screens/NET-04.md) govern current aligned membership/settings regions, owned versus read-only controls, hosting-specific context, publication feedback and eligible solo Start. The earlier planned/unimplemented status and old row allocation are historical; this format conversion changes no scenario, permission or evidence status.
+The [functional owner](../network-lobby.md) and [NET-04 presentation owner](../../design/screens/NET-04.md) govern the canonical SVG, including aligned membership/settings regions, owned versus read-only controls, hosting-specific context, publication feedback and eligible solo Start.
 
 - Role, Connection, Readiness, and owned-player count occupy separate textual columns.
 - Every roster slot shows its authoritative position, owner, person, and control.
@@ -21,7 +21,7 @@ This reuses the current canonical SVG unchanged. The [functional owner](../netwo
 - Invalid settings remain here with exact corrective copy and cleared readiness.
 - Unavailable content blocks another Start match and leaves host-only End session available.
 - The body gives approximately two thirds of its width to participants and roster content and one third to settings, with an 8-logical-pixel gap.
-- Participant, roster, and retained-result rows scroll under fixed headings while the session header, disabled reason, script policy, and footer actions remain visible.
+- Participant, roster, and retained-result rows scroll under fixed headings while the session header, disabled reason, and footer actions remain visible.
 - Participant-owned rows expose person and control assignment without profile selection or profile values.
 - Profile and cosmetic differences do not change readiness or Start eligibility.
 - Each participant row contains its fixed admitted slots with person and control values.

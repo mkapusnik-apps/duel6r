@@ -35,7 +35,7 @@ The retained-result variant [NET-04-R](../design/wireframes/NET-04/NET-04-R.svg)
 
 Retained cumulative and per-round score tables follow [NET-06's score columns and supporting-detail contract](network-summary.md#score-columns-and-supporting-detail). Preserve all result fields, fixed outcome labels, current membership/settings, existing result navigation and lobby geometry.
 
-- Use the scaled retro canvas with session endpoint, `Host` or `Guest`, and exact participant/player totals as text.
+- Use the scaled retro canvas with session endpoint, `Host` or `Guest`, and exact participant/player totals as specified by the presentation authority.
 - Show participant Role, Connection, Readiness, and owned-player count in separate columns, such as `Guest | Reconnecting | Ready | 2`; do not combine these states into one ambiguous label.
 - Show each admitted player as one existing slot in authoritative roster order.
 - Label every roster slot with its roster position and owner.
@@ -45,12 +45,11 @@ Retained cumulative and per-round score tables follow [NET-06's score columns an
 - Show host roster-order controls next to the authoritative roster without changing an owner label.
 - Show host match settings and authoritative roster order. Guests see host-owned controls as read-only.
 - The representative host state shows 3 participants, 6 players, and one named unready guest.
-- Footer shows Ready/Not ready, host-only Start match, and Leave or End session as appropriate.
+- Preserve the readiness toggle, host-only Start match, and Leave or End session as appropriate.
 - Host settings must contain only mode, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
 - Mode must offer Deathmatch, Predator, and Team deathmatch with two, three, or four teams and Friendly fire on or off.
 - Round limit must accept only integers from 1 through 99.
 - Level plan must offer Fixed level, Shuffle all levels, and Random level.
-- The screen must state `Optional scripts are disabled for network play.`
 - The screen must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as host settings.
 - The screen must not show a profile selector, profile column, profile value, or profile-editing action.
 - Keep the screen content inside the shared 24-logical-pixel canvas margin.
@@ -61,7 +60,7 @@ Retained cumulative and per-round score tables follow [NET-06's score columns an
 - Keep participant and roster column headings visible while up to 15 participant or player rows scroll vertically.
 - Keep each participant on one row and each authoritative roster slot on one row.
 - Clip long names inside the applicable column without hiding Role, Connection, or Readiness.
-- Keep the Start disabled reason and script-policy text above the footer actions.
+- Keep the Start disabled reason visible as specified by the presentation authority.
 - Present a retained result in a bounded result region below the session header and above the footer.
 - Let retained-result rows scroll without moving the result labels or footer actions.
 
@@ -105,7 +104,7 @@ Retained cumulative and per-round score tables follow [NET-06's score columns an
 - Required separate labels include participant role, ownership, `Connected` or `Reconnecting`, readiness, and `Session only` where score history is visible.
 - Retained result labels must identify result state, match outcome, last completed-round outcome, and cumulative ranking.
 - Validation copy must not disclose a peer-supplied name, release value, capability, path, hash, count, credential, address, threshold, payload, or raw filesystem value.
-- Example Start reason: `Waiting for Guest 2 to be ready`. Example Ready reason: `Assign a control to Cora`.
+- Example Start reason: `Waiting for Guest 2 to be ready.` Example Ready reason: `Assign a control to Cora`.
 - Focus order follows participant-owned controls, Ready, host-owned settings where applicable, Start match, and Leave/End session. Read-only controls are skipped.
 - Focus order must not include a hidden or disabled Add, Remove, or Transfer player-slot target because those actions do not exist after admission.
 - Keyboard Tab or directional controller input traverses; Enter/Space/controller Confirm activates; Escape/controller Back focuses Leave/End session rather than silently abandoning the session.
