@@ -1,18 +1,40 @@
 # Implementation screenshot manifest
 
+## Current Local Play and menu originals
+
+The rows below identify the accepted replacements in this partial refresh. The [design evidence manifest](../design/screenshots/README.md#current-representative-originals) records the shared runtime, network and compact-final originals, and compatibility destinations. Older records retain their original scenarios, producers and scope; their hashes do not identify these replacement bytes. See the [pre-refresh manifest and images](https://github.com/mkapusnik-apps/duel6r/tree/c515e5b19b2ff87595fce063ddc671bdac0b613b/docs/screenshots) for the preceding checkout.
+
+All eight originals below conform for their recorded native Linux states. Paths are relative to this directory. The date and runtime provenance are shared with the design evidence manifest.
+
+| Existing ID / destination | Full client | Actual state | PNG SHA-256 |
+|---|---|---|---|
+| [SS-001](#ss-001) / `MENU-01/deathmatch-person-action-aligned-1920x1080.png` | 1920×1080 | Deathmatch, Rounds 0, eight selected, Cora highlighted. Ada and Ben ranked through Local Play; six unranked. Team controls absent. | `b0ffee87d53224389bb3a11c0acceda0c5024abd0a5a06f2c13937855054eba3` |
+| [SS-024](#ss-024) / `MENU-01/teams-person-action-aligned-1920x1080.png` | 1920×1080 | Eight saved, six selected, Cora highlighted; Teams 2, Friendly Fire off, Rounds 0, centered `Equalize` and `Shuffle`. | `1cc723ed491fb6e9da2cb83aa64cb1675221b305725e37e4765f16dcab37ffe8` |
+| [SS-002](#ss-002) / `MENU-02/network-entry-confirmation-1920x1080.png` | 1920×1080 | F3 shows `Really delete? (Y/N)` above four equal footer actions. Four saved, Ada and Ben selected; one Duel 04 round left saved scores (Ada 1010 Elo/+1 PTS/one win; Ben 990 Elo/−1 PTS/one death). | `524518a903daa38c6a7dccb24b4a4b8027c3520c5d08a761fcd3406a6e9538d7` |
+| [SS-013](#ss-013) / `CONS-01/network-entry-open-1920x1080.png` | 1920×1080 | Full-width console with startup output and blank input; four equal footer actions visible. The console names `forest-foundry.png`. | `a364a3ba8e3d684386861d2e70f17c765f0ed05d1f7fa02efce76719b587f708` |
+| [SS-007](#ss-007) / `MODE-01/shared-live-1280x900.png` | 1280×900 | Duel 04 Predator 1/1; Cora faint with visible weapon, Ada and Ben living and opaque; live ranking. | `a9d18dad697240fef296cfc518f71e61e4341c6b87a4f6e0fd56305872c959c6` |
+| [SS-008](#ss-008) / `MODE-02/shared-live-1280x900.png` | 1280×900 | Live Duel 04 Team deathmatch 1/1, two living players each in Alpha and Bravo, named Team ranking. | `24c5e95de02b48604256235e74a50edfd57dd7716142ac29ae2871be4b431901` |
+| [SS-011](#ss-011) / `OVER-02/team-interim-round-3-of-5-1280x900.png` | 1280×900 | Actual Duel 04 non-final `1\|2`, Alpha wins; eight players, four Team groups, three separators and one backed bottom-center counter. Not a resumed `3\|5` result. | `41e7df24789143253d83cdac15ff2518dfac2de423217363548e7a7a06d2e4e6` |
+| [SS-014](#ss-014) / `CONS-02/shared-open-1280x900.png` | 1280×900 | Active four-player Deathmatch on mirrored Duel 04; blank console input and real gameplay output above the undivided arena. | `010a7020829de7aec14da40bd6d1f271378de1062a52633b335e2a285f1e4c54` |
+
+[SS-010](#ss-010) remains the accepted PR #69 still at its existing destination (producer `2475af83246a98ef2334f6d6fc90a9e943374eff`, SHA-256 `f916ef240e4ac39dff93abc7a2e742aa070ec7414f7e13f218f00f61bd2cc4bc`), not a `c515` capture. [AP-L / SS-003](../design/screenshots/README.md#current-representative-originals) likewise retains its previous still and producer.
+
 The [selected-person appearance matrix](../design/screenshots/README.md#selected-person-network-appearance) owns current skin-specific evidence. Its accepted colors/hair/headband expectations supersede historical default-only/profile-exclusion expectations below; old artifacts retain only their original producer and unaffected scope. No image or previous assessment is relabeled as evidence of the new appearance behavior.
 
 ## Current network presentation coverage
 
-The [network presentation matrix](../design/screenshots/README.md#network-presentation-current-capture-matrix) is the sole current coverage and conformance source for the NET-01 through NET-10 visual unification. All 16 affected wireframes require new implementation evidence. Prior network assessments in this file remain historical for this change; their hashes identify the earlier presentation only. Existing legacy image destinations remain unchanged. Unaffected Local Play entries retain their status unless their presentation source changes.
+The [network presentation matrix](../design/screenshots/README.md#network-presentation-current-capture-matrix) owns the coverage requirements for the NET-01 through NET-10 visual unification. See the [current originals](../design/screenshots/README.md#current-representative-originals) and [compatibility table](../design/screenshots/README.md#compatibility-destination-table) for the replacement hashes and actual client sizes. This partial refresh does not change the scope of earlier assessments or the evidence requirements for other rows.
 
-## Network arena orientation — current coverage
+<a id="network-arena-orientation--current-coverage"></a>
+## Network arena orientation — prior coverage
 
-This section is the current status override for the affected existing matrix entries. Earlier `Conforms` claims, packet acceptance, and accepted-entry totals below are historical for `SS-019`, `SS-021`, `SS-023`, and `SS-026`. Their previous files and hashes are superseded evidence, not proof of corrected orientation. The earlier confirmation supplement is also superseded for arena orientation. All other entries retain their current status.
+The four representative hashes below describe the [accepted orientation snapshot](https://github.com/mkapusnik-apps/duel6r/tree/ba3d484a44d9f9a8f1b2190cfff0187f716edf0e/docs). In the current partial refresh, only SS-023 replaces bytes at one of these destinations. The comparison supplements retain their original scope.
+
+This section records the orientation correction for `SS-019`, `SS-021`, `SS-023`, and `SS-026` at its original checkpoint. The earlier confirmation supplement was superseded for arena orientation. For representative bytes at the live destinations, use the [current design evidence](../design/screenshots/README.md#current-representative-originals).
 
 Visual impact is a standard localized orientation correction under the existing [network visual rules](../design.md#target-network-controls-and-status). UX inspected the four replacement representatives and three Local Play comparison supplements at accepted checkpoint `84f63bc6fdee75444b06723b3c5f542546e27b15`, with unchanged production source `78d97e5c9c4791262a81ffd4b0823671034ec872`. All seven conform for this scoped orientation assessment. Existing screen contracts and wireframe structures remain unchanged.
 
-| Entry | Existing screen / wireframe | Actual workflow and representative state | Supported viewport / profile | Current destination | Current conformance and supplied SHA-256 |
+| Entry | Existing screen / wireframe | Actual workflow and representative state | Supported viewport / profile | Destination at assessment | Conformance at assessment and supplied SHA-256 |
 |---|---|---|---|---|---|
 | `SS-019` | `NET-05` / [NET-05](../screens/wireframes/network-match.md) | Six-player Deathmatch, one host and two guests with two slots each, fixed shipped unmirrored `duel_16`, round 1 of 1. Guest captures actual Elm/player 8 Invisibility with held shotgun during degraded recovery after forwarding resumes. | 1280x900 desktop; built-in default network visuals | `docs/screenshots/NET-05/six-player-lan-degraded-1280x900.png` | Conforms: upright players, platform contact, tree orientation, readable player status, complete arena and degraded text. `6a6ed7101b6f7506aa8bb9b4f0679de2747da5c3e7aa701f7c381f3b698626ed` |
 | `SS-026` | `NET-05` / [NET-05-C](../design/wireframes/NET-05/NET-05-C.svg) | Same setup; small guest opens Leave session with Escape, captures before acceptance, then cancels with Escape. | 1280x720 desktop; built-in default network visuals | `docs/design/screenshots/NET-05/NET-05-C.png` | Conforms: upright arena behind centered bounded consequence panel, complete wrapped copy, separate Leave/Cancel controls and visible initial focus. `7a5b9fb62dfef41c43d792bd87b2b6f2f30974a0fbc4cedec6fe4ec5d84a2b7d` |
