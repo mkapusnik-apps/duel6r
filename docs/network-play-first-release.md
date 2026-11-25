@@ -571,7 +571,7 @@ Issue #28 approves this target but does not satisfy parent issue #27's implement
 
 - Product review traces each downstream issue to the exact criteria above and confirms non-goals remain excluded.
 - UX review traces `MENU-01`, `MENU-02`, `CONS-01`, and `NET-01`–`NET-09` to applicable criteria and assesses one representative wireframe per affected screen.
-- Issue #38 must supply one implementation screenshot for each of the 11 planned entries in [`docs/screenshots/README.md`](screenshots/README.md): `SS-002`, `SS-013`, and `SS-015`–`SS-023`. These entries remain planned, and no current screenshot is valid for the changed target UI.
+- Issue #38 must supply one implementation screenshot for each of the 11 planned entries in the [legacy coverage matrix](design/screenshots/legacy.md#screenshot-matrix): `SS-002`, `SS-013`, and `SS-015`–`SS-023`. These entries remain planned, and no current screenshot is valid for the changed target UI.
 - Graphical evidence must show synchronized selected-person appearance through built-in artwork without separate profile selection or peer files/assets/scripts; use the [scoped appearance matrix](design/screenshots/README.md#selected-person-network-appearance).
 - Issue #38 evidence must show named-background precedence and deterministic fallback convergence for equal eligible background lists.
 - Reviewer evidence checks lifecycle cardinality, initial admission order, full-deadline ambiguity for every unexpected host failure, intentional-end-only `NET-09`, host-local-only supervision, reconnect precedence, lifecycle-specific removal, exact compatibility fixtures/copy, destinations, and local-only preservation.

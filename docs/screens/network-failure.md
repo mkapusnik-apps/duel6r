@@ -152,4 +152,4 @@ User Cancel and local inline validation must take precedence over every result i
 - The screen must not expose a peer-supplied name, release ID, capability, path, hash, count, credential, source address, threshold, payload, or raw filesystem value.
 - A host-service lifecycle outcome must not expose an endpoint, process value, command, credential, filesystem path, payload, or operating-system error text.
 
-Planned representative screenshot: [`SS-022`](../screenshots/README.md#ss-022).
+Current [direct `Host unreachable.` capture](../design/screenshots/README.md#current-net-08-direct); see the [legacy SS-022 recipe](../design/screenshots/legacy.md#ss-022) for the earlier direct attempt. The [browser Password-rejection capture](../design/screenshots/README.md#net-08-browser-password-rejection) is a distinct route.

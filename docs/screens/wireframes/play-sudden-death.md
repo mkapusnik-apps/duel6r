@@ -12,4 +12,4 @@ The water rises in timed discrete steps.
 The state has no sudden-death banner.
 All remaining players stay visible in the shared arena.
 
-Representative screenshot: [`SS-009`](../../screenshots/README.md#ss-009).
+Representative screenshot: [`SS-009`](../../design/screenshots/legacy.md#ss-009).

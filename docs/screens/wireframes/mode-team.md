@@ -9,4 +9,4 @@ Every team and player remains in one undivided arena view.
 
 The monochrome SVG records named team groups and nested players. External annotations identify apparel-color meaning without adding an in-world team label. Production team colors and the unchanged shared arena follow the [owning screen contract](../mode-team.md) and [design system](../../design.md).
 
-Representative screenshot: [`SS-008`](../../screenshots/README.md#ss-008).
+Current representative: [SS-008 — live Team deathmatch](../../design/screenshots/README.md#current-ss-008).

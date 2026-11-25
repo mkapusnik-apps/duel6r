@@ -80,4 +80,4 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 
 ## Screenshot link
 
-Representative evidence: [`SS-011`](../screenshots/README.md#ss-011).
+Current representative: [SS-011 — non-final Team result at `1|2`](../design/screenshots/README.md#current-ss-011). The [resumed `3|5` recipe](../design/screenshots/legacy.md#ss-011) is historical.

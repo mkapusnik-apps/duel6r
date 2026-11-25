@@ -41,4 +41,4 @@ Primary source is `source/gamemodes/TeamDeathMatch.cpp`.
 
 ## Screenshot link
 
-Representative evidence: [`SS-008`](../screenshots/README.md#ss-008).
+Current representative: [SS-008 — live Team deathmatch](../design/screenshots/README.md#current-ss-008).

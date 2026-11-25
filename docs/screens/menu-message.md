@@ -68,4 +68,4 @@ The former `MENU-02-MAC-LOCAL` variant and its restriction/dismissal requirement
 
 ## Screenshot link
 
-Planned representative evidence for downstream issue #38: [`SS-002`](../screenshots/README.md#ss-002). The existing capture is not valid for the changed target footer.
+Current representative: [SS-002 — delete confirmation over the four-action footer](../design/screenshots/README.md#current-ss-002). The [original issue #38 recipe](../design/screenshots/legacy.md#ss-002) is historical.

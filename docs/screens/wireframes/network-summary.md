@@ -20,6 +20,6 @@ The [functional contract](../overlay-game-over.md#common-final-screen-contract),
 - The content-sized panel keeps its single strip/current column headings visible above a bounded result viewport. Only actual overflow receives navigation feedback. Required status/persistence/waiting copy and role actions remain outside scrolling content.
 - Wide result tables provide an internal horizontal scroll control and keep their column headings visible.
 
-Representative coverage: [the compact-final matrix](../../design/screenshots/README.md#compact-final-scoreboard), retaining NET-06 / SS-020 identity without inheriting an old round-count recipe.
+Current representative: [NET-06 / SS-020 compact final](../../design/screenshots/README.md#current-ss-020). The [compact-final matrix](../../design/screenshots/README.md#compact-final-scoreboard) retains that identity without inheriting an old round-count recipe.
 
 Complete winner identities, scope, departure state and UTF-8 values remain accessible independently of current membership under the [summary specification](../network-summary.md). The [compact-final matrix](../../design/screenshots/README.md#compact-final-scoreboard) owns this follow-up's focused evidence; broader historical recipes do not impose another outcome-hunting journey for the removed chrome.

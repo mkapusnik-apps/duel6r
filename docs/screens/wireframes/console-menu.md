@@ -17,4 +17,4 @@ The visible Game Settings area below the console must show the checked Burnable 
 The visible target footer below the console must use the equal-width `Play (F1)`, `Network (F2)`, `Clear (F3)`, and `Quit (ESC)` coordinates documented by `MENU-01`.
 The visible client below the console uses the same selected still, cover crop, blur, and 55% scrim as `MENU-01` in the same session.
 
-Planned representative screenshot for downstream issue #38: [`SS-013`](../../screenshots/README.md#ss-013).
+Current representative: [SS-013 — console over the four-action footer](../../design/screenshots/README.md#current-ss-013). The [original issue #38 recipe](../../design/screenshots/legacy.md#ss-013) is historical.

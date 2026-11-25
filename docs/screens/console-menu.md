@@ -46,4 +46,4 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 ## Screenshot link
 
-Planned representative evidence for downstream issue #38: [`SS-013`](../screenshots/README.md#ss-013). The existing capture is not valid for the changed target footer.
+Current representative: [SS-013 — console over the four-action footer](../design/screenshots/README.md#current-ss-013). The [original issue #38 recipe](../design/screenshots/legacy.md#ss-013) is historical.

@@ -59,4 +59,4 @@ An unintentional guest disconnect from `NET-04`, `NET-05`, or `NET-06` enters th
 - No Pause, host migration, or manual identity/account action may appear.
 - No silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, or isolation-only state may use `NET-09` or claim that the host ended the session.
 
-Planned representative screenshot: [`SS-021`](../screenshots/README.md#ss-021).
+Planned representative screenshot: [`SS-021`](../design/screenshots/legacy.md#ss-021).
