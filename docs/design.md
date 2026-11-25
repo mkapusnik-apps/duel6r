@@ -461,7 +461,6 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - Network match setup must expose only mode, level plan, round limit, Assistance, Quick Liquid, and Burnable Trees.
 - Network round limit must accept only integers from 1 through 99.
 - Network match setup must not expose weapon enablement, ammunition ranges, level data, or gameplay definitions as settings.
-- Network match status must state that optional Lua and profile scripts are disabled for network play.
 - Network setup must provide local person selection and local control assignment without a profile selector, profile column, or profile-editing action.
 - `NET-02` must show a control labeled `Listening interface` directly after Port in the endpoint hierarchy.
 - Port must keep initial focus in editable `NET-02`.
@@ -553,10 +552,8 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - The status region must use `info-surface`, `info-text`, and the standard 16 px gameplay text.
 - The status region must keep a 16 px inset from the client edges during live play. Only non-final limited-round summaries use NET-05-R's raised status/footer allocation above the bottom-center counter.
 - The status region must keep 4 px of clear inner space around its text.
-- The status region must keep a minimum 16 px gap between its left and right content groups.
-- The left group must show participant role, `LAN session`, and connection state.
-- The right group must show `Session only scores` and `Optional scripts disabled`.
-- The degraded state must add the exact persistent text `Network connection degraded.` to the left group.
+- The status region must show participant role, the applicable hosting label, and connection state on the first row in one left-aligned content group. Keep applicable directory and network-quality feedback. Omit the static `Session only scores` and `Optional scripts disabled` notices without replacement text or a reserved row.
+- The degraded state must add the exact persistent text `Network connection degraded.`.
 - The degraded state must not use color, animation, or an icon as the only degraded cue.
 - The degraded state must not dim, freeze, divide, or replace the shared arena.
 - The degraded indication must not receive focus or create an interaction target.
@@ -673,7 +670,7 @@ Acceptance: an accepted intentional host End notice must produce the representat
 - Starting, cancelling, failure, Retry eligibility, and cleanup status must remain available as persistent text.
 - A disabled Retry control must show a persistent textual reason and preserve its baseline focus behavior.
 - Unsupported actions must not appear enabled; retained NET-05-S position information must follow its explicit non-actionable treatment.
-- Required network phase/timing, result state, script exclusion and no-persistence status must remain visible as text. NET-06 outcome and no-winner values remain readable in result/round detail rather than fixed main-screen captions; this does not add local outcome labels or change retained NET-04 labeling.
+- Required network phase/timing, result state, and result-specific no-persistence status must remain visible as text. NET-06 outcome and no-winner values remain readable in result/round detail rather than fixed main-screen captions; this does not add local outcome labels or change retained NET-04 labeling.
 - Result tables must use text headings for ranking criteria and values.
 - Result tables must not rely only on row order or color to communicate rank, team, winner, or departed state.
 - Result tables must not use rank or row emphasis to imply a match champion.

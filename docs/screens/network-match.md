@@ -24,9 +24,8 @@ Non-final round-summary content follows [UI-RND-011–013 and AC-RND-001](../fea
 
 - Fill the client with one undivided arena showing the complete level and all currently spawned players, including a one-player hosted round. Waiting roster entries have no actor.
 - Preserve existing world, ranking, round progress, event, and player-status presentation.
-- Add only compact textual session status that does not obscure required play: session role, LAN scope, connection state, result scope, and script policy.
+- Add only the compact network status below without obscuring required play.
 - The representative state is a six-player LAN Deathmatch at 1280 by 900 during a sustained degraded-network condition while complete canonical updates continue.
-- Network status must state `Optional scripts disabled` without obscuring play.
 - Every local and remote player must use built-in network artwork with the accepted selected-person appearance under NET-VIS-018–024.
 - Receivers must not use local profiles to replace accepted colors, hair, or headband, or use peer profiles/assets to select player animations or visual resources.
 - Player names must remain distinct from player appearance selection.
@@ -43,13 +42,7 @@ Non-final round-summary content follows [UI-RND-011–013 and AC-RND-001](../fea
 - The network status region must use standard 16 px gameplay text.
 - The network status region must use a flat translucent `info-surface` behind `info-text`.
 - The network status region must keep 4 px of clear inner space around its text.
-- The status region must use one left content group and one right content group.
-- The left group must align to the left inset.
-- The right group must align to the right inset.
-- The groups must keep at least 16 px of clear horizontal space between them.
-- The left group must show role, `LAN session`, and `Connected` on its first row.
-- The degraded variant must show `Network connection degraded.` on the next row.
-- The right group must show `Session only scores` and `Optional scripts disabled`.
+- The [shared status rule](../design.md#existing-network-constraints) governs the left-aligned role, hosting label and connection state, plus applicable directory and network-quality feedback.
 - The degraded indication must have priority over the other status text when width is constrained.
 - The degraded indication must not truncate, clip, scroll, or use an ellipsis.
 - Other status phrases may wrap only at word boundaries.
@@ -62,9 +55,6 @@ Non-final round-summary content follows [UI-RND-011–013 and AC-RND-001](../fea
 
 - The gameplay renderer must fill each supported desktop client.
 - The arena must remain one undivided view at each supported desktop viewport.
-- The status groups must remain edge-aligned when the client width changes.
-- The status groups must wrap before they overlap each other.
-- A wrapped right group must move above the left group when two horizontal groups do not fit.
 - The complete degraded indication must remain visible at the 1280 by 720 evaluation minimum.
 - The status region must not change world scale, camera bounds, or player-specific allocation.
 
@@ -177,7 +167,7 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - The artifact setup must disclose each owner's selected appearance; a receiver's missing or different profile must not replace accepted values.
 - The artifact must not show a separate profile-selection control or peer-selected artwork.
 - The artifact must show ranking, round progress, event text, and player status without status overlap.
-- The AP-N representative artifact must show `Guest`, `LAN session`, `Connected`, `Session only scores`, and `Optional scripts disabled`.
+- The AP-N representative artifact must show `Guest`, `LAN session`, and `Connected` under the shared status rule.
 - The artifact must show the exact text `Network connection degraded.` during a sustained budget breach.
 - The artifact must use a level with no locally usable named background and must visibly show the expected built-in fallback for the recorded identity tuple and eligible background list.
 - The artifact must not show reconnect, disconnect, pause, or host-end copy.

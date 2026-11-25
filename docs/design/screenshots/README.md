@@ -2,18 +2,18 @@
 
 ## Current representative originals
 
-**Visual gate: satisfied for the verified partial refresh only.** The 17 originals from PR #210 conform for their recorded states and sizes. Earlier records retain their original producer and scope; the [pre-refresh evidence tree](https://github.com/mkapusnik-apps/duel6r/tree/c515e5b19b2ff87595fce063ddc671bdac0b613b/docs) preserves the preceding bytes. Moving these images did not change or reassess them.
+**Visual gate: satisfied for the verified partial refresh only.** The 17 originals from PR #210 conform for their recorded states and sizes. The two superseded Host arena rows link to their immutable originals; see the current [live Host](#current-net-05-host) and [non-final delay](#current-net-05-r) captures from PR #211. Earlier records retain their original producer and scope; the [pre-refresh evidence tree](https://github.com/mkapusnik-apps/duel6r/tree/c515e5b19b2ff87595fce063ddc671bdac0b613b/docs) preserves the preceding bytes. Moving these images did not change or reassess them.
 
 **Producer and profile:** `c515e5b19b2ff87595fce063ddc671bdac0b613b`, branch `docs/refresh-all-current-screenshots`; originals staged on 2026-11-25 UTC. Native Linux x86-64 Docker Release GL4/Lua ON, shipped font and assets, private Xvfb, software OpenGL, and standard keyboard/pointer input. Developer-supplied application SHA-256: `e8d0739594e6d2da2def750d734cb050ab40978dbd79c473170be7169d3bff8a`; 475-file runtime identity SHA-256: `9ab18b68c2f885ee9651df4256be345e5065dee85cde742c93de00c6938093fd`. The supplied PNGs are full-client originals. Exact wall-clock capture times, per-client GL strings, and unrecorded game metadata are not inferred from staging metadata.
 
-| Existing row / destination relative to this manifest | Full client | Actual state | PNG SHA-256 |
+| Representative / current destination or archived original | Full client | Actual state | PNG SHA-256 |
 |---|---|---|---|
 | <a id="current-ss-012"></a>FS-L / SS-012 / [OVER-03/OVER-03.png](OVER-03/OVER-03.png) | 1280×900 | Ordinary Duel 04 Deathmatch 1/1 after the final delay; Cora wins, Ada and Ben each −1 PTS. Compact centered score panel and separate final cues. | `d2782046f0d7b9c2218eadbffe92037700c83b47c3be4c03cb4098f67603fe1c` |
 | <a id="current-ss-015"></a>SS-015 / [NET-01/NET-01.png](NET-01/NET-01.png) | 1280×900 | F2 entry over Maple/K1 and Oak/K2; Host initially focused, with Join and Back. No active session. | `ec92d870b8daef33658a6da183fa798417f99b2b13c32fd94a7ed6e7ca67001e` |
 | <a id="current-net-03-p"></a>NET-03-P / [NET-03/NET-03-P.png](NET-03/NET-03-P.png) | 850×700 | Independent Direct, Fir/K1, `127.0.0.1:26660`; Address focused, Password empty, no attempt. | `7387f09dd0599be376af734ae2813b21420c323ccfd0ceb309df047d54bb46b4` |
-| <a id="current-net-05-host"></a>NET-05 live Host / [NET-05/NET-05-host.png](NET-05/NET-05-host.png) | 1280×900 | Unpublished player-hosted Deathmatch over loopback port 26664. Maple and Oak alive in round 1/2; one connected status row without a directory warning, separate End session. | `e95dbcb83494fc82558cc7660fdb6de08518e79e649f8c53e83cb216f13c8ea2` |
+| NET-05 live Host / [archived NET-05-host.png](https://github.com/mkapusnik-apps/duel6r/blob/297e7fb0fa5b3bad565d8569490ada0c72d8ed11/docs/design/screenshots/NET-05/NET-05-host.png) | 1280×900 | Unpublished player-hosted Deathmatch over loopback port 26664. Maple and Oak alive in round 1/2; one connected status row without a directory warning, separate End session. | `e95dbcb83494fc82558cc7660fdb6de08518e79e649f8c53e83cb216f13c8ea2` |
 | <a id="current-net-05-s"></a>NET-05-S / [NET-05/NET-05-S.png](NET-05/NET-05-S.png) | 1280×900 | Same Host and round; Tab shows Session only, In progress and empty results with no active arrows. | `70c5b4e5276245e23c2d0c8a00a566ae322595ccbee56a97bbf2a80ec30f66fb` |
-| <a id="current-net-05-r"></a>NET-05-R / [NET-05/NET-05-R.png](NET-05/NET-05-R.png) | 1280×900 | Same Host after the first outcome, No winner, frozen with 1s remaining and no Advance input. Scores, outcome, actions, status and bottom `Rounds: 1\|2` are separate. | `6bd2d1399a6fb99c82b7ceca224d5c414769d7bea8fa6434e2f8553bcf0e1daf` |
+| NET-05-R / [archived NET-05-R.png](https://github.com/mkapusnik-apps/duel6r/blob/297e7fb0fa5b3bad565d8569490ada0c72d8ed11/docs/design/screenshots/NET-05/NET-05-R.png) | 1280×900 | Same Host after the first outcome, No winner, frozen with 1s remaining and no Advance input. Scores, outcome, actions, status and bottom `Rounds: 1\|2` are separate. | `6bd2d1399a6fb99c82b7ceca224d5c414769d7bea8fa6434e2f8553bcf0e1daf` |
 | <a id="current-ss-020"></a>FS-N / SS-020 / [NET-06/NET-06.png](NET-06/NET-06.png) | 1280×900 | Host Maple and Direct Guest Oak on loopback port 26665; Duel 04 Deathmatch 1/1 after the final delay. Oak wins. Uncaptioned names, K/A/D/K/D/PTS, one strip and initial Return to lobby focus. | `61a8cfde7afbb45c6e4e5e135f157a20b39f076ea8439c86443f11e0f2ddf04d` |
 | <a id="current-net-08-direct"></a>Direct failure / [NET-08/host-unreachable-1920x1080.png](NET-08/host-unreachable-1920x1080.png) | 1920×1080 | Actual `Host unreachable.` from a Direct attempt to `127.0.0.1:26660`; focused Retry, Edit setup and Return to Network. | `8e4dd36d76e5fc7bde2cffaa657f67387aaa8a7c4ace1553c80f7d1901361d6d` |
 | <a id="current-ss-023"></a>SS-023 / [NET-09/host-ended-1280x900.png](NET-09/host-ended-1280x900.png) | 1280×900 | Dedicated Guest Elm receives controller Cedar's intentional End during active play on loopback port 26667. Retained arena, no-resume and no-persistence copy, sole focused Return to Network. | `6ef67350bda490059bc36630219115eb75f4b9e128d94f77bdf08e57c1c27671` |
@@ -31,7 +31,7 @@
 | <a id="current-ss-011"></a>SS-011 / [OVER-02/team-interim-round-3-of-5-1280x900.png](OVER-02/team-interim-round-3-of-5-1280x900.png) | 1280×900 | Actual Duel 04 non-final `1\|2`, Alpha wins; eight players, four Team groups, three separators and one backed bottom-center counter. Not a resumed `3\|5` result. | `41e7df24789143253d83cdac15ff2518dfac2de423217363548e7a7a06d2e4e6` |
 | <a id="current-ss-014"></a>SS-014 / [CONS-02/shared-open-1280x900.png](CONS-02/shared-open-1280x900.png) | 1280×900 | Active four-player Deathmatch on mirrored Duel 04; blank console input and real gameplay output above the undivided arena. | `010a7020829de7aec14da40bd6d1f271378de1062a52633b335e2a285f1e4c54` |
 
-**Unchanged scope:** The accepted [Host setup](#net-02-current-footer-capture-matrix), [lobby and constrained Guest](#net-04-lobby-refresh-current-assessment), and [NET-10-E/U](#assessed-inner-padding-originals-and-provenance) images retain their exact bytes and existing producers. [AP-L / SS-003](#current-still-and-focused-observation-assessment) and [SS-010](legacy.md#ss-010) have no new representative; SS-010 remains the PR #69 original (producer `2475af83246a98ef2334f6d6fc90a9e943374eff`, SHA-256 `f916ef240e4ac39dff93abc7a2e742aa070ec7414f7e13f218f00f61bd2cc4bc`). This visual assessment does not close AP-N, FS-G, temporal, functional, or native-platform coverage.
+**Unchanged scope in PR #210:** The then-accepted [Host setup](#net-02-current-footer-capture-matrix), [lobby and constrained Guest](#net-04-lobby-refresh-current-assessment), and [NET-10-E/U](#assessed-inner-padding-originals-and-provenance) images retained their exact bytes and existing producers. The current Host setup capture is recorded under [static network notice removal](#static-network-notice-removal). [AP-L / SS-003](#current-still-and-focused-observation-assessment) and [SS-010](legacy.md#ss-010) have no new representative; SS-010 remains the PR #69 original (producer `2475af83246a98ef2334f6d6fc90a9e943374eff`, SHA-256 `f916ef240e4ac39dff93abc7a2e742aa070ec7414f7e13f218f00f61bd2cc4bc`). This visual assessment does not close AP-N, FS-G, temporal, functional, or native-platform coverage.
 
 ## Other screenshot evidence
 
@@ -42,6 +42,20 @@ Original destination paths in historical assessments are kept as provenance. The
 - [Public-pilot evidence at its accepted snapshot][public-pilot-evidence]. Use that checkout with the original checksum list: it pins the assessed bytes, including images later replaced at the same paths.
 
 [public-pilot-evidence]: https://github.com/mkapusnik-apps/duel6r/blob/a55ae3f3624de56d73b48f91b417f28c5a6d4a07/docs/design/screenshots/evidence/public-pilot/README.md
+
+## Static network notice removal
+
+**Visual gate: satisfied for the three supplied originals.** Neither static notice appears, and no replacement text, trailing separator or unused status row remains.
+
+Producer `a6cc7996a1c2b2e8265f590d7b7fc7cd6cda2831`; application SHA-256 `d7f9a9eb5ce81258eb87da0d2ba93cd6cf781144a904ea8fe875524549c6d02a`. All three are unmodified full-client 1280 × 900 PNGs from Ubuntu 24.04.5 Linux x86-64 Docker Release GL4/Lua ON, with shipped assets, private Xvfb, software OpenGL, dummy audio and ordinary native input. Both arena captures come from the same private loopback two-round Duel 04 Deathmatch, with Host Maple and direct Guest Oak, one player each, and no directory server.
+
+| Wireframe / representative destination | Observed state and conformance | Acquisition UTC / supplied PNG SHA-256 |
+|---|---|---|
+| NET-02 / [NET-02.png](NET-02/NET-02.png) | Valid editable Host setup, Port `26660` focused. The header stops at `LAN-first • Linux/Windows x86-64`; endpoint controls, rosters and footer remain clear. | `2026-11-25T18:22:50.433718060Z`; `234cfdfb67c4480dfd22abe4fe1a90a108004b2838f0111883b71ef432510372` |
+| <a id="current-net-05-host"></a>NET-05 / [NET-05-host.png](NET-05/NET-05-host.png) | Connected Host in active round 1 of 2. `Network connection degraded.` remains readable above the anchored `Host • LAN session • Connected` row. The arena, HUD and framed `End session` remain clear. | `2026-11-25T18:30:10.958445772Z`; `ac76c43a12e4ff9b04237394a2cedf3845d851155c0ca8ab4ef6e9355c53e235` |
+| <a id="current-net-05-r"></a>NET-05-R / [NET-05-R.png](NET-05/NET-05-R.png) | Natural non-final outcome for Oak, `World active • 1s`. The score table, outcome/timing, `Advance round` then `End session`, single connection-status row and bottom-centered `Rounds: 1\|2` remain separate and readable. | `2026-11-25T18:30:29.802473971Z`; `c0cd673dd3853dd0060ab5065802aae72287a2bb890db590e5c367a47da8d171` |
+
+Focused developer checks cover Host popup variants, Direct Join, compact layouts, waiting, active Tab and round delays. Both bound Join branches are unchanged; confirmation and NET-07/09 retained arenas share the checked status presentation. Developer observations confirm the preserved completed and retained result labels. These stills do not establish transport quality or other-platform conformance. Older originals that show the removed notices cover only unchanged criteria at their recorded checkpoints. Public, AP-N, legacy SS-019, dedicated and unaffected evidence retain their existing scope; these three originals do not substitute for those scenarios.
 
 ## Network score-column parity
 
@@ -181,7 +195,7 @@ The committed [1920 × 1080 focused evidence](#focused-1920--1080-completion) re
 
 ## Player-hosted match status
 
-The [NET-05 directory status rule](../screens/NET-05.md#player-hosted-directory-status) and the [NET-05](../wireframes/NET-05/NET-05.svg) and [NET-05-R](../wireframes/NET-05/NET-05-R.svg) wireframes govern these two accepted Host views. Both show one readable status row with `Host • LAN session • Connected` and `Session only scores • Optional scripts disabled`. Neither shows the directory-unavailable notice, replacement text, or an empty row. Input behavior is covered separately; the stills establish presentation only.
+These two Host originals record acceptance of the [NET-05 directory status rule](../screens/NET-05.md#player-hosted-directory-status) before [static notice removal](#static-network-notice-removal). Both show one readable status row with `Host • LAN session • Connected` and `Session only scores • Optional scripts disabled`. Neither shows the directory-unavailable notice, replacement text, or an empty row. Input behavior is covered separately; the stills establish presentation only.
 
 | View / accepted PNG | Visible coverage | Capture start (UTC) / supplied SHA-256 |
 |---|---|---|
@@ -433,7 +447,7 @@ Destinations are relative to `docs/design/screenshots/NET-02/`. Times are suppli
 
 | Wireframe / route | Client / UTC | Accepted visible state | Destination / SHA-256 |
 |---|---|---|---|
-| NET-02 / fresh Host setup, wildcard, popup closed | 1280 × 900 / 21:19:56.152Z | Initial Port focus; `Configure` is the only Password control; `Local players: 1` appears only in the header. | [NET-02.png](NET-02/NET-02.png); `7cc2a01a11ba5178d7d096c64c05001622577672c650af03b5b03720e6d01750` |
+| NET-02 / fresh Host setup, wildcard, popup closed | 1280 × 900 / 21:19:56.152Z | Initial Port focus; `Configure` is the only Password control; `Local players: 1` appears only in the header. | [Archived NET-02.png][pr210-net02]; `7cc2a01a11ba5178d7d096c64c05001622577672c650af03b5b03720e6d01750`. See [current original](#static-network-notice-removal). |
 | NET-02 / 15 local slots, configured Password, popup closed | 850 × 700 / 21:19:50.889Z | The title and complete `Local players: 15` stay visibly separate; the focused mask and trailing Password `Remove` stay distinct from roster `Remove` buttons. | [evidence/password-configured-850x700.png](NET-02/evidence/password-configured-850x700.png); `b3ac0d8df01ab6c7be16e272e329b388426733e32567f3ffa6ddec2e342a96d8` |
 | NET-02-LA / open `Listening interface` in wildcard mode | 1280 × 900 / 21:19:57.260Z | `Listen on all` checked and focused; both addresses checked and disabled; help and `Close` contained. The exposed header edge contains no stray count digit. | [NET-02-LA.png](NET-02/NET-02-LA.png); `1788f0573e4f05664c094d2c007b78b44cf04402fe5db932f122e1c3cd12e7dc` |
 | NET-02-LE / turn off `Listen on all`, clear loopback, and focus the retained private address | 1280 × 900 / 21:19:58.512Z | `172.17.0.3 (Private LAN)` checked and focused; loopback unchecked and enabled; summary matches the sole selected address; help and `Close` contained. The exposed header edge contains no stray count digit. | [NET-02-LE.png](NET-02/NET-02-LE.png); `7dd7acf8104a4f70287f0ba268c3ab41b0e3e61f20a58f7a43cf68295ba1a61b` |
@@ -748,13 +762,15 @@ Developer must integrate exactly these six assessed image hashes and this UX-edi
 
 ### Compatibility destination table
 
-The three paths below were exact copies in the [PR #210 snapshot](https://github.com/mkapusnik-apps/duel6r/tree/297e7fb0fa5b3bad565d8569490ada0c72d8ed11/docs/screenshots) and are no longer live aliases. Use the canonical images; all three are 1280×900 regardless of the former filename. SS-015 is the PR #210 replacement; SS-016 and SS-018 retain their earlier producers. The [older Connecting image](NET-03/connecting-two-local-players-1920x1080.png) and the [later Connecting image](NET-03/NET-03.png) are distinct and both retained. The [direct failure original](NET-08/host-unreachable-1920x1080.png) is also distinct from the [browser Password-rejection image](NET-08/NET-08.png).
+The three paths below were exact copies in the [PR #210 snapshot](https://github.com/mkapusnik-apps/duel6r/tree/297e7fb0fa5b3bad565d8569490ada0c72d8ed11/docs/screenshots) and are no longer live aliases. All three are 1280×900 regardless of the former filename. SS-015 is the PR #210 replacement; SS-016 and SS-018 retain their earlier producers. The SS-016 hash identifies the archived original, not the current Host setup image. The [older Connecting image](NET-03/connecting-two-local-players-1920x1080.png) and the [later Connecting image](NET-03/NET-03.png) are distinct and both retained. The [direct failure original](NET-08/host-unreachable-1920x1080.png) is also distinct from the [browser Password-rejection image](NET-08/NET-08.png).
 
 | Row | Canonical source | Former destination | PNG SHA-256 |
 |---|---|---|---|
 | SS-015 | [NET-01/NET-01.png](NET-01/NET-01.png) | `docs/screenshots/NET-01/default-1920x1080.png` | `ec92d870b8daef33658a6da183fa798417f99b2b13c32fd94a7ed6e7ca67001e` |
-| SS-016 | [NET-02/NET-02.png](NET-02/NET-02.png) | `docs/screenshots/NET-02/host-setup-1920x1080.png` | `7cc2a01a11ba5178d7d096c64c05001622577672c650af03b5b03720e6d01750` |
+| SS-016 | [Archived NET-02/NET-02.png][pr210-net02] | `docs/screenshots/NET-02/host-setup-1920x1080.png` | `7cc2a01a11ba5178d7d096c64c05001622577672c650af03b5b03720e6d01750` |
 | SS-018 | [NET-04/NET-04.png](NET-04/NET-04.png) | `docs/screenshots/NET-04/host-waiting-one-unready-1920x1080.png` | `54d911f0a02cb2e89945346911a68165c43efbaee868cfa1dbb62cc34ad44be6` |
+
+[pr210-net02]: https://github.com/mkapusnik-apps/duel6r/blob/297e7fb0fa5b3bad565d8569490ada0c72d8ed11/docs/design/screenshots/NET-02/NET-02.png
 
 <a id="linked-legacy-network-destinations--maintenance-assessment"></a>
 ### Prior compatibility assessment

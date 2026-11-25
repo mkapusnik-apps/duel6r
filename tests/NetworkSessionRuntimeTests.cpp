@@ -938,6 +938,15 @@ namespace {
         throw std::runtime_error("missing text quad");
     }
 
+    void requireNoStaticMatchNotices(const ReviewMenuFixture &f) {
+        for (const auto &draw: f.recorder.draws)
+            for (const auto &entry: f.font.fontCache.entryList) {
+                if (entry.texture != draw.material.getTexture()) continue;
+                D6R_REQUIRE(entry.text.find("Session only scores") == std::string::npos);
+                D6R_REQUIRE(entry.text.find("Optional scripts disabled") == std::string::npos);
+            }
+    }
+
     void requireHostCountLabels(const ReviewMenuFixture &f, int expected) {
         int labels = 0;
         for (const auto &quad: f.recorder.quads)
@@ -2083,8 +2092,15 @@ D6R_TEST_CASE("NET-02 lower row and taller host lists retain ten rows scrolling 
 D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choices and exposes recovery") {
     ReviewMenuFixture f;
     auto &menu = f.menu;
-    menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 1;
+    menu.setupScreen = NetworkMenu::SetupScreen::Host; menu.focus = 0;
+#ifdef D6_MACOS_PLATFORM
+    constexpr auto scope = "LAN-first";
+#else
+    constexpr auto scope = "LAN-first • Linux/Windows x86-64";
+#endif
     f.draw(); requireHostRosterCount(f, 1);
+    D6R_REQUIRE(f.text(scope));
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(1, menu.focus);
     f.key(SDLK_RETURN);
     D6R_REQUIRE(menu.hostAddressSelectorOpen && menu.listening.all);
     D6R_REQUIRE_EQ(0u, menu.hostAddressHighlight); // Opening input cannot toggle mode.
@@ -2103,6 +2119,8 @@ D6R_TEST_CASE("NET-02 multiselect popup confines input retains independent choic
         });
         D6R_REQUIRE(popup != f.recorder.quads.end());
         D6R_REQUIRE(&title < &*popup);
+        const auto &scopeQuad = reviewTextQuad(f, scope);
+        D6R_REQUIRE(&scopeQuad < &*popup && scopeQuad.vertices[0].y > popup->vertices[2].y);
     };
     requireOverlay(); D6R_REQUIRE(f.text("Listen on all (0.0.0.0)"));
     D6R_REQUIRE(f.text("Uses 0.0.0.0. The operating system controls coverage."));
@@ -2902,7 +2920,6 @@ D6R_TEST_CASE("Player-hosted match omits unavailable directory status and pointe
     namespace R = Network::Replication;
     auto &runtime = f.menu.runtime;
     f.lobby();
-    f.video.screen = ScreenParameters(1280, 900, 24, 24, 0, false);
     runtime.current.journey = Client::NetworkJourney::Match;
     auto &state = *runtime.current.canonical;
     state.currentRoundNumber = 1; state.settings.roundLimit = 2; state.roundEndCountdown = 240;
@@ -2911,6 +2928,9 @@ D6R_TEST_CASE("Player-hosted match omits unavailable directory status and pointe
     constexpr auto registering = "Directory: Registering…";
     for (const auto phase: {R::Phase::ActiveRound, R::Phase::RoundSummary}) {
         state.phase = phase;
+        const int width = phase == R::Phase::RoundSummary ? 1280 : 850;
+        const int height = phase == R::Phase::RoundSummary ? 900 : 700;
+        f.video.screen = ScreenParameters(width, height, 24, 24, 0, false);
         const int statusY = phase == R::Phase::RoundSummary ? NetworkRoundSummary::footer(1).statusY : 16;
         // An idle publisher records retry as pending without starting a network worker.
         runtime.publisher = std::make_unique<Client::DirectoryPublisher>();
@@ -2919,10 +2939,10 @@ D6R_TEST_CASE("Player-hosted match omits unavailable directory status and pointe
         f.draw();
         D6R_REQUIRE(!f.text(unavailable));
         D6R_REQUIRE(f.text("Host • LAN session • Connected"));
-        D6R_REQUIRE(f.text("Session only scores • Optional scripts disabled"));
+        requireNoStaticMatchNotices(f);
         const auto bar = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [&](const auto &quad) {
             return quad.material.getTexture() == Texture{} && quad.material.getColor() == Color(0,0,255,179)
-                && quad.vertices[0].x == 16 && quad.vertices[0].y == statusY && quad.vertices[2].x == 1264;
+                && quad.vertices[0].x == 16 && quad.vertices[0].y == statusY && quad.vertices[2].x == width - 16;
         });
         D6R_REQUIRE(bar != f.recorder.quads.end());
         D6R_REQUIRE_EQ(24.0f, bar->vertices[2].y - bar->vertices[0].y);
@@ -2933,8 +2953,23 @@ D6R_TEST_CASE("Player-hosted match omits unavailable directory status and pointe
         runtime.current.directoryRegistering = true; f.draw(); D6R_REQUIRE(f.text(registering));
         runtime.current.directoryRegistering = false;
     }
-    f.lobby();
     f.video.screen = ScreenParameters(850, 700, 24, 24, 0, false);
+    state.phase = R::Phase::ActiveRound;
+    runtime.current.directoryAvailable = true;
+    runtime.current.presentation.degraded = runtime.current.presentation.resynchronizing = true;
+    f.draw();
+    const auto &role = reviewTextQuad(f, "Host • LAN session • Connected");
+    const auto &directory = reviewTextQuad(f, listed);
+    const auto &quality = reviewTextQuad(f,
+            "Network connection degraded. • Last confirmed state • Synchronizing current state…");
+    D6R_REQUIRE_EQ(20.0f, quality.vertices[0].x);
+    D6R_REQUIRE_EQ(role.vertices[2].y, directory.vertices[0].y);
+    D6R_REQUIRE_EQ(directory.vertices[2].y, quality.vertices[0].y);
+    D6R_REQUIRE(quality.vertices[2].x <= 830 && quality.vertices[2].y < 84);
+    requireNoStaticMatchNotices(f);
+    runtime.current.directoryAvailable = false;
+    runtime.current.presentation.degraded = runtime.current.presentation.resynchronizing = false;
+    f.lobby();
     runtime.publisher = std::make_unique<Client::DirectoryPublisher>();
     f.draw(); D6R_REQUIRE(f.text(unavailable));
     f.click(100, 512); f.click(100, 512, false);
@@ -2977,6 +3012,7 @@ D6R_TEST_CASE("Non-final renderer paints full-client countdown curtain before re
         }
         const auto noRoundCurtain = [&] {
             f.draw();
+            requireNoStaticMatchNotices(f);
             D6R_REQUIRE(std::none_of(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &quad) {
                 const auto c = quad.material.getColor();
                 return quad.material.getTexture() == Texture{} && c.getRed() == 128 && c.getGreen() == 0 && c.getBlue() == 0;
@@ -2984,7 +3020,9 @@ D6R_TEST_CASE("Non-final renderer paints full-client countdown curtain before re
         };
         state.currentRoundNumber = 2; noRoundCurtain(); // Excluded final-round delay.
         state.phase = R::Phase::ActiveRound; state.currentRoundNumber = 1; noRoundCurtain();
-        f.menu.scoreOverlay = true; noRoundCurtain(); // Active Tab does not inherit the round curtain.
+        f.key(SDLK_TAB); noRoundCurtain(); // Active Tab does not inherit the round curtain.
+        D6R_REQUIRE(f.text("AUTHORITATIVE SCORE • SESSION ONLY"));
+        f.key(SDLK_TAB);
     }
 }
 

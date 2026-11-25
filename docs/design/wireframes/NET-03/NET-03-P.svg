@@ -26,7 +26,7 @@
     <text x="87" y="382">Ada • Selected</text><text x="467" y="382">Ada • Keyboard 1       Remove</text>
     <text x="87" y="408">Bruno • Add</text>
     <text x="87" y="482">Other persons scroll</text><text x="467" y="482">Other local slots scroll</text>
-    <text x="75" y="530">Local players: 1 • Session-only scores • Optional scripts disabled</text>
+    <text x="75" y="530">Local players: 1</text>
     <text x="75" y="576">Endpoint-only first contact does not authenticate host identity.</text>
     <text x="75" y="604">Ready to connect.</text>
     <text x="420" y="643">Connect</text><text x="432" y="687">Back</text>
