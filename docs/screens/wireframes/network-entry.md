@@ -11,4 +11,4 @@ This reuses the current canonical SVG unchanged. The [functional owner](../netwo
 - Significant unavailable and return variants remain in the screen specification.
 - The current presentation owner defines the centered 380 by 210 logical px popup, 300 by 32 actions and 13 px action gaps. The older full-panel margin guidance does not override it.
 
-Planned representative screenshot: [`SS-015`](../../design/screenshots/legacy.md#ss-015).
+Current representative: [SS-015 — inactive compact entry](../../design/screenshots/README.md#current-ss-015).

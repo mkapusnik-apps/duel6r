@@ -51,6 +51,6 @@ This reuses the current canonical SVG unchanged. The [functional owner](../netwo
 - Supplementary temporal evidence shows equal-client convergence, continuity through incremental state, reconnect and resynchronization, named-background precedence, and existing correction/degraded/recovery behavior.
 - Functional evidence varies identities until every eligible background has a demonstrated selection opportunity.
 
-Planned representative screenshot: [`SS-019`](../../design/screenshots/legacy.md#ss-019).
+[Legacy SS-019 degraded-state recipe](../../design/screenshots/legacy.md#ss-019). The current [live player-hosted match](../../design/screenshots/README.md#current-net-05-host), [pre-winner score view](../../design/screenshots/README.md#current-net-05-s), and [non-final delay](../../design/screenshots/README.md#current-net-05-r) captures show separate states.
 
 Review correction: the representative arena includes an invisible body and held weapon; Predator without Invisibility keeps an opaque weapon. [NET-05-C](../../design/wireframes/NET-05/NET-05-C.svg) adds the explicit guest Leave confirmation (`SS-026`, 1280×720), preserving Confirm-then-Cancel focus. Active gameplay Return/Space never activate hidden actions; opening/held/repeated input cannot confirm. Tab is a discrete pre-winner toggle, not a release or modal action. The owning [match specification](../network-match.md) defines behavior; corrected evidence is pending.

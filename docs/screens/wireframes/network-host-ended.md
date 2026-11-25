@@ -15,4 +15,4 @@ The [functional owner](../network-host-ended.md), [NET-09 presentation owner](..
 - The centered panel is no wider than 640 px, keeps a 16 px client-edge clearance, wraps its fixed copy, and keeps its heading and only action visible.
 - The retained arena keeps accepted player appearance and effect state from the last complete accepted state without receiver-profile lookup, rerandomization, or advancing effects, under NET-VIS-022–024.
 
-Planned representative screenshot: [`SS-023`](../../design/screenshots/legacy.md#ss-023).
+Current representative: [SS-023 — dedicated Guest after an intentional End](../../design/screenshots/README.md#current-ss-023).

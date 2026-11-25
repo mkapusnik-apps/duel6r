@@ -1,6 +1,6 @@
 # NET-01 — Network entry
 
-Functional contract: [network-entry](../../screens/network-entry.md), including NET-AC-001–003 and NET-AC-015–019. [NET-DIR-009 and NET-DIR-015](../../network-host-directory.md) own browser entry and directory independence. Structural wireframe: [NET-01](../wireframes/NET-01/NET-01.svg). Capture: [SS-015](../screenshots/README.md#net-01-modal-current-coverage).
+Functional contract: [network-entry](../../screens/network-entry.md), including NET-AC-001–003 and NET-AC-015–019. [NET-DIR-009 and NET-DIR-015](../../network-host-directory.md) own browser entry and directory independence. Structural wireframe: [NET-01](../wireframes/NET-01/NET-01.svg). Current capture: [SS-015](../screenshots/README.md#current-ss-015).
 
 ## Scope and authority
 

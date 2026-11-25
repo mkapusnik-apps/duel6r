@@ -12,4 +12,4 @@ The console obscures the upper arena and receives text input and discrete key-do
 Key-down and key-up events still update shared held-keyboard state, and controller controls still read shared controller state. Either state may continue to cause player actions while the simulation continues.
 The console does not provide a gameplay view-layout control.
 
-Representative screenshot: [`SS-014`](../../design/screenshots/legacy.md#ss-014).
+Current representative: [SS-014 — console over active play](../../design/screenshots/README.md#current-ss-014).

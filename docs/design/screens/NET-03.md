@@ -18,6 +18,8 @@ States: NET-03-password, NET-03-live-admission, NET-03-PUBLIC-EDIT, NET-03-PUBLI
 
 ## Common Direct setup
 
+Current capture: [NET-03-P before Connect](../screenshots/README.md#current-net-03-p).
+
 - **UX-NET-03-010** Direct setup must omit Service type and transport selection on every approved client.
 - **UX-NET-03-011** Direct setup must show Address, Port, Password, local-player setup, Connect, and Back in that reading order.
 - **UX-NET-03-016** Browser-origin setup must retain selected-session context and decoded hosting type without an editable service-type row.

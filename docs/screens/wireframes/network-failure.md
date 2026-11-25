@@ -27,4 +27,4 @@ The [functional owner](../network-failure.md) and [NET-08 presentation owner](..
 - The reason region may scroll, but the state heading and enabled recovery actions remain visible.
 - Recovery actions wrap in reading order before their captions clip or overlap.
 
-Planned representative screenshot: [`SS-022`](../../design/screenshots/legacy.md#ss-022).
+Current [direct `Host unreachable.` capture](../../design/screenshots/README.md#current-net-08-direct); the [legacy SS-022 recipe](../../design/screenshots/legacy.md#ss-022) describes the earlier direct attempt, not the browser Password-rejection route.

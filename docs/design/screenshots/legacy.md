@@ -581,6 +581,8 @@ The PR #70 final Team game-summary replacement has this provenance:
 
 ## Screenshot matrix
 
+These are the legacy capture recipes and their original assessments. For refreshed entries, use the [current originals and recorded states](README.md#current-representative-originals) rather than inferring current states from the recipes or filenames below.
+
 | ID | Screen ID | Wireframe | Route or workflow | Representative state and setup data | Viewport | Expected visible behavior | Destination path | Provenance and status |
 |---|---|---|---|---|---:|---|---|---|
 | <a id="ss-001"></a>`SS-001` | `MENU-01` | [Non-Team Game Settings](../../screens/wireframes/menu-main.md#menu-01-a--non-team-state) | Start one application process with the shared consolidated-person fixture, select all eight persons, select `Teams`, set `Num. of Team` to `4`, turn Friendly Fire on, and then select `Deathmatch`. | Use Deathmatch with eight selected players. Alice and Bruno are ranked. Cora through Hana are unranked. Keep Cora selected and Rounds `0`. Retain the hidden four-team and Friendly Fire-on values. | 1920x1080 | Persons and Players must each use 315 logical px with a 5 px gap. Persons must show `Remove` at bottom-left and `>>` at bottom-right. Players must show `<<` at bottom-left and `Detect All` at bottom-right. All four buttons must use the common height with visible caption padding. Team settings, `Equalize`, and `Shuffle` must be absent without residual frames or interaction targets. Both action rows must keep the Teams-state centerline. Roster rows must use standard colors. All controls must remain inside their panel bounds without clipping or overlap. | `docs/screenshots/MENU-01/deathmatch-person-action-aligned-1920x1080.png` | PR #83 accepted at `e70a057819c97100b083c3cdaae5dc24566435cd`; SHA-256 `6b2c2cc6b204f9f9a1b10b97d7b834c29a552ce495e53e948a069d2ad8867442`. `Conforms`. |
@@ -701,92 +703,3 @@ Only the older guest-defect supplements `retained-850x700.png`, `retained-1280x7
 
 The matrix uses one representative state for each wireframe.
 The screen specifications and wireframes document other player counts, modes, interaction states, and accessibility limits without multiplying screenshot entries.
-
-## Issue #30 operational evidence matrix
-
-This matrix was prepared for issue #30 and draft PR #50 at reviewed head `4eb4291d3090e2a3b9de8fc83f130671d8b3eb5e`.
-The final UX reassessment covers the implemented scope at exact head `af51bad5bab2cf02e657f3cd8aa71d76cabd9e27`.
-The issue #30 graphical screenshot matrix contains exactly zero entries.
-No affected wireframe has an implemented graphical state in issue #30.
-Terminal or command-line output is operational evidence and is not an implementation screenshot.
-Operational evidence must record the implementation branch, source SHA, environment, command or test scenario, exact machine outcome, exact visible output when applicable, and artifact path.
-The implementation evidence sources are `source/network/SessionTransport.h`, `source/network/SessionTransport.cpp`, and `source/server/HeadlessServer.cpp`.
-The registered operational evidence sources are `tests/AdmissionCompatibilityTests.cpp`, `tests/AdmissionProcessTests.py`, `tests/SessionTransportTests.cpp`, and `tests/SessionTransportCTestRegistration.cmake`.
-The applicable workflow evidence sources are `.github/workflows/branch.yml`, `.github/workflows/native-windows-transport.yml`, and `docker/build-windows-native-transport.cmd`.
-
-| Operational scenario | Required substitute evidence |
-|---|---|
-| Host-local invalid manifest | A test or recorded protocol/CLI artifact must show `host-gameplay-content-manifest-invalid`, the exact host-visible copy, no listener or session, and Retry-disabled semantics for the current application session. |
-| Guest-local invalid manifest | A test or recorded protocol/CLI artifact must show `guest-gameplay-content-manifest-invalid`, the exact guest-visible copy, no resolution or connection, retained setup destinations, and Retry-disabled semantics until restart. |
-| Initial admission precedence | Automated results must exercise all 11 ordered identifiers and must show that the first applicable complete host result wins. |
-| Initial outcome copy | Automated results must assert every exact rejection string, including release, invalid manifest, content mismatch, match started, session full, and host policy outcomes. |
-| Malformed host messages | Actual-process results must show that malformed, trailing, unexpected, or inconsistent complete host messages use `invalid-host-admission-message` and `Connection ended before admission completed.` without dynamic peer detail. |
-| Atomic cancellation and acceptance gate | Automated results must show one total order for Cancel, acceptance enqueue, and outcome publication; Cancel before enqueue or publication must produce no visible host result or success. |
-| Transport precedence | Automated results must distinguish name-resolution failure, unreachable or refusal, close before complete admission, and no complete result at the 10-second deadline. |
-| Cancellation and destinations | Automated or integration results must show that Cancel and local validation win, retained setup is preserved, and no pre-admission identity or slot remains. |
-| Reconnect compatibility handoff | Automated results must assert the exact release and content restoration copy and disabled reconnect Retry semantics. |
-| Non-disclosure | Automated results must inject untrusted names, release IDs, capabilities, paths, hashes, counts, credentials, addresses, thresholds, and payloads and must show that user-visible output contains none of them. |
-| Local Play preservation | A regression result must show that `Play (F1)` starts and completes without a listener, server, transport worker, client connection, or network availability. No fresh screenshot is required because Local Play visuals must not change. |
-
-Issue #38 must provide exactly one representative graphical screenshot for each implemented affected wireframe when it implements the planned UI.
-
-## Issue #31 operational evidence matrix
-
-This matrix was prepared for issue #31 and draft PR #51 at reviewed head `7e6255ffb2a5c48a65c7666ed3afe1cd3450aebf`.
-The final UX reassessment covers the implemented lifecycle scaffold at exact head `413d1c3d33812c0199757b0b496f7f6d4c8e254a`.
-The issue #31 graphical screenshot matrix contains exactly zero entries.
-Terminal output, automated results, and process-lifecycle records are operational substitutes and are not implementation screenshots.
-Each substitute must record the implementation branch, source SHA, environment, command or test scenario, machine outcome, user-visible output when applicable, and artifact path.
-The reviewed implementation evidence sources are `source/client/HostServiceSupervisor.h`, `source/client/HostServiceSupervisor.cpp`, `source/client/HostServiceProcess.cpp`, and `source/client/HostSupervisorMain.cpp`.
-The reviewed operational test sources are `tests/HostServiceSupervisorTests.cpp`, `tests/HostServiceProcessTests.py`, `tests/HostServiceTestChild.cpp`, and `tests/SessionTransportCTestRegistration.cmake`.
-The registered tests cover byte-exact identifiers and copy, strict startup timing, exit-sealed status draining and fixed outcome precedence, cancellation precedence, retained setup, cleanup-gated Retry and dismissal, post-readiness failure, the observable exactly-once intentional-end handoff boundary, handoff exclusion from all other outcomes, process cleanup, non-disclosing output, and scaffold-only scope truth.
-
-| Operational scenario | Required substitute evidence |
-|---|---|
-| Starting and readiness | An automated or integration result must show one attempt, the 10-second deadline, no second Start, no readiness claim before all readiness conditions complete, and `NET-04` eligibility only strictly before the deadline. |
-| Cancel with retained setup | An automated or integration result must show that accepted Cancel wins before a later terminal result, cleanup completes, no listener or service remains, and the endpoint and local-player setup are retained for editable `NET-02`. |
-| Port unavailable | A result must assert `host-service-port-unavailable`, exact copy `The selected port is unavailable. Choose another port and try again.`, precedence before timeout, completed cleanup, and eligible Retry when retained setup remains valid. |
-| Generic start failure | A result must assert `host-service-start-failed`, exact copy `Hosted session could not start.`, completed cleanup, and eligible Retry when retained setup remains valid. |
-| Exited before readiness | A result must assert `host-service-exited-before-ready`, exact copy `Hosted session stopped before it was ready.`, completed cleanup, and eligible Retry when retained setup remains valid. |
-| Startup timeout | A result must assert `host-service-startup-timed-out`, exact copy `Hosted session startup timed out.`, no readiness accepted at or after 10 seconds, no remaining listener or service, and eligible Retry when retained setup remains valid. |
-| Post-readiness unexpected stop | A result must assert `host-service-stopped-unexpectedly`, exact host copy `Hosted session stopped unexpectedly.`, discarded session-only results, no automatic restart, disabled Retry, and retained `NET-02` destination through Edit setup. |
-| Retry and destinations | Automated results must exercise every Retry eligibility condition, cleanup gating, the new 10-second deadline on eligible Retry, disabled Retry after an active session ends, Edit setup to retained `NET-02`, and Return to Network to `NET-01`. |
-| End session and other termination | Integration results must distinguish confirmed End session from normal shutdown, crash, forced termination, and service failure. Only confirmed End session may emit the exactly-once `intentional-host-end` handoff. Issue #31 sends no guest notice and claims no `NET-09` route; issue #36 owns notice delivery and issue #38 owns presentation. |
-| Non-disclosure | Automated results must inject endpoint, process, path, command, credential, payload, and operating-system error details and must show that host lifecycle user copy contains none of them. Trusted diagnostics must satisfy the trust policy. |
-| Local Play preservation | A regression result must show that `Play (F1)` starts and completes without creating, adopting, starting, stopping, or supervising a hosted service and without network availability. No fresh screenshot is required because Local Play visuals must not change. |
-| Scope truth | Build or test output must not claim graphical network UI, a playable network session, or release readiness from issue #31. |
-
-Issue #38 must capture `NET-02`, `NET-08`, and `NET-09` only when their planned graphical wireframes become implemented and reachable.
-
-## Issue #32 operational evidence matrix
-
-This matrix was prepared for issue #32 and draft PR #53 at specification head `03fdc0c481b183b695eb937ea0c7b0e93b4e31b9`.
-The final UX reassessment covers the merged headless scope at exact head `5c18155ef16ba5c1ffcbe71e4de433873ed0e072`.
-The final tester execution provenance remains recorded against implementation base `d38ba491505d670e20c71162aa896e3f520750a5` in `tests/AuthoritativeMatchAcceptanceCoverage.md`.
-The merged-head reassessment confirms that the reviewed copy, result, state, authority, session-only, non-disclosure, persistence, and scope contracts remain unchanged.
-The issue #32 graphical screenshot matrix contains exactly zero capturable entries.
-Terminal output, serialized results, automated results, and process-lifecycle records are operational substitutes and are not implementation screenshots.
-Each substitute must record the implementation branch, source SHA, environment, command or test scenario, machine identifier, exact user-visible output when applicable, exit status when applicable, and artifact path.
-The reviewed implementation sources are `source/server/AuthoritativeMatch.cpp`, `source/server/AuthoritativeMatchTypes.h`, `source/server/AuthoritativeMatchValidation.cpp`, `source/server/AuthoritativeHostedMatchController.cpp`, `source/server/AuthoritativeMatchSerialization.cpp`, and `source/server/AuthoritativeMatchCli.cpp`.
-The reviewed operational evidence sources are `tests/AuthoritativeMatchBehaviorTests.cpp`, `tests/AuthoritativeMatchProcessTests.py`, and `tests/AuthoritativeMatchAcceptanceCoverage.md`.
-The registered evidence covers fixed outcome copy, completed and interrupted results, ranking, host-only controls, session-only output, script exclusion, persistence-field exclusion, bounded non-disclosing failures, Local Play isolation, and scaffold-only scope truth.
-No reviewed source adds graphical network UI, changes a Local Play visual requirement, or claims a playable network session or release readiness.
-
-| Operational scenario | Required substitute evidence |
-|---|---|
-| Supported modes and settings | Automated results must cover Deathmatch, Predator, all six Team deathmatch variants, all three level plans, round limits 1 and 99, rejected limits, Assistance, Quick Liquid, and Burnable Trees. Results must show that unsupported and content-owned settings are rejected. |
-| Six-second round end | A deterministic trace or automated result must show one second of normal updates, five seconds without normal round updates, automatic non-final advancement, and no advancement after the final round. |
-| Host authority | Automated results must show host-only early advancement after an outcome, rejected guest and arbitrary-key advancement, rejected pre-winner Shift+F1 advancement, and host-only End session. |
-| Approved terminal copy | Actual-process or automated results must assert `authoritative-match-completed` with `Authoritative match completed.`, `authoritative-match-interrupted-no-winner` with `Authoritative match ended without a winner.`, and `authoritative-match-ended-intentionally` with `Authoritative match ended by the host.`. |
-| Completed and interrupted results | Serialized result fixtures and automated assertions must cover `Completed`, `Interrupted`, `No winner`, all match, round, player, and team fields, total-points arithmetic, player and team ranking precedence, and completed-round retention on interruption. |
-| Session-only and scripts | Automated results must show exact `Session only` labeling, no writes to statistics, Elo, people, profiles, saves, or history, and no optional Lua or profile script loading or execution. |
-| Invalid settings | An actual-process or automated result must assert `authoritative-match-settings-invalid`, exact copy, no round or result, cleared readiness, and corrected-settings eligibility for a later start. |
-| Content unavailable | An actual-process or automated result must assert `authoritative-match-content-unavailable`, exact copy, no round or result, cleared readiness, blocked later start in that hosted session, and host End session availability. |
-| Runtime failure | An actual-process or automated result must assert `authoritative-match-runtime-failed`, exact service copy, stopped progression, rejected later actions, discarded results, orderly shutdown, host mapping to `Hosted session stopped unexpectedly.`, and no intentional host-end implication. |
-| Cleanup failure | An actual-process result must assert `authoritative-match-shutdown-failed`, exact copy, exit status 4, no partial published result, and replacement of an earlier process result. |
-| Exit meanings and precedence | Automated results must cover exit statuses 0, 2, 3, and 4, permitted identifiers, start-time and in-match precedence, and the first established outcome rule. |
-| Non-disclosure | Automated results must inject peer-supplied names, release values, capabilities, paths, hashes, counts, credentials, addresses, thresholds, payloads, and raw filesystem values and must show that user-facing output contains none of them. |
-| Local Play preservation | A regression result must show unchanged Local Play unlimited-round behavior, advancement, optional scripting, persistence, and independence from renderer-free authoritative service startup. No fresh screenshot is required because Local Play visuals must not change. |
-| Scope truth | Build, test, and process output must not claim graphical network UI, playable end-to-end networking, or release readiness from issue #32. |
-
-Issue #38 must provide exactly one representative graphical screenshot for each implemented affected wireframe when it implements these planned states.

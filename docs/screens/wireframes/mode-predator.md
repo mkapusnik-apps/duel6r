@@ -10,4 +10,4 @@ The body/weapon opacity distinction is structural. Role explanations stay outsid
 
 All marines and the predator remain in the same gameplay view.
 
-Representative screenshot: [`SS-007`](../../design/screenshots/legacy.md#ss-007).
+Current representative: [SS-007 — live Predator](../../design/screenshots/README.md#current-ss-007).

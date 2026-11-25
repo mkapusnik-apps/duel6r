@@ -176,8 +176,8 @@ The SVGs use monochrome structural shapes and external annotations. Production c
 - In the non-Team representative state, `Remove` must make no visible change when a representative person is selected because all eight are roster members.
 - `<<` and a player-row double-click must remove the applicable roster entry without removing that person from Persons.
 
-Non-Team representative screenshot: [`SS-001`](../../design/screenshots/legacy.md#ss-001).
-Teams representative screenshot: [`SS-024`](../../design/screenshots/legacy.md#ss-024).
+Current non-Team representative: [SS-001](../../design/screenshots/README.md#current-ss-001).
+Current Teams representative: [SS-024](../../design/screenshots/README.md#current-ss-024).
 The PR #59 screenshots are historical because they show the prior person-action arrangement.
 The PR #60 Teams and non-Team artifacts are historical because they show the prior list height, person-name position, button geometry, and batch controller-detection caption.
 The PR #62 Teams and non-Team artifacts are historical because they show `<<` in Persons.

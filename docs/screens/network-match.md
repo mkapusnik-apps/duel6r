@@ -195,4 +195,4 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - Functional evidence must vary controlled identity tuples and show that every item in the eligible background list can be selected.
 - Functional evidence must show that fallback selection uses no gameplay RNG, canonical background field, profile fallback, or peer content and does not change canonical state or results.
 
-Planned representative screenshot: [`SS-019`](../design/screenshots/legacy.md#ss-019).
+The [legacy SS-019 degraded-state recipe](../design/screenshots/legacy.md#ss-019) is separate from the current [live player-hosted match](../design/screenshots/README.md#current-net-05-host), [pre-winner score view](../design/screenshots/README.md#current-net-05-s), and [non-final delay](../design/screenshots/README.md#current-net-05-r) captures. Those three captures are not evidence of degraded recovery or Invisibility.

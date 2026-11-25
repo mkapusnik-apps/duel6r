@@ -13,6 +13,6 @@ State `NET-09-PUBLIC-CONTROLLER-END` consumes HSL-PUB-005 and HSL-PUB-012. It us
 - The action must remain visible when explanatory text wraps.
 - Keyboard and controller Back must use the approved Return to Network behavior.
 
-SS-023 remains the representative: a real accepted intentional end notice over dedicated arena context. Normal shutdown, expiry, and authenticated maintenance require behavioral evidence for their distinct functional mappings. No cloud operation or deployment screen is introduced. Unreachable outcomes must not be fabricated for capture. No new layout is needed.
+[SS-023](../screenshots/README.md#current-ss-023) remains the representative: a real accepted intentional end notice over dedicated arena context. Normal shutdown, expiry, and authenticated maintenance require behavioral evidence for their distinct functional mappings. No cloud operation or deployment screen is introduced. Unreachable outcomes must not be fabricated for capture. No new layout is needed.
 
 The [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix) covers retained dedicated status and confirmed cause. Native Windows dedicated verification remains required and unwaived. A shutdown can use this outcome only when product's approved request is actually accepted; a socket close alone cannot establish intentional end. Preserve current develop's host-end notice boundary and retained-context presentation.

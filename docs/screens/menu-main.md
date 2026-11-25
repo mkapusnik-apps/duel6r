@@ -246,7 +246,7 @@ Pointer activation of the unchanged `Network (F2)` button and the F2 shortcut en
 
 ## Screenshot link
 
-Required representative evidence: [`SS-001`](../design/screenshots/legacy.md#ss-001) for the non-Team wireframe and [`SS-024`](../design/screenshots/legacy.md#ss-024) for the Teams wireframe.
+Current representative evidence: [SS-001 for the non-Team wireframe](../design/screenshots/README.md#current-ss-001) and [SS-024 for the Teams wireframe](../design/screenshots/README.md#current-ss-024).
 Each capture must show the expanded person list and the person-name row one standard list row lower than in the PR #60 layout.
 Each capture must show the common action-button height, visible caption padding, `Detect All`, and row-level `D` captions.
 Each capture must show `Remove` and `>>` at the left and right edges of the Persons action row.
