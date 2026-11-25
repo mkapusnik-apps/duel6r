@@ -40,6 +40,7 @@ Keep the first row at y=364 and the existing 18 px Persons / 22 px local-player 
 ## Hierarchy and controls
 
 - The screen must retain Port, Listening interface, Persons, Local players and controls, and its existing footer.
+- In editable Host setup, including behind the listening popup, keep the existing `LAN-first` and applicable platform text above Port. Omit the `Session only` and `Optional scripts disabled` suffixes and their separators without replacement.
 - Listening interface must present the eligible loopback, assigned private, and assigned public unicast IPv4 choices defined by NET-HOST-IF-002–003.
 - Public address scope must not imply guaranteed Internet reachability.
 - Keep the existing `Password` label and row after Listening interface. Show `Configure` alone in the row's value area by default. When the editor is open, keep the existing masked field inset on the left and place a separately framed `Remove` button to its right, on the same row. Give the editor the remaining width after reserving room for `Remove` and the shared control clearance.

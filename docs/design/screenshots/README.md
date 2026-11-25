@@ -43,6 +43,20 @@ Original destination paths in historical assessments are kept as provenance. The
 
 [public-pilot-evidence]: https://github.com/mkapusnik-apps/duel6r/blob/a55ae3f3624de56d73b48f91b417f28c5a6d4a07/docs/design/screenshots/evidence/public-pilot/README.md
 
+## Static network notice removal
+
+Use the established native Linux x86-64 Docker Release GL4/Lua ON profile with shipped assets, private Xvfb, software OpenGL, dummy audio and ordinary input. Supply original full-client lossless PNGs with candidate/runtime, route/state, viewport, UTC and SHA-256 provenance. One ordinary Host/direct Guest two-round match supplies both arena views; no particular outcome, degraded condition or bonus is needed for this copy check.
+
+| Wireframe | Representative state | Viewport | Visible criterion | Existing destination |
+|---|---|---|---|---|
+| NET-02 | Editable Host, valid setup, Port focused | 1280 × 900 | Host header retains `LAN-first • Linux/Windows x86-64` with no trailing notice or separator; endpoint controls, rosters and footer retain their layout. | [NET-02.png](NET-02/NET-02.png) — Pending replacement |
+| NET-05 | Connected Host in active play | 1280 × 900 | Role, hosting, connection and any applicable directory text remain; neither static notice, replacement text nor an unused notice row appears. Gameplay HUD and End session remain clear. | [NET-05-host.png](NET-05/NET-05-host.png) — Pending replacement |
+| NET-05-R | Same Host in the genuine non-final delay | 1280 × 900 | Same status rule under the round summary; countdown, score table, actions and bottom-centered counter stay separate. | [NET-05-R.png](NET-05/NET-05-R.png) — Pending replacement |
+
+Use focused candidate observations rather than separate capture sequences for editable Host variants (including the exposed header behind either listening popup), Direct and both bound Join variants, and match status at the existing 850 × 700 and 1280 × 720 constrained sizes. Confirm the shared removal in waiting, active Tab, confirmation, final-round delay and retained-arena contexts (NET-07/09), including status stacking, applicable quality/role/hosting feedback, and unchanged score and terminal persistence labels. Existing Join originals already omit the notices; retain them. Retain Host startup, completed/retained result and unrelated evidence within its original scope.
+
+Earlier originals showing either notice are not current evidence for its removal. Replace only the three representatives above for this change; popup and configured-Password variants, waiting/Tab/confirmation and reconnect/host-ended views retain their original artifacts for unchanged criteria, with the changed status covered by the focused observations. Preserve public, AP-N and legacy SS-019 evidence and profiles with their actual roles, scenarios and provenance; the ordinary Host views do not replace six-player/degraded/Invisibility or dedicated coverage. This section supersedes only the static-notice expectations in earlier matrices.
+
 ## Network score-column parity
 
 The [NET-06 score-column contract](../../screens/network-summary.md#score-columns-and-supporting-detail), [shared presentation](../../design.md#shared-final-presentation) and existing [NET-06 SVG](../wireframes/NET-06/NET-06.svg) own the current column selection and supporting-field placement. Local Play is unchanged and remains the appearance authority. Earlier network originals retain their actual geometry/style scope, not proof of these changed columns or relocated fields. This supersedes only affected column/detail coverage below; unrelated arena/platform obligations remain outside scope.
@@ -181,7 +195,7 @@ The committed [1920 × 1080 focused evidence](#focused-1920--1080-completion) re
 
 ## Player-hosted match status
 
-The [NET-05 directory status rule](../screens/NET-05.md#player-hosted-directory-status) and the [NET-05](../wireframes/NET-05/NET-05.svg) and [NET-05-R](../wireframes/NET-05/NET-05-R.svg) wireframes govern these two accepted Host views. Both show one readable status row with `Host • LAN session • Connected` and `Session only scores • Optional scripts disabled`. Neither shows the directory-unavailable notice, replacement text, or an empty row. Input behavior is covered separately; the stills establish presentation only.
+These two Host originals record acceptance of the [NET-05 directory status rule](../screens/NET-05.md#player-hosted-directory-status) before [static notice removal](#static-network-notice-removal). Both show one readable status row with `Host • LAN session • Connected` and `Session only scores • Optional scripts disabled`. Neither shows the directory-unavailable notice, replacement text, or an empty row. Input behavior is covered separately; the stills establish presentation only.
 
 | View / accepted PNG | Visible coverage | Capture start (UTC) / supplied SHA-256 |
 |---|---|---|

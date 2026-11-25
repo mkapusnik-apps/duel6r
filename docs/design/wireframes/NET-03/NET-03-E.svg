@@ -26,7 +26,7 @@
     <text x="87" y="382">Cora • Selected</text><text x="467" y="382">Cora • Keyboard 1       Remove</text>
     <text x="87" y="408">Dara • Add</text>
     <text x="87" y="482">Remaining persons scroll</text><text x="467" y="482">Remaining player rows scroll</text>
-    <text x="75" y="530">Local players: 1 • Session-only scores • Optional scripts disabled</text>
+    <text x="75" y="530">Local players: 1</text>
     <text x="75" y="553">Selected session: 0123456789abcdef0123456789abcdef</text>
     <text x="75" y="576">Match in progress. Your players join next round if admitted.</text>
     <text x="75" y="599">The host confirms availability when you connect.</text>

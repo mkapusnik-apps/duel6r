@@ -30,7 +30,7 @@
     <text x="87" y="476">Ada • Selected</text><text x="467" y="476">Ada • Keyboard 1       Remove</text>
     <text x="87" y="503">Bruno • Add</text>
     <text x="87" y="538">Other persons scroll</text><text x="467" y="538">Other local slots scroll</text>
-    <text x="75" y="574">Local players: 1 • Session-only scores • Optional scripts disabled</text>
+    <text x="75" y="574">Local players: 1</text>
     <text x="75" y="598">Persistent validation / existing admission feedback</text>
     <text x="420" y="643">Connect</text><text x="432" y="687">Back</text>
   </g>

@@ -60,9 +60,9 @@ namespace Duel6 {
         constexpr SetupFooterBounds HostSetupFooter{117, 38, 433, 38};
         constexpr SetupFooterBounds JoinSetupFooter{275, 82, 275, 38};
 #ifdef D6_MACOS_PLATFORM
-        constexpr const char *SetupScope = "LAN-first • Session only • Optional scripts disabled";
+        constexpr const char *SetupScope = "LAN-first";
 #else
-        constexpr const char *SetupScope = "LAN-first • Linux/Windows x86-64 • Session only • Optional scripts disabled";
+        constexpr const char *SetupScope = "LAN-first • Linux/Windows x86-64";
 #endif
         struct BrowserAction {
             int focus;
@@ -2450,24 +2450,21 @@ namespace Duel6 {
     }
 
     NetworkMenu::MatchStatus NetworkMenu::matchStatus(
-            const Client::NetworkRuntimeSnapshot &snap, Int32 width,
+            const Client::NetworkRuntimeSnapshot &snap, Int32,
             const std::string &connectionState, bool showLiveNetworkState) const {
-        MatchStatus result;
+        MatchStatus result{};
         result.rows.push_back(std::string(snap.host ? "Host" : "Guest")
                              + (snap.publicSession ? " • Dedicated session • " : " • LAN session • ") + connectionState);
         if (snap.host && !snap.publicSession) {
             if (snap.directoryAvailable) result.rows.push_back("Directory: Listed");
             else if (snap.directoryRegistering) result.rows.push_back("Directory: Registering…");
         }
-        const std::string right = "Session only scores • Optional scripts disabled";
-        result.rightFits = static_cast<Int32>((utf8Length(result.rows.front()) + utf8Length(right)) * 8 + 56) <= width;
         std::string networkState;
         if (showLiveNetworkState && snap.presentation.degraded) networkState = "Network connection degraded.";
         if (showLiveNetworkState && snap.presentation.resynchronizing) {
             if (!networkState.empty()) networkState += " • ";
             networkState += "Last confirmed state • Synchronizing current state…";
         }
-        if (!result.rightFits) result.rows.push_back(right);
         if (!networkState.empty()) result.rows.push_back(networkState);
         return result;
     }
@@ -2519,15 +2516,12 @@ namespace Duel6 {
                 drawText(width - 16 - static_cast<Int32>(utf8Length(position)) * 8, rankY, position, Color::WHITE);
             }
         }
-        const std::string right = "Session only scores • Optional scripts disabled";
         const Int32 statusHeight = footer.statusHeight;
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
         renderer.quadXY(Vector(16, statusY), Vector(width - 32, statusHeight), Color(0, 0, 255, 179));
         renderer.setBlendFunc(BlendFunc::None);
         for (std::size_t row = 0; row < status.rows.size(); ++row)
             drawText(20, statusY + 4 + static_cast<Int32>(row) * 16, status.rows[row], Color::YELLOW);
-        if (status.rightFits)
-            drawText(width - 20 - static_cast<Int32>(utf8Length(right)) * 8, statusY + 4, right, Color::YELLOW);
         const bool waiting = (state.phase == Network::Replication::Phase::ActiveRound
             || (state.phase == Network::Replication::Phase::RoundSummary && state.currentRoundNumber < state.settings.roundLimit))
             && std::any_of(state.players.begin(), state.players.end(), [&](const auto &player) {

@@ -16,12 +16,12 @@
   <g fill="black" font-family="sans-serif" font-size="16">
     <text x="363" y="92">Existing banner / version</text>
     <text x="320" y="180">HOST NETWORK SESSION</text>
+    <text x="75" y="199">LAN-first • Linux/Windows x86-64</text>
     <text x="75" y="225">Port</text><text x="295" y="225">26660</text>
     <text x="75" y="257">Listening interface</text><text x="295" y="257">Explicit: 2 addresses [popup]</text>
     <text x="87" y="349">PERSONS</text>
     <text x="467" y="349" textLength="208" lengthAdjust="spacingAndGlyphs">LOCAL PLAYERS AND CONTROLS</text>
     <text x="819" y="349" text-anchor="end" textLength="128" lengthAdjust="spacingAndGlyphs">Local players: 1</text>
-    <text x="75" y="610">Session-only scores • Optional scripts disabled</text>
     <text x="292" y="672" text-anchor="middle">Start session</text><text x="608" y="672" text-anchor="middle">Back</text>
   </g>
   <rect x="285" y="271" width="540" height="249" fill="white" stroke="black"/>

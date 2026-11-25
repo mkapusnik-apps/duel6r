@@ -4,7 +4,7 @@ Representative viewport: 1280 by 900 px. The gameplay renderer fills the client 
 
 [![NET-05 — Local-reference network shared arena](../../design/wireframes/NET-05/NET-05.svg)](../../design/wireframes/NET-05/NET-05.svg)
 
-This reuses the current canonical SVG unchanged. The [functional owner](../network-match.md), [NET-05 presentation owner](../../design/screens/NET-05.md) and [arena parity rules](../../design.md#local-and-network-arena-parity) govern current world/HUD relationships and role/hosting status. Structural variants remain [NET-05-W waiting](../../design/wireframes/NET-05/NET-05-W.svg), [NET-05-C confirmation](../../design/wireframes/NET-05/NET-05-C.svg), [NET-05-S active score](../../design/wireframes/NET-05/NET-05-S.svg) and [NET-05-R non-final result](../../design/wireframes/NET-05/NET-05-R.svg). The earlier planned/unimplemented status is historical; schematic rows do not change the existing six-player representative or evidence obligations.
+The [functional owner](../network-match.md), [NET-05 presentation owner](../../design/screens/NET-05.md) and [arena parity rules](../../design.md#local-and-network-arena-parity) govern current world/HUD relationships and role/hosting status. Structural variants remain [NET-05-W waiting](../../design/wireframes/NET-05/NET-05-W.svg), [NET-05-C confirmation](../../design/wireframes/NET-05/NET-05-C.svg), [NET-05-S active score](../../design/wireframes/NET-05/NET-05-S.svg) and [NET-05-R non-final result](../../design/wireframes/NET-05/NET-05-R.svg). The earlier planned/unimplemented status is historical; schematic rows do not change the existing six-player representative or evidence obligations.
 
 - Existing arena, ranking, progress, event, and player-status presentation remains available.
 - Compact textual network status does not obscure play or create player-specific views.
@@ -17,15 +17,11 @@ This reuses the current canonical SVG unchanged. The [functional owner](../netwo
 - Only the host sees enabled `Advance round` and `End session` actions.
 - Guests do not receive an advance action.
 - The final-round variant enters `NET-06` and does not show `Advance round`.
-- Compact status states that optional scripts are disabled and results are session-only.
 - The degraded-network state is a variant of this wireframe and is not a new screen.
 - The representative variant shows the exact persistent text `Network connection degraded.` while complete canonical updates continue.
 - During live play, the bottom status region uses a 16 px client-edge inset and standard 16 px gameplay text. Non-final limited-round summaries alone raise status/actions above the bottom-center counter under the NET-05-R footer layout, retaining side insets.
 - The bottom status region keeps 4 px of clear inner space around its text.
-- The left status group contains role, LAN scope, connection state, and the degraded indication.
-- The right status group contains result scope and script policy.
-- The two status groups keep at least 16 px of clear space.
-- The status groups wrap at word boundaries before they overlap.
+- The left-aligned status follows the [shared rule](../../design.md#existing-network-constraints).
 - The degraded indication does not truncate or use an ellipsis.
 - The status region grows upward to no more than three text rows when width requires wrapping.
 - The status region does not make ranking, round progress, events, player status, or session actions unreadable.
