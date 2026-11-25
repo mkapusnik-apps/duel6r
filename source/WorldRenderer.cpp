@@ -37,7 +37,7 @@
 #include "ArenaPresentation.h"
 #include "ArenaScene.h"
 #include "RoundSummaryCounter.h"
-#include "ScoreSummaryGeometry.h"
+#include "RoundScoreTable.h"
 
 namespace Duel6 {
     WorldRenderer::WorldRenderer(Duel6::AppService &appService, const Duel6::Game &game)
@@ -75,119 +75,53 @@ namespace Duel6 {
         Int32 posY = view.getY() + view.getHeight() - 20;
 
         for (const auto &entry : ranking.entries) {
-            posY = renderRankingEntry(entry, posX, posY, maxNameLength, fontSize, false);
+            posY = renderRankingEntry(entry, posX, posY, maxNameLength, fontSize);
             for (const auto &nestedRankingEntry : entry.entries) {
-                posY = renderRankingEntry(nestedRankingEntry, posX, posY, maxNameLength, fontSize, false);
+                posY = renderRankingEntry(nestedRankingEntry, posX, posY, maxNameLength, fontSize);
             }
         }
     }
 
     Int32 WorldRenderer::renderRankingEntry(const Ranking::Entry &entry, Int32 posX, Int32 posY, Int32 maxLength,
-                                            Float32 charHeight, bool extended) const {
-        if (extended) {
-            maxLength += 20;
-        }
+                                            Float32 charHeight) const {
         renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        Color fontColor(entry.fontColor);
         renderer.quadXY(Vector(posX, posY + 1), Vector((charHeight / 2) * maxLength, charHeight), entry.bcgColor);
 
         Int32 paddingLeft = entry.isSuperEntry() ? 0 : 5;
         renderer.setBlendFunc(BlendFunc::None);
-        font.print(posX + paddingLeft, posY, 0.0f, fontColor, entry.name, charHeight);
-
-        if (extended) {
-            renderer.setBlendFunc(BlendFunc::SrcColor);
-            if (!entry.isSuperEntry()) {
-                fontColor = Color::YELLOW;
-            }
-            auto killsToDeaths = Person::getKillsToDeathsRatio(entry.kills, entry.deaths);
-            font.print(posX + (charHeight / 2) * (maxLength - 23), posY, 0.0f, fontColor,
-                       (Format("|{0,3}|{1,3}|{2,3}|{3,5}|{4,4}") << entry.kills << entry.assistances << entry.deaths
-                                                                 << killsToDeaths << entry.points), charHeight);
-        } else {
-            font.print(posX + (charHeight / 2) * (maxLength - 5), posY, 0.0f, fontColor,
-                       (Format("|{0,4}") << entry.points), charHeight);
-        }
+        font.print(posX + paddingLeft, posY, 0.0f, entry.fontColor, entry.name, charHeight);
+        font.print(posX + (charHeight / 2) * (maxLength - 5), posY, 0.0f, entry.fontColor,
+                   (Format("|{0,4}") << entry.points), charHeight);
         return posY - charHeight;
     }
 
-    void WorldRenderer::roundOverSummary(bool showRoundProgress, bool separateTeamGroups, bool clampPanelBounds,
-                                          Int32 minimumPanelBottom, Int32 maximumPanelTop) const {
-        Float32 fontSize = 32;
-        Float32 fontWidth = fontSize / 2;
+    void WorldRenderer::roundOverSummary(bool showRoundProgress) const {
+        namespace T = RoundScoreTable;
         Ranking ranking = game.getMode().getRanking(game.getPlayers());
-        const bool showTeamSeparators =
-                separateTeamGroups && dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;
-        const Int32 teamSeparatorHeight = 8;
-        Int32 maxLength = ranking.getMaxLength() + 6;
-        Int32 maxNameLength = maxLength + 20;
-        int height = fontSize * 3; // reserve for 'SCORE'
-        int tableWidth = maxNameLength * (fontWidth);
-        int width = std::max(tableWidth, 200);
+        const bool teamRanking = dynamic_cast<const TeamDeathMatch *>(&game.getMode()) != nullptr;
+        std::vector<T::Row> rows;
+        int bodyHeight = 0;
+        const auto append = [&](const Ranking::Entry &entry, bool separator) {
+            const T::Values values{std::to_string(entry.kills), std::to_string(entry.assistances),
+                    std::to_string(entry.deaths), Person::getKillsToDeathsRatio(entry.kills, entry.deaths),
+                    std::to_string(entry.points)};
+            rows.push_back({entry.name, T::numericText(values), entry.fontColor, entry.bcgColor,
+                            entry.isSuperEntry(), separator});
+            bodyHeight += T::TextHeight + (separator ? T::SeparatorHeight : 0);
+        };
         for (const auto &entry : ranking.entries) {
-            height += fontSize * (1 + entry.entries.size());
+            append(entry, teamRanking && !rows.empty());
+            for (const auto &nested : entry.entries) append(nested, false);
         }
-        if (showTeamSeparators && ranking.entries.size() > 1) {
-            height += teamSeparatorHeight * Int32(ranking.entries.size() - 1);
-        }
-        const auto score = "---SCORE---";
-        const auto kad = " K    A   D  K/D  PTS  ";
-        const auto kadWidth = font.getTextWidth(kad, fontSize);
-        const auto scoreWidth = font.getTextWidth(score, fontSize);
-        std::string roundProgress;
+        const auto &screen = video.getScreen();
+        const auto layout = T::layout(T::preferredWidth(ranking.getMaxLength()), bodyHeight,
+                screen.getClientWidth(), screen.getClientHeight(),
+                showRoundProgress ? RoundSummaryCounter::ClearTop : 0);
+        T::render(renderer, font, layout, rows);
         if (showRoundProgress) {
-            roundProgress = Format("Rounds: {0}|{1}") << game.getPlayedRounds() << game.getSettings().getMaxRounds();
+            const std::string progress = Format("Rounds: {0}|{1}") << game.getPlayedRounds() << game.getSettings().getMaxRounds();
+            RoundSummaryCounter::render(renderer, font, screen.getClientWidth(), progress);
         }
-
-        const auto frame = ScoreSummaryGeometry::centered(width, height - 96,
-                video.getScreen().getClientWidth(), video.getScreen().getClientHeight());
-        int x = frame.left + ScoreSummaryGeometry::SidePadding;
-        int y = video.getScreen().getClientHeight() - frame.top - frame.height + 32;
-        const Int32 panelBottom = y - Int32(fontSize);
-        const Int32 panelHeight = height + 2 * Int32(fontSize);
-        const Int32 footerBottom = showRoundProgress
-                ? std::max(minimumPanelBottom, RoundSummaryCounter::ClearTop) : minimumPanelBottom;
-        if ((showRoundProgress || clampPanelBounds) && panelBottom < footerBottom) {
-            y += footerBottom - panelBottom;
-        }
-        const Int32 panelTop = y + height + Int32(fontSize);
-        if (clampPanelBounds && panelHeight <= maximumPanelTop - minimumPanelBottom && panelTop > maximumPanelTop) {
-            y -= panelTop - maximumPanelTop;
-        }
-
-        renderer.setBlendFunc(BlendFunc::SrcAlpha);
-        renderer.quadXY(Vector(x - fontWidth, y - fontSize), Vector(width + 2 * fontWidth, height + 2 * fontSize),
-                        Color(255, 255, 255, 80));
-        renderer.quadXY(Vector(x - fontWidth + 2, y - fontSize + 2),
-                        Vector(width + 2 * fontWidth - 4, height + 2 * fontSize - 4), Color(0, 0, 255, 80));
-
-        Float32 scoreY = y + height - fontSize;
-        renderer.quadXY(Vector(x - fontWidth - 5, scoreY),
-                         Vector(width + 2 * fontWidth + 10, fontSize + 4), Color(0, 0, 255, 255));
-        renderer.setBlendFunc(BlendFunc::SrcColor);
-
-        Int32 posX = video.getScreen().getClientWidth() / 2 - tableWidth / 2;
-        Int32 posY = scoreY - fontSize * 2;
-
-        Color fontColor = Color::WHITE;
-
-        font.print(x + (width - scoreWidth) / 2, scoreY, 0.0f, fontColor, score, fontSize);
-        font.print(posX + tableWidth - kadWidth, scoreY - fontSize, 0.0f, fontColor, kad, fontSize);
-        for (Size index = 0; index < ranking.entries.size(); index++) {
-            const auto &entry = ranking.entries[index];
-            posY = renderRankingEntry(entry, posX, posY, maxLength, fontSize, true);
-            for (const auto &nestedRankingEntry : entry.entries) {
-                posY = renderRankingEntry(nestedRankingEntry, posX, posY, maxLength, fontSize, true);
-            }
-            if (showTeamSeparators && index + 1 < ranking.entries.size()) {
-                posY -= teamSeparatorHeight;
-                renderer.setBlendFunc(BlendFunc::SrcAlpha);
-                renderer.quadXY(Vector(posX, posY + Int32(fontSize) + 4), Vector(tableWidth, 2),
-                                Color(255, 255, 255, 178));
-            }
-        }
-        if (showRoundProgress)
-            RoundSummaryCounter::render(renderer, font, video.getScreen().getClientWidth(), roundProgress);
     }
 
     void WorldRenderer::gameOverSummary() const {
@@ -416,10 +350,10 @@ namespace Duel6 {
             if (game.getRound().isLast()) {
                 gameOverSummary();
             } else {
-                roundOverSummary(showRoundSummaryProgress, true);
+                roundOverSummary(showRoundSummaryProgress);
             }
         } else if (game.isDisplayingScoreTab()) {
-            roundOverSummary(false, true);
+            roundOverSummary(false);
         }
     }
 }

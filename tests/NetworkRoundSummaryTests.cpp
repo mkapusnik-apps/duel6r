@@ -158,11 +158,12 @@ D6R_TEST_CASE("Non-final team rows aggregate K A D PTS before calculating the ra
 }
 
 D6R_TEST_CASE("Non-final lifecycle rows retain waiting departed and reconnecting identity without invented scores") {
-    auto state = summary(4);
+    auto state = summary(5);
     state.participants = {{1, true, R::ConnectionState::Reconnecting}, {2}};
     state.players[1].lifeState = R::LifeState::Waiting;
     state.players[2].lifeState = R::LifeState::Departed;
     state.players[3].lifeState = R::LifeState::Dead;
+    state.players[4].lifeState = R::LifeState::Dead;
     state.score.players[1] = {}; state.score.players[1].playerId = 101;
     const auto rows = S::rows(state);
     D6R_REQUIRE_EQ(std::string("Reconnecting"), rows[0].lifecycle);
@@ -170,15 +171,18 @@ D6R_TEST_CASE("Non-final lifecycle rows retain waiting departed and reconnecting
     D6R_REQUIRE_EQ((std::array<std::string, 5>{"0", "0", "0", "0.00", "0"}), rows[1].values);
     D6R_REQUIRE_EQ(Color::WHITE, rows[1].nameColor);
     D6R_REQUIRE_EQ(std::string("Departed"), rows[2].lifecycle);
-    D6R_REQUIRE_EQ(std::string("Dead"), rows[3].lifecycle);
+    D6R_REQUIRE(rows[3].lifecycle.empty());
     D6R_REQUIRE_EQ(Color::RED, rows[3].nameColor);
     D6R_REQUIRE_EQ(Color(0, 0, 255, 178), rows[3].background);
+    D6R_REQUIRE_EQ(std::string("Player 4 • Reconnecting"), S::rowLabel(rows[4], 600));
+    D6R_REQUIRE_EQ(Color::RED, rows[4].nameColor);
     D6R_REQUIRE_EQ(102u, rows[2].playerId);
 }
 
 D6R_TEST_CASE("Non-final ordinary score allocation matches Local Play padding typography and centered surfaces") {
     auto state = summary();
     state.players[0].displayName = "Maple"; state.players[1].displayName = "Oak";
+    state.players[1].lifeState = R::LifeState::Dead;
     const auto rows = S::rows(state);
     const auto layout = S::layout(rows, "Round outcome: Maple", 1280, 900);
     D6R_REQUIRE_EQ(496, layout.tableWidth); // (5 + 26) * 16, from OVER-02.
@@ -188,7 +192,7 @@ D6R_TEST_CASE("Non-final ordinary score allocation matches Local Play padding ty
     D6R_REQUIRE_EQ((900 - layout.height) / 2, layout.bottom);
     D6R_REQUIRE_EQ((1280 - layout.width) / 2, layout.left);
     D6R_REQUIRE_EQ(16, layout.tableLeft - layout.left);
-    D6R_REQUIRE_EQ(std::string(" K    A   D  K/D  PTS  "), S::headings(layout));
+    D6R_REQUIRE_EQ(std::string(" K    A   D  K/D  PTS  "), RoundScoreTable::headings(layout));
     D6R_REQUIRE_EQ(std::string("|  3|  2|  0| 3.00|  25"), S::numericText(rows[0], layout));
     D6R_REQUIRE_EQ(std::size_t(0), layout.maximumFirst);
 }

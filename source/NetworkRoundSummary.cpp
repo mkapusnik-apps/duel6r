@@ -1,5 +1,7 @@
 #include "NetworkRoundSummary.h"
 #include "RoundSummaryCounter.h"
+#include "ScoreSummaryGeometry.h"
+#include "gamemodes/Team.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +12,7 @@
 namespace Duel6::NetworkRoundSummary {
     namespace {
         namespace R = Network::Replication;
+        namespace T = RoundScoreTable;
         std::size_t length(std::string_view text) {
             return std::count_if(text.begin(), text.end(), [](unsigned char c) { return (c & 0xc0) != 0x80; });
         }
@@ -28,7 +31,6 @@ namespace Duel6::NetworkRoundSummary {
 
         std::string lifecycle(const R::CanonicalState &state, const R::PlayerState &player) {
             if (player.lifeState == R::LifeState::Departed) return "Departed";
-            if (player.lifeState == R::LifeState::Dead) return "Dead";
             if (player.lifeState == R::LifeState::Waiting) return "Waiting";
             const auto owner = std::find_if(state.participants.begin(), state.participants.end(), [&](const auto &p) {
                 return p.participantId == player.ownerParticipantId;
@@ -48,7 +50,7 @@ namespace Duel6::NetworkRoundSummary {
             return kd.str();
         }
 
-        std::array<std::string, 5> values(const R::ScoreRowState &score) {
+        T::Values values(const R::ScoreRowState &score) {
             return {std::to_string(score.kills), std::to_string(score.assists), std::to_string(score.deaths),
                     ratioText(float(score.kills), float(score.deaths)), std::to_string(score.cumulativePoints)};
         }
@@ -98,8 +100,7 @@ namespace Duel6::NetworkRoundSummary {
             return (below ? "-" : "") + positive.text();
         }
 
-        std::array<std::string, 5> teamValues(const std::vector<Row> &rows, std::size_t header,
-                                             const R::CanonicalState &state) {
+        T::Values teamValues(const std::vector<Row> &rows, std::size_t header, const R::CanonicalState &state) {
             Total kills, assists, deaths, positive, negative;
             for (auto index = header + 1; index < rows.size(); ++index) {
                 const auto score = std::find_if(state.score.players.begin(), state.score.players.end(), [&](const auto &s) {
@@ -145,6 +146,10 @@ namespace Duel6::NetworkRoundSummary {
         return Color(128, 0, 0, static_cast<Uint8>(200 - 200 * (remaining / D6_GAME_OVER_WAIT)));
     }
 
+    std::string teamName(unsigned team) {
+        return team > 0 && team <= TEAMS.size() ? TEAMS[team - 1].name : std::to_string(team);
+    }
+
     std::vector<Row> rows(const R::CanonicalState &state) {
         std::vector<Row> result;
         const auto appendPlayers = [&](unsigned team, bool nested) {
@@ -170,19 +175,18 @@ namespace Duel6::NetworkRoundSummary {
         };
         if (state.score.teamRanking.empty()) appendPlayers(0, false);
         else {
-            static const char *names[] = {"", "Alpha", "Bravo", "Charlie", "Delta"};
-            static const Color colors[] = {Color::WHITE, Color::RED, Color::GREEN, Color::YELLOW, Color::MAGENTA};
             for (const auto team: state.score.teamRanking) {
-                if (team == 0 || team > 4) continue;
+                if (team == 0 || team > TEAMS.size()) continue;
                 Row row;
-                row.name = names[team]; row.team = true; row.separatorBefore = !result.empty();
-                row.nameColor = Color::BLACK; row.background = colors[team].withAlpha(178);
+                row.name = teamName(team); row.team = true; row.separatorBefore = !result.empty();
+                const Color background = TEAMS[team - 1].color.withAlpha(178);
+                row.nameColor = Color::BLACK; row.background = background;
                 const auto header = result.size();
                 result.push_back(std::move(row));
                 appendPlayers(team, true);
                 result[header].values = teamValues(result, header, state);
                 for (auto index = header + 1; index < result.size(); ++index)
-                    result[index].background = colors[team].withAlpha(178).scale(0.2f);
+                    result[index].background = background.scale(0.2f);
             }
         }
         return result;
@@ -197,70 +201,61 @@ namespace Duel6::NetworkRoundSummary {
     Layout layout(const std::vector<Row> &rows, const std::string &outcome,
                   int clientWidth, int clientHeight, std::size_t requestedFirst, int statusRows) {
         Layout result;
-        result.columnCharacters = {4, 4, 4, 6, 5};
-        auto desiredColumns = result.columnCharacters;
+        auto columns = T::OrdinaryColumns;
+        auto desiredColumns = columns;
         int nameCharacters = 0;
-        int minimumNameWidth = GlyphWidth + 5;
+        int minimumNameWidth = T::GlyphWidth + T::PlayerNameInset;
         for (const auto &row: rows) {
-            nameCharacters = std::max(nameCharacters, int(length(row.name)
-                    + (row.lifecycle.empty() ? 0 : length(row.lifecycle) + 3)));
+            const int suffixLength = row.lifecycle.empty() ? 0 : int(length(row.lifecycle)) + 3;
+            // Preserve Local Play's ordinary allocation (Ranking measures stored name bytes).
+            nameCharacters = std::max(nameCharacters, int(row.name.size()) + suffixLength);
             minimumNameWidth = std::max(minimumNameWidth,
-                    (1 + int(row.lifecycle.empty() ? 0 : length(row.lifecycle) + 3)) * GlyphWidth + 5);
+                    (1 + suffixLength) * T::GlyphWidth + T::PlayerNameInset);
             for (std::size_t col = 0; col < row.values.size(); ++col)
-                desiredColumns[col] = std::max(desiredColumns[col], int(length(row.values[col])) + 1);
+                desiredColumns[col] = std::max(desiredColumns[col], int(row.values[col].size()) + 1);
         }
-        int desiredNumericWidth = 0;
-        for (const auto count: desiredColumns) desiredNumericWidth += count * GlyphWidth;
-        // Local OVER-02: (maximum name + 26) glyphs, 16px outer padding,
-        // and the score strip's additional 5px overhang on either side.
-        result.tableWidth = std::min((nameCharacters + 3) * GlyphWidth + desiredNumericWidth, clientWidth - 74);
+        const int edgeClearance = 16;
+        const int tableInset = ScoreSummaryGeometry::SidePadding + ScoreSummaryGeometry::StripOverhang;
+        const int tableWidth = std::min(T::preferredWidth(nameCharacters, desiredColumns),
+                                        clientWidth - 2 * (edgeClearance + tableInset));
         // First contain names, retaining an indication plus the full lifecycle
         // suffix. Only then spend the remaining whole glyphs on numeric growth.
-        int extra = (result.tableWidth - minimumNameWidth) / GlyphWidth - 23;
+        int extra = (tableWidth - minimumNameWidth - T::numericWidth(columns)) / T::GlyphWidth;
         bool expanded = true;
         while (extra > 0 && expanded) {
             expanded = false;
             for (std::size_t col = 0; col < desiredColumns.size() && extra > 0; ++col) {
-                if (result.columnCharacters[col] >= desiredColumns[col]) continue;
-                ++result.columnCharacters[col]; --extra; expanded = true;
+                if (columns[col] >= desiredColumns[col]) continue;
+                ++columns[col]; --extra; expanded = true;
             }
         }
-        int numericWidth = 0;
-        for (const auto count: result.columnCharacters) numericWidth += count * GlyphWidth;
-        result.nameWidth = result.tableWidth - numericWidth;
-        result.width = result.tableWidth + 32;
-        result.left = (clientWidth - result.width) / 2;
-        result.tableLeft = (clientWidth - result.tableWidth) / 2;
-        result.outcomeRows = wrap(outcome, std::max(1, (result.width - 32) / 8));
+        result.outcomeRows = wrap(outcome, std::max(1, tableWidth / 8));
 
         // Reserve the actual status and action/waiting stack above the external
         // counter. Only the ranking body yields space to this fixed footer.
         result.phaseY = footer(statusRows).phaseY;
         result.outcomeY = result.phaseY + 22;
         const int minimumBottom = result.outcomeY + int(result.outcomeRows.size()) * 18 + 16;
-        const int maximumTop = clientHeight - 16;
-        const int bodyBudget = std::max(TextHeight, maximumTop - minimumBottom - 160);
+        const int maximumTop = clientHeight - edgeClearance;
+        const int bodyBudget = std::max(T::TextHeight, maximumTop - minimumBottom - ScoreSummaryGeometry::BaseHeight);
         int used = 0;
         result.maximumFirst = rows.size();
         while (result.maximumFirst > 0) {
             const auto previous = result.maximumFirst - 1;
-            const int added = TextHeight + (result.maximumFirst < rows.size()
-                    && rows[result.maximumFirst].separatorBefore ? SeparatorHeight : 0);
+            const int added = T::TextHeight + (result.maximumFirst < rows.size()
+                    && rows[result.maximumFirst].separatorBefore ? T::SeparatorHeight : 0);
             if (used + added > bodyBudget) break;
             used += added; --result.maximumFirst;
         }
         result.first = std::min(requestedFirst, result.maximumFirst);
         used = 0;
         for (auto index = result.first; index < rows.size(); ++index) {
-            const int added = TextHeight + (index > result.first && rows[index].separatorBefore ? SeparatorHeight : 0);
+            const int added = T::TextHeight + (index > result.first && rows[index].separatorBefore ? T::SeparatorHeight : 0);
             if (used + added > bodyBudget) break;
             used += added; ++result.count;
         }
-        result.height = 160 + (result.maximumFirst != 0 ? bodyBudget : used);
-        result.bottom = std::clamp((clientHeight - result.height) / 2, minimumBottom,
-                                  std::max(minimumBottom, maximumTop - result.height));
-        result.scoreY = result.bottom + result.height - 64;
-        result.firstRowY = result.scoreY - 64;
+        static_cast<T::Layout &>(result) = T::layout(tableWidth, result.maximumFirst != 0 ? bodyBudget : used,
+                clientWidth, clientHeight, minimumBottom, maximumTop, columns);
         // Keep the plain network footer adjacent to a centered local panel.
         const int shift = result.bottom - minimumBottom;
         result.phaseY += shift; result.outcomeY += shift;
@@ -268,7 +263,7 @@ namespace Duel6::NetworkRoundSummary {
     }
 
     std::string rowLabel(const Row &row, int availablePixels) {
-        const auto columns = std::size_t(std::max(0, availablePixels / GlyphWidth));
+        const auto columns = std::size_t(std::max(0, availablePixels / T::GlyphWidth));
         const std::string suffix = row.lifecycle.empty() ? "" : " • " + row.lifecycle;
         const auto suffixLength = length(suffix);
         if (columns <= suffixLength) return clip(suffix, columns);
@@ -276,28 +271,17 @@ namespace Duel6::NetworkRoundSummary {
     }
 
     std::string numericText(const Row &row, const Layout &layout) {
-        std::string text;
-        for (std::size_t col = 0; col < row.values.size(); ++col) {
-            const int available = layout.columnCharacters[col] - 1;
-            const auto &value = row.values[col];
-            const std::string visible = int(length(value)) <= available ? value
-                    : !value.empty() && value.front() == '-' ? "-…" : "…";
-            text += '|';
-            text.append(std::max(0, available - int(length(visible))), ' ');
-            text += visible;
-        }
-        return text;
+        return T::numericText(row.values, layout.columnCharacters, true);
     }
 
-    std::string headings(const Layout &layout) {
-        // Match the original local heading exactly at its ordinary allocation;
-        // extra numeric digits expand only the corresponding column.
-        static const char *parts[] = {" K  ", "  A ", "  D ", " K/D  ", "PTS  "};
-        static const int minimum[] = {4, 4, 4, 6, 5};
-        std::string result;
-        for (int col = 0; col < 5; ++col) {
-            result.append(layout.columnCharacters[col] - minimum[col], ' ');
-            result += parts[col];
+    std::vector<T::Row> visibleRows(const std::vector<Row> &rows, const Layout &layout) {
+        std::vector<T::Row> result;
+        result.reserve(layout.count);
+        for (auto index = layout.first; index < layout.first + layout.count; ++index) {
+            const auto &row = rows[index];
+            const int padding = row.team ? 0 : T::PlayerNameInset;
+            result.push_back({rowLabel(row, layout.nameWidth - padding), numericText(row, layout),
+                              row.nameColor, row.background, row.team, row.separatorBefore});
         }
         return result;
     }
