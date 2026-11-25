@@ -17,4 +17,4 @@ The representative PLAY-01 evidence must use a valid configuration.
 F2 does not change this layout.
 Mode, player count, score, result, sudden-death, and console variants do not create another arena view.
 
-Representative screenshot: [`SS-003`](../../screenshots/README.md#ss-003).
+Representative screenshot: [`SS-003`](../../design/screenshots/legacy.md#ss-003).

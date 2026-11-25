@@ -80,4 +80,4 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 
 ## Screenshot link
 
-Representative evidence: [`SS-011`](../screenshots/README.md#ss-011).
+Representative evidence: [`SS-011`](../design/screenshots/legacy.md#ss-011).

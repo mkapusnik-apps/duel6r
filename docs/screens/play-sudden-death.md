@@ -42,4 +42,4 @@ Primary sources are `source/Round.cpp:146-200`, `source/gamemodes/GameModeBase.c
 
 ## Screenshot link
 
-Representative evidence: [`SS-009`](../screenshots/README.md#ss-009).
+Representative evidence: [`SS-009`](../design/screenshots/legacy.md#ss-009).

@@ -79,4 +79,4 @@ The same score-column selection and full supporting-field access apply when thes
 
 For score-column parity, verify the exact Local Play columns and formatting, Team aggregates, unchanged cumulative/per-round scope, and complete access to every displaced field in both final and retained results.
 
-UX owns the coordinated representative coverage, including existing [`SS-020`](../screenshots/README.md#ss-020). Earlier visual artifacts do not establish acceptance of the common final-screen appearance.
+UX owns the coordinated representative coverage, including existing [`SS-020`](../design/screenshots/legacy.md#ss-020). Earlier visual artifacts do not establish acceptance of the common final-screen appearance.

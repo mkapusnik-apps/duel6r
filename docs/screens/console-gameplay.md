@@ -40,4 +40,4 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 ## Screenshot link
 
-Representative evidence: [`SS-014`](../screenshots/README.md#ss-014).
+Representative evidence: [`SS-014`](../design/screenshots/legacy.md#ss-014).

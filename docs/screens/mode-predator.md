@@ -38,4 +38,4 @@ Primary sources are `source/gamemodes/Predator.cpp`, `source/gamemodes/PredatorP
 
 ## Screenshot link
 
-Representative evidence: [`SS-007`](../screenshots/README.md#ss-007).
+Representative evidence: [`SS-007`](../design/screenshots/legacy.md#ss-007).

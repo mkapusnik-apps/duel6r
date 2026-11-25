@@ -195,4 +195,4 @@ The explicit confirmation variant [NET-05-C](../design/wireframes/NET-05/NET-05-
 - Functional evidence must vary controlled identity tuples and show that every item in the eligible background list can be selected.
 - Functional evidence must show that fallback selection uses no gameplay RNG, canonical background field, profile fallback, or peer content and does not change canonical state or results.
 
-Planned representative screenshot: [`SS-019`](../screenshots/README.md#ss-019).
+Planned representative screenshot: [`SS-019`](../design/screenshots/legacy.md#ss-019).

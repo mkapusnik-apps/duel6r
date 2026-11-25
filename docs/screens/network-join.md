@@ -104,4 +104,4 @@ Entry is `NET-01` → Join → mixed `NET-10` → Direct connect or eligible pla
 - A profile or cosmetic difference must not create an inline warning, compatibility failure, or disabled Connect state.
 - A required default network visual resource failure must use the existing required-resource failure behavior and must not load peer content as a fallback.
 
-Planned representative screenshot: [`SS-017`](../screenshots/README.md#ss-017).
+Planned representative screenshot: [`SS-017`](../design/screenshots/legacy.md#ss-017).

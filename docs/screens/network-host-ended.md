@@ -46,4 +46,4 @@ A valid intentional host End session notice accepted through the current establi
 - Keyboard Enter, Space, or Escape and controller Confirm or Back activate Return to Network; pointer activation remains available.
 - The state must remain legible without color and must not animate as though reconnection is in progress.
 
-Planned representative screenshot: [`SS-023`](../screenshots/README.md#ss-023).
+Planned representative screenshot: [`SS-023`](../design/screenshots/legacy.md#ss-023).

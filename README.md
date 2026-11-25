@@ -3,7 +3,7 @@
 ## Description
 Duel 6 Reloaded is a **cross-platform open-source last-man-standing 2D multiplayer game**. The game currently supports up to **15 players** that can compete in **28 arenas**. The arenas consist of solid blocks, moving platforms, and water sections. Players move through the environment by walking, jumping, and crouching, and use weapons to eliminate their opponents. The implementation contains **17 weapons** with different shot and reload speeds, shot power, and splash damage; the shipped configuration disables four of them by default. In addition, players can pick up various bonuses that alter their capabilities. The number of rounds can be specified, and the game collects player **statistics** during gameplay, such as wins, kills, and accuracy. Suicide and drowning receive negative points to discourage kamikaze attacks. The game features **customizable player profiles** and a **level editor**.
 
-The canonical behavior specification is [`docs/features.md`](docs/features.md). The canonical visual design system, screen inventory, and screenshot manifest are [`docs/design.md`](docs/design.md), [`docs/screens/README.md`](docs/screens/README.md), and [`docs/screenshots/README.md`](docs/screenshots/README.md).
+The canonical behavior specification is [`docs/features.md`](docs/features.md). The canonical visual design system, screen inventory, and screenshot manifest are [`docs/design.md`](docs/design.md), [`docs/screens/README.md`](docs/screens/README.md), and [`docs/design/screenshots/README.md`](docs/design/screenshots/README.md).
 
 ## Network package operations (experimental)
 

@@ -32,4 +32,4 @@ The window close action remains available.
 Other message variants replace only the message text and computed width.
 The selected background filename, cover crop, blur, scrim, menu scale, and keyline remain unchanged from the underlying `MENU-01` session.
 
-Planned representative screenshot for downstream issue #38: [`SS-002`](../../screenshots/README.md#ss-002).
+Planned representative screenshot for downstream issue #38: [`SS-002`](../../design/screenshots/legacy.md#ss-002).

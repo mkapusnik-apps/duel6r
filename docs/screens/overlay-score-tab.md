@@ -49,4 +49,4 @@ Primary sources are `source/Game.cpp:62-83` and `source/WorldRenderer.cpp:120-16
 
 ## Screenshot link
 
-Representative evidence: [`SS-010`](../screenshots/README.md#ss-010).
+Representative evidence: [`SS-010`](../design/screenshots/legacy.md#ss-010).

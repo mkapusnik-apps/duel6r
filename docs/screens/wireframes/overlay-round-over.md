@@ -36,4 +36,4 @@ An unlimited-match variant retains its existing layout without this counter or f
 Final Team and non-Team summaries retain their separate existing final-screen contract; this footer does not apply to them.
 The active-round Team Tab overlay uses the same separator treatment without the progress row or curtain.
 
-Representative screenshot: [`SS-011`](../../screenshots/README.md#ss-011).
+Representative screenshot: [`SS-011`](../../design/screenshots/legacy.md#ss-011).

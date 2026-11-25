@@ -18,4 +18,4 @@ The [functional owner](../network-reconnect.md), [NET-07 presentation owner](../
 - Successful reconnect restores those same slots and ownership without add, remove, replacement, reorder, or transfer.
 - Leave or authoritative expiry removes all slots owned by the participant, and their identities are not reused during the session.
 
-Planned representative screenshot: [`SS-021`](../../screenshots/README.md#ss-021).
+Planned representative screenshot: [`SS-021`](../../design/screenshots/legacy.md#ss-021).

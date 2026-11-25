@@ -38,7 +38,7 @@ Browsing, optional password admission, and round-one admission follow the existi
 - **NET-ENTRY-AC-003 — Direct recovery:** With the directory unavailable, Join still opens `NET-10`, and its existing Direct connect action reaches editable `NET-03` without a browser-selected session. Back from direct setup returns to `NET-01`. This criterion applies existing NET-DIR-015 and NET-DIR-AC-004 to the changed entry route.
 - **NET-ENTRY-AC-004 — Unavailable runtime:** Network-runtime unavailability retains the disabled Host and Join actions and the exact reason above. Back remains usable and preserves local setup.
 
-Final product acceptance requires behavioral evidence for these criteria at the frozen candidate and UX assessment with implementation evidence from the coordinated screenshot matrix for the compact modal and removed explanatory text. Earlier network-entry evidence does not establish the changed actions, route, or presentation. Representative screenshot reference: [`SS-015`](../screenshots/README.md#ss-015).
+Final product acceptance requires behavioral evidence for these criteria at the frozen candidate and UX assessment with implementation evidence from the coordinated screenshot matrix for the compact modal and removed explanatory text. Earlier network-entry evidence does not establish the changed actions, route, or presentation. Representative screenshot reference: [`SS-015`](../design/screenshots/README.md#net-01-modal-current-coverage).
 
 ### Preserved dedicated and mixed-session contract
 

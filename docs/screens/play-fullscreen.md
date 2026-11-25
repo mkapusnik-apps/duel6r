@@ -95,4 +95,4 @@ The shared functional states are active world, first-second round-end update, fr
 
 ## Screenshot link
 
-Representative evidence: [`SS-003`](../screenshots/README.md#ss-003).
+Representative evidence: [`SS-003`](../design/screenshots/legacy.md#ss-003).

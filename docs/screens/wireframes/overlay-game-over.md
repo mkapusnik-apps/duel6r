@@ -50,4 +50,4 @@ The final state does not show `Game Over`, `Exit`, or `Return to menu`.
 
 </details>
 
-Representative screenshot: [`SS-012`](../../screenshots/README.md#ss-012).
+Representative screenshot: [`SS-012`](../../design/screenshots/legacy.md#ss-012).

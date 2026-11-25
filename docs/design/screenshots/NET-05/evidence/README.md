@@ -1,16 +1,16 @@
 # PR #87 durable capture provenance
 
-The [authoritative screenshot manifest](../../../../screenshots/README.md#network-arena-orientation--current-coverage) owns the accepted representatives, hashes, reproduction inputs, and visual assessment. This directory is a provenance integration index, not another screenshot matrix or assessment.
+The [PR #87 orientation record](../../legacy.md#network-arena-orientation--current-coverage) owns the accepted representatives, hashes, reproduction inputs, and visual assessment. This directory is a provenance integration index, not another screenshot matrix or assessment.
 
-All evidence records the accepted checkpoint `84f63bc6fdee75444b06723b3c5f542546e27b15`, with production source unchanged from `78d97e5c9c4791262a81ffd4b0823671034ec872`. The seven assessed PNGs remain at their canonical destinations; they are not duplicated here.
+All evidence records the accepted checkpoint `84f63bc6fdee75444b06723b3c5f542546e27b15`, with production source unchanged from `78d97e5c9c4791262a81ffd4b0823671034ec872`. The seven assessed PNGs are preserved in the accepted orientation snapshot; later captures at the same destinations are not described by these sidecars.
 
 ## Durable packet mapping
 
 The former temporary packet `/tmp/opencode/pr87-orientation-evidence/` is no longer needed. Its selected files map as follows:
 
 - `captures.json` and `runtime-assets.sha256`: this directory, unchanged bytes.
-- `ss019-final.png.json`: sidecar for [SS-019](../../../../screenshots/NET-05/six-player-lan-degraded-1280x900.png).
-- `ss026-final.png.json`: sidecar for [SS-026](../NET-05-C.png).
+- `ss019-final.png.json`: sidecar for [the PR #87 SS-019 original](https://github.com/mkapusnik-apps/duel6r/blob/ba3d484a44d9f9a8f1b2190cfff0187f716edf0e/docs/screenshots/NET-05/six-player-lan-degraded-1280x900.png).
+- `ss026-final.png.json`: sidecar for [the PR #87 SS-026 original](https://github.com/mkapusnik-apps/duel6r/blob/ba3d484a44d9f9a8f1b2190cfff0187f716edf0e/docs/design/screenshots/NET-05/NET-05-C.png).
 - `network-x-mirrored.png.json`, `local-round-a.png.json`, and `local-round-f.png.json`: sidecars for the three `orientation-*.png` comparisons in the parent directory.
 - `local-console-a.png`, `local-console-f.png`, `host-end-confirm.png`, and `gl-info.png`, with their JSON sidecars: this directory.
 - `ss021-final.png.json` and `reconnect-restored.png` with its JSON sidecar: [NET-07 evidence](../../NET-07/evidence/README.md).

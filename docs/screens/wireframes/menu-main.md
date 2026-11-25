@@ -176,12 +176,12 @@ The SVGs use monochrome structural shapes and external annotations. Production c
 - In the non-Team representative state, `Remove` must make no visible change when a representative person is selected because all eight are roster members.
 - `<<` and a player-row double-click must remove the applicable roster entry without removing that person from Persons.
 
-Non-Team representative screenshot: [`SS-001`](../../screenshots/README.md#ss-001).
-Teams representative screenshot: [`SS-024`](../../screenshots/README.md#ss-024).
+Non-Team representative screenshot: [`SS-001`](../../design/screenshots/legacy.md#ss-001).
+Teams representative screenshot: [`SS-024`](../../design/screenshots/legacy.md#ss-024).
 The PR #59 screenshots are historical because they show the prior person-action arrangement.
 The PR #60 Teams and non-Team artifacts are historical because they show the prior list height, person-name position, button geometry, and batch controller-detection caption.
 The PR #62 Teams and non-Team artifacts are historical because they show `<<` in Persons.
 The current PR #69 Teams and non-Team artifacts conform at assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
-The historical baseline at [`default-1706x938.png`](../../screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
+The historical baseline at [`default-1706x938.png`](../../design/screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Historical capture instruction: issue #38 was to replace these screenshots when it implemented the target footer variant. The linked screenshot manifest owns current artifact status and provenance.
