@@ -104,4 +104,4 @@ Entry is `NET-01` → Join → mixed `NET-10` → Direct connect or eligible pla
 - A profile or cosmetic difference must not create an inline warning, compatibility failure, or disabled Connect state.
 - A required default network visual resource failure must use the existing required-resource failure behavior and must not load peer content as a fallback.
 
-[Legacy SS-017 Connecting recipe](../design/screenshots/legacy.md#ss-017). The [current NET-03-P Direct setup capture](../design/screenshots/README.md#current-net-03-p) is the editable state before any connection attempt, not a Connecting capture.
+The [current SS-017 Connecting capture](../design/screenshots/README.md#current-ss-017) follows the connection attempt. The [current NET-03-P Direct setup capture](../design/screenshots/README.md#current-net-03-p) is the editable state before any connection attempt, not a Connecting capture. See also the [legacy SS-017 recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-017).

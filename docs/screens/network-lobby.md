@@ -114,4 +114,4 @@ Retained cumulative and per-round score tables follow [NET-06's score columns an
 - Differences between installed profiles or cosmetic assets must not change readiness, show a compatibility warning, or block Start match. Accepted person changes still clear readiness under the existing rules.
 - Person replacement and accepted colors, hair, and headband must follow NET-VIS-018–024 atomically. The lobby adds no profile selector, preview, or appearance-only action.
 
-Planned representative screenshot: [`SS-018`](../design/screenshots/legacy.md#ss-018).
+Current representative: [SS-018 — dedicated controller lobby](../design/screenshots/README.md#current-ss-018).

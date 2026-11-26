@@ -32,4 +32,4 @@ The window close action remains available.
 Other message variants replace only the message text and computed width.
 The selected background filename, cover crop, blur, scrim, menu scale, and keyline remain unchanged from the underlying `MENU-01` session.
 
-Current representative: [SS-002 — delete confirmation over the four-action footer](../../design/screenshots/README.md#current-ss-002). The [original issue #38 recipe](../../design/screenshots/legacy.md#ss-002) is historical.
+Current representative: [SS-002 — delete confirmation over the four-action footer](../../design/screenshots/README.md#current-ss-002). The [original issue #38 recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-002) is historical.

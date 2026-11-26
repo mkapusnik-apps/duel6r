@@ -46,4 +46,4 @@ Primary sources are `source/Application.cpp:158-185`, `source/Video.cpp:82-90`, 
 
 ## Screenshot link
 
-Current representative: [SS-013 — console over the four-action footer](../design/screenshots/README.md#current-ss-013). The [original issue #38 recipe](../design/screenshots/legacy.md#ss-013) is historical.
+Current representative: [SS-013 — console over the four-action footer](../design/screenshots/README.md#current-ss-013). The [original issue #38 recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-013) is historical.

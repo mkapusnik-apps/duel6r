@@ -12,4 +12,4 @@ The water rises in timed discrete steps.
 The state has no sudden-death banner.
 All remaining players stay visible in the shared arena.
 
-Representative screenshot: [`SS-009`](../../design/screenshots/legacy.md#ss-009).
+Current representative: [SS-009 — rising water and air feedback](../../design/screenshots/README.md#current-ss-009).

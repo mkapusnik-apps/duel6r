@@ -29,4 +29,4 @@ This reuses the current canonical SVG unchanged. The [functional owner](../netwo
 - Focused revalidation must show that Cancel restores the retained endpoint and two slots.
 - Separate focused revalidation must show `Connection timed out.` when the controlled host withholds every complete terminal result through the original 10-second deadline.
 
-[Legacy SS-017 Connecting recipe](../../design/screenshots/legacy.md#ss-017). The [current NET-03-P Direct setup capture](../../design/screenshots/README.md#current-net-03-p) precedes Connect and does not show this state.
+The [current SS-017 Connecting capture](../../design/screenshots/README.md#current-ss-017) follows Connect; the [current NET-03-P Direct setup capture](../../design/screenshots/README.md#current-net-03-p) precedes it. See also the [legacy SS-017 recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-017).

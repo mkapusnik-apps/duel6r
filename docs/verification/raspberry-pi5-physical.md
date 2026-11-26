@@ -121,7 +121,7 @@ unchanged bundle passed `duel6r-main-menu-smoke` in an isolated execution copy
 under Xvfb/dummy audio. The same CI game binary then ran on V3D: two-player
 Deathmatch setup, console, live arena, held-Tab score, return to menu and clean
 exit, with empty stderr. Existing arena/score image assertions passed.
-[Four original V3D captures and provenance](../design/screenshots/pi5/README.md)
+[Four original V3D captures and provenance](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/pi5/README.md)
 are retained. They do not complete the full platform visual matrix.
 
 Temperature observations ranged from 60.9 to 74.1 °C; sampled `get_throttled`

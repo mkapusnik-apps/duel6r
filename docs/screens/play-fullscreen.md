@@ -95,4 +95,4 @@ The shared functional states are active world, first-second round-end update, fr
 
 ## Screenshot link
 
-Representative evidence: [`SS-003`](../design/screenshots/legacy.md#ss-003).
+The [current SS-003 row](../design/screenshots/README.md#current-ss-003) records the missing unmirrored Local Play representative.

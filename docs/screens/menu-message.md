@@ -68,4 +68,4 @@ The former `MENU-02-MAC-LOCAL` variant and its restriction/dismissal requirement
 
 ## Screenshot link
 
-Current representative: [SS-002 — delete confirmation over the four-action footer](../design/screenshots/README.md#current-ss-002). The [original issue #38 recipe](../design/screenshots/legacy.md#ss-002) is historical.
+Current representative: [SS-002 — delete confirmation over the four-action footer](../design/screenshots/README.md#current-ss-002). The [original issue #38 recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-002) is historical.

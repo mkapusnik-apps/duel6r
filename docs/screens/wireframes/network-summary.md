@@ -20,6 +20,8 @@ The [functional contract](../overlay-game-over.md#common-final-screen-contract),
 - The content-sized panel keeps its single strip/current column headings visible above a bounded result viewport. Only actual overflow receives navigation feedback. Required status/persistence/waiting copy and role actions remain outside scrolling content.
 - Wide result tables provide an internal horizontal scroll control and keep their column headings visible.
 
-Current representative: [NET-06 / SS-020 compact final](../../design/screenshots/README.md#current-ss-020). The [compact-final matrix](../../design/screenshots/README.md#compact-final-scoreboard) retains that identity without inheriting an old round-count recipe.
+Current representative: [NET-06 / SS-020 compact final](../../design/screenshots/README.md#current-ss-020). The [compact-final matrix][compact-final-evidence] retains that identity without inheriting an old round-count recipe.
 
-Complete winner identities, scope, departure state and UTF-8 values remain accessible independently of current membership under the [summary specification](../network-summary.md). The [compact-final matrix](../../design/screenshots/README.md#compact-final-scoreboard) owns this follow-up's focused evidence; broader historical recipes do not impose another outcome-hunting journey for the removed chrome.
+Complete winner identities, scope, departure state and UTF-8 values remain accessible independently of current membership under the [summary specification](../network-summary.md). The [compact-final matrix][compact-final-evidence] owns this follow-up's focused evidence; broader historical recipes do not impose another outcome-hunting journey for the removed chrome.
+
+[compact-final-evidence]: https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/README.md#compact-final-scoreboard

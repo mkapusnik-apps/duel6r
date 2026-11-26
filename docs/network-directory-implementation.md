@@ -205,7 +205,7 @@ LAN evidence to nightly testing under the
 [canonical deferral](network-host-directory.md#deferred-nightly-platform-evidence).
 Those checks remain **not executed**, not passed. Source review approved
 `6809885ecfe5dc622f03a1bafec0580ba6157602`; independent local QA passed, and
-[UX accepted all eight supplied representatives](design/screenshots/README.md#current-host-directory-visual-assessment)
+[UX accepted all eight supplied representatives](https://github.com/mkapusnik-apps/duel6r/blob/e916d1769943e5ca0c31b4c174e25a9d5388e7d3/docs/design/screenshots/README.md#current-host-directory-visual-assessment)
 with their original capture lineage and disclosed fixture limits. Product assessed
 the other criteria as satisfied in the observed environments. This does not remove
 supported-platform requirements or certify environments that were not exercised.

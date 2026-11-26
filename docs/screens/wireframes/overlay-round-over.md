@@ -36,4 +36,4 @@ An unlimited-match variant retains its existing layout without this counter or f
 Final Team and non-Team summaries retain their separate existing final-screen contract; this footer does not apply to them.
 The active-round Team Tab overlay uses the same separator treatment without the progress row or curtain.
 
-Current representative: [SS-011 — non-final Team result at `1|2`](../../design/screenshots/README.md#current-ss-011). The [resumed `3|5` recipe](../../design/screenshots/legacy.md#ss-011) is historical.
+The [current SS-011 row](../../design/screenshots/README.md#current-ss-011) records the missing non-final Team representative. The [resumed `3|5` recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-011) is historical.

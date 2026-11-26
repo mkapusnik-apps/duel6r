@@ -18,4 +18,4 @@ The [functional owner](../network-reconnect.md), [NET-07 presentation owner](../
 - Successful reconnect restores those same slots and ownership without add, remove, replacement, reorder, or transfer.
 - Leave or authoritative expiry removes all slots owned by the participant, and their identities are not reused during the session.
 
-Planned representative screenshot: [`SS-021`](../../design/screenshots/legacy.md#ss-021).
+Current representative: [SS-021 — dedicated controller reconnecting](../../design/screenshots/README.md#current-ss-021). The [earlier Guest reconnect recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-021) is separate.
