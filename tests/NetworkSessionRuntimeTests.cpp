@@ -2743,7 +2743,7 @@ D6R_TEST_CASE("Non-final local counter removes the panel row and keeps measured 
     for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1280, 900}, std::pair{1920, 1080}}) {
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         f.recorder.quads.clear(); f.recorder.draws.clear();
-        local.roundOverSummary(true, true);
+        local.roundOverSummary(true);
         requireBottomCounter(f, size.first, "Rounds: 12|99");
         const auto panel = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &q) {
             return q.material.getTexture() == Texture{} && q.material.getColor() == Color(255,255,255,80);
@@ -2756,7 +2756,7 @@ D6R_TEST_CASE("Non-final local counter removes the panel row and keeps measured 
         D6R_REQUIRE_EQ(panel->vertices[2].y - 64, heading.vertices[0].y);
         const auto panelWidth = panel->vertices[2].x - panel->vertices[0].x;
         game.setPlayedRounds(12345); f.application.gameSettings.setMaxRounds(99999);
-        f.recorder.quads.clear(); f.recorder.draws.clear(); local.roundOverSummary(true, true);
+        f.recorder.quads.clear(); f.recorder.draws.clear(); local.roundOverSummary(true);
         requireBottomCounter(f, size.first, "Rounds: 12345|99999");
         const auto samePanel = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &q) {
             return q.material.getTexture() == Texture{} && q.material.getColor() == Color(255,255,255,80);
@@ -2765,7 +2765,7 @@ D6R_TEST_CASE("Non-final local counter removes the panel row and keeps measured 
         D6R_REQUIRE_EQ(panelWidth, samePanel->vertices[2].x - samePanel->vertices[0].x);
         for (bool unlimited: {false, true}) {
             f.application.gameSettings.setMaxRounds(unlimited ? 0 : 99);
-            f.recorder.quads.clear(); f.recorder.draws.clear(); local.roundOverSummary(false, true);
+            f.recorder.quads.clear(); f.recorder.draws.clear(); local.roundOverSummary(false);
             D6R_REQUIRE(!f.text("Rounds: 12345|99999") && !f.text("Rounds: 12345|99") && !f.text("Rounds: 12345|0"));
             D6R_REQUIRE(f.text("---SCORE---"));
         }
@@ -2792,7 +2792,7 @@ D6R_TEST_CASE("Compact local final uses the actual interim frame strip and score
                            std::pair{1920, 1080}}) {
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         f.recorder.quads.clear(); f.recorder.draws.clear();
-        local.roundOverSummary(false, true);
+        local.roundOverSummary(false);
         const auto panel = std::find_if(f.recorder.quads.begin(), f.recorder.quads.end(), [](const auto &q) {
             return q.material.getTexture() == Texture{} && q.material.getColor() == Color(255,255,255,80);
         });
@@ -3026,6 +3026,82 @@ D6R_TEST_CASE("Non-final renderer paints full-client countdown curtain before re
     }
 }
 
+D6R_TEST_CASE("Non-final ordinary Local Play and network draw the same table with plain red dead names") {
+    namespace R = Network::Replication;
+    for (bool teams: {false, true}) {
+        ReviewMenuFixture f;
+        auto controls = PlayerControls::keyboardControls("Parity", f.application.input,
+            SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN);
+        std::array<Person, 2> people{Person("Mäple", nullptr), Person("Oak", nullptr)};
+        std::vector<Game::PlayerDefinition> definitions;
+        for (auto &person: people)
+            definitions.emplace_back(person, PlayerSkinColors(Color::WHITE), f.application.menu->defaultPlayerSounds, *controls);
+        DeathMatch solo;
+        TeamDeathMatch teamMode(2, false);
+        auto &game = *f.application.game;
+        auto &mode = teams ? static_cast<GameMode &>(teamMode) : static_cast<GameMode &>(solo);
+        f.application.gameSettings.setMaxRounds(2);
+        game.start(definitions, {"levels/duel_01.json"}, {}, mode);
+        game.getPlayers()[0].die();
+        people[0].addKills(4).addAssistances(3).addDeaths(2);
+        people[1].addKills(2).addAssistances(1);
+        // An odd viewport catches centering differences; the multibyte name
+        // also verifies that the network prefers the local width when it fits.
+        f.video.screen = ScreenParameters(1281, 901, 24, 24, 0, false);
+        WorldRenderer local(f.service, game);
+        f.recorder.quads.clear(); f.recorder.draws.clear();
+        local.roundOverSummary(false);
+        const auto localTable = f.recorder.quads;
+        D6R_REQUIRE_EQ(Color::RED, reviewTextQuad(f, "Mäple").material.getColor());
+        D6R_REQUIRE_EQ(Color::YELLOW, reviewTextQuad(f, "Oak").material.getColor());
+
+        f.lobby();
+        auto &state = *f.menu.runtime.current.canonical;
+        state.phase = R::Phase::RoundSummary; state.currentRoundNumber = 1; state.settings.roundLimit = 2;
+        state.roundEndCountdown = 240;
+        state.players[0].displayName = "Mäple"; state.players[0].lifeState = R::LifeState::Dead;
+        state.players[1].displayName = "Oak";
+        state.score.ranking = {101, 102};
+        state.score.players = {{101}, {102}};
+        for (std::size_t i = 0; i < people.size(); ++i) {
+            auto &score = state.score.players[i];
+            score.kills = people[i].getKills(); score.assists = people[i].getAssistances();
+            score.deaths = people[i].getDeaths(); score.cumulativePoints = people[i].getTotalPoints();
+        }
+        state.score.winner.winnerPlayerIds = {102};
+        if (teams) {
+            state.settings.mode = "Team deathmatch"; state.settings.teamCount = 2;
+            state.players[0].team = 1; state.players[1].team = 2;
+            state.score.teamRanking = {1, 2};
+            state.score.winner.winningTeam = 2; // Bravo won this round despite Alpha's cumulative lead.
+        }
+        f.recorder.quads.clear(); f.recorder.draws.clear();
+        f.menu.drawRoundSummary(f.menu.runtime.snapshot(), 1281, 901, 1);
+        D6R_REQUIRE(f.recorder.quads.size() > localTable.size());
+        for (std::size_t i = 0; i < localTable.size(); ++i) {
+            const auto &network = f.recorder.quads[i];
+            const auto &local = localTable[i];
+            for (std::size_t corner = 0; corner < local.vertices.size(); ++corner) {
+                D6R_REQUIRE_EQ(local.vertices[corner].x, network.vertices[corner].x);
+                D6R_REQUIRE_EQ(local.vertices[corner].y, network.vertices[corner].y);
+            }
+            D6R_REQUIRE_EQ(local.material.getColor(), network.material.getColor());
+            D6R_REQUIRE_EQ(local.material.getTexture(), network.material.getTexture());
+            D6R_REQUIRE_EQ(local.blend, network.blend);
+        }
+        D6R_REQUIRE(!f.text("Mäple • Dead"));
+        D6R_REQUIRE(f.text(teams ? "Round outcome: Team Bravo" : "Round outcome: Oak"));
+        D6R_REQUIRE(!f.text("Round outcome: Team 2"));
+        if (teams) {
+            D6R_REQUIRE(reviewTextQuad(f, "Alpha").vertices[0].y > reviewTextQuad(f, "Bravo").vertices[0].y);
+            state.currentRoundNumber = 2; // No changes to the legacy final delay.
+            f.recorder.quads.clear(); f.recorder.draws.clear();
+            f.menu.drawRoundSummary(f.menu.runtime.snapshot(), 1281, 901, 1);
+            D6R_REQUIRE(f.text("Round outcome: Team 2"));
+        }
+    }
+}
+
 D6R_TEST_CASE("Non-final rendered maximum numeric cells and lifecycle labels stay inside their actual text quads") {
     ReviewMenuFixture f;
     namespace R = Network::Replication;
@@ -3036,6 +3112,7 @@ D6R_TEST_CASE("Non-final rendered maximum numeric cells and lifecycle labels sta
         state.phase = R::Phase::RoundSummary; state.currentRoundNumber = 1; state.settings.roundLimit = 2;
         state.participants.front().connection = R::ConnectionState::Reconnecting;
         state.players[0].displayName = std::string(64, 'W');
+        state.players[0].lifeState = R::LifeState::Dead;
         state.players[1].displayName = std::string(64, 'M');
         state.players[1].lifeState = R::LifeState::Departed;
         state.score.players = {{101}, {102}}; state.score.ranking = {101, 102};
@@ -3065,7 +3142,11 @@ D6R_TEST_CASE("Non-final rendered maximum numeric cells and lifecycle labels sta
                 marker = true;
             } else {
                 D6R_REQUIRE(quad.vertices[2].x <= layout.tableLeft + layout.nameWidth);
-                D6R_REQUIRE(entry->text.find("…") != std::string::npos); lifecycle = true;
+                D6R_REQUIRE(entry->text.find("…") != std::string::npos);
+                if (entry->text.find("Reconnecting") != std::string::npos) {
+                    D6R_REQUIRE_EQ(Color::RED, quad.material.getColor());
+                    lifecycle = true;
+                }
             }
         }
         D6R_REQUIRE(marker && lifecycle);

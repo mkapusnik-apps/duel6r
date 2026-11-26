@@ -26,7 +26,7 @@
     <text x="392" y="440">Maple</text><text x="568" y="440" text-anchor="end">1</text>
     <text x="632" y="440" text-anchor="end">0</text><text x="696" y="440" text-anchor="end">0</text>
     <text x="798" y="440" text-anchor="end">1.00</text><text x="888" y="440" text-anchor="end">2</text>
-    <text x="392" y="472">Oak • Dead</text><text x="568" y="472" text-anchor="end">0</text>
+    <text x="392" y="472">Oak</text><text x="568" y="472" text-anchor="end">0</text>
     <text x="632" y="472" text-anchor="end">0</text><text x="696" y="472" text-anchor="end">1</text>
     <text x="798" y="472" text-anchor="end">0.00</text><text x="888" y="472" text-anchor="end">0</text>
   </g>
@@ -39,9 +39,9 @@
     <text x="24" y="822">Host • LAN session • Connected</text>
   </g>
   <g fill="black" font-family="sans-serif" font-size="14">
-    <text x="16" y="954">ANNOTATIONS — representative values are illustrative; capture an actual authoritative outcome.</text>
+    <text x="16" y="954">ANNOTATIONS — illustrative scores. Oak is dead: use the local name color, without a suffix. Keep network-only lifecycle cues.</text>
     <text x="16" y="981">OVER-02 counter: measured black backing, 8 px side / 4 px vertical inner space, centered, 16 px bottom inset.</text>
-    <text x="16" y="1008">Team variant: aggregate K/A/D/K/D/PTS, adjacent nested players, local team colors and 8 px group separators.</text>
+    <text x="16" y="1008">Team variant: aggregate and nested rows, local colors and 8 px separators. Outcome uses the winning team's table name.</text>
     <text x="16" y="1035">Remove old counter row. Status and action/waiting rows stack above it with 16 px clear gaps; body yields rows.</text>
     <text x="16" y="1062">Guest: Leave only. First second: World active • 1s. Final delay/NET-06 and active Tab remain unchanged.</text>
   </g>

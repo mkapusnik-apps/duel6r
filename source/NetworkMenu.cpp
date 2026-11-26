@@ -191,9 +191,10 @@ namespace Duel6 {
         }
 
         std::string outcome(const Network::Replication::CanonicalState &state,
-                            const Network::Replication::RoundOutcomeState &value) {
+                            const Network::Replication::RoundOutcomeState &value, bool namedTeam = false) {
             if (value.noWinner) return "No winner";
-            if (value.winningTeam) return "Team " + std::to_string(value.winningTeam);
+            if (value.winningTeam) return "Team " + (namedTeam ? NetworkRoundSummary::teamName(value.winningTeam)
+                                                              : std::to_string(value.winningTeam));
             std::string result;
             for (const auto id: value.winnerPlayerIds) {
                 const auto player = std::find_if(state.players.begin(), state.players.end(),
@@ -203,6 +204,10 @@ namespace Duel6 {
                                                         : player->displayName;
             }
             return result.empty() ? "Pending" : result;
+        }
+
+        std::string nonFinalRoundOutcome(const Network::Replication::CanonicalState &state) {
+            return "Round outcome: " + outcome(state, state.score.winner, true);
         }
 
         std::string outcomeHeading(const Network::Replication::RoundOutcomeState &value) {
@@ -661,7 +666,7 @@ namespace Duel6 {
                 int statusRows) {
             if (roundSummary && NetworkRoundSummary::applies(state)) {
                 return NetworkRoundSummary::layout(NetworkRoundSummary::rows(state),
-                        "Round outcome: " + outcome(state, state.score.winner), width, height, 0, statusRows).maximumFirst;
+                        nonFinalRoundOutcome(state), width, height, 0, statusRows).maximumFirst;
             }
             const auto count = rankingLines(state).size();
             std::size_t visible = static_cast<std::size_t>(std::max<Int32>(1, (height - 160) / 16));
@@ -2558,41 +2563,12 @@ namespace Duel6 {
             const auto rows = S::rows(state);
             const std::string progress = "Rounds: " + std::to_string(state.currentRoundNumber) + "|"
                     + std::to_string(state.settings.roundLimit);
-            const auto layout = S::layout(rows, "Round outcome: " + outcome(state, state.score.winner),
+            const auto layout = S::layout(rows, nonFinalRoundOutcome(state),
                                           width, height, static_cast<std::size_t>(rankingScroll), statusRows);
-            renderer.setBlendFunc(BlendFunc::SrcAlpha);
-            renderer.quadXY(Vector(layout.left, layout.bottom), Vector(layout.width, layout.height),
-                            Color(255, 255, 255, 80));
-            renderer.quadXY(Vector(layout.left + 2, layout.bottom + 2), Vector(layout.width - 4, layout.height - 4),
-                            Color(0, 0, 255, 80));
-            renderer.quadXY(Vector(layout.left - 5, layout.scoreY), Vector(layout.width + 10, 36), Color::BLUE);
-            font.print(layout.left + (layout.width - font.getTextWidth("---SCORE---", S::TextHeight)) / 2,
-                       layout.scoreY, 0, Color::WHITE, "---SCORE---", S::TextHeight);
-            const int numericX = layout.tableLeft + layout.nameWidth;
-            const auto headings = S::headings(layout);
-            font.print(layout.tableLeft + layout.tableWidth - font.getTextWidth(headings, S::TextHeight),
-                       layout.scoreY - 32, 0, Color::WHITE, headings, S::TextHeight);
-            int rowY = layout.firstRowY;
+            RoundScoreTable::render(renderer, font, layout, S::visibleRows(rows, layout));
             const int rankingFocus = snap.host ? 2 : 1;
             drawFocusKeyline(layout.tableLeft - 2, layout.bottom + 60, layout.tableWidth + 4,
-                             layout.scoreY - 32 - (layout.bottom + 60), focus == rankingFocus);
-            for (auto index = layout.first; index < layout.first + layout.count; ++index) {
-                const auto &row = rows[index];
-                if (index > layout.first && row.separatorBefore) {
-                    rowY -= S::SeparatorHeight;
-                    renderer.setBlendFunc(BlendFunc::SrcAlpha);
-                    renderer.quadXY(Vector(layout.tableLeft, rowY + S::TextHeight + 4),
-                                    Vector(layout.tableWidth, 2), Color(255, 255, 255, 178));
-                }
-                renderer.setBlendFunc(BlendFunc::SrcAlpha);
-                renderer.quadXY(Vector(layout.tableLeft, rowY + 1), Vector(layout.tableWidth, S::TextHeight), row.background);
-                const int padding = row.team ? 0 : 5;
-                font.print(layout.tableLeft + padding, rowY, 0, row.nameColor,
-                           S::rowLabel(row, layout.nameWidth - padding), S::TextHeight);
-                font.print(numericX, rowY, 0, row.team ? Color::BLACK : Color::YELLOW,
-                           S::numericText(row, layout), S::TextHeight);
-                rowY -= S::TextHeight;
-            }
+                              layout.scoreY - RoundScoreTable::TextHeight - (layout.bottom + 60), focus == rankingFocus);
             if (layout.maximumFirst != 0)
                 drawText(layout.tableLeft, layout.bottom + 24, "Ranking " + std::to_string(layout.first + 1) + "–"
                          + std::to_string(layout.first + layout.count) + "/" + std::to_string(rows.size()));

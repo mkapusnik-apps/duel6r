@@ -328,6 +328,8 @@ set(D6R_SOURCES
         source/Rectangle.h
         source/resource.h
         source/Round.cpp
+        source/RoundScoreTable.cpp
+        source/RoundScoreTable.h
         source/Sprite.cpp
         source/SpriteList.cpp
         source/Round.h
