@@ -95,4 +95,4 @@ The shared functional states are active world, first-second round-end update, fr
 
 ## Screenshot link
 
-The [current SS-003 row](../design/screenshots/README.md#current-ss-003) records the missing unmirrored Local Play representative.
+The [current AP-L / SS-003 capture](../design/screenshots/README.md#current-ss-003) shows six living players on unmirrored Duel 16 after the Local Play fade. The [matching AP-N Guest representative](../design/screenshots/README.md#current-ss-019) is still missing.

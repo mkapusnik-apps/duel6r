@@ -80,4 +80,4 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 
 ## Screenshot link
 
-The [current SS-011 row](../design/screenshots/README.md#current-ss-011) records the missing non-final Team representative. The [resumed `3|5` recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-011) is historical.
+The [current SS-011 capture](../design/screenshots/README.md#current-ss-011) shows the ordinary non-final four-team Local result at `1|2`, with the curtain and one backed bottom-center counter. The [resumed `3|5` recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-011) is a separate historical scenario.
