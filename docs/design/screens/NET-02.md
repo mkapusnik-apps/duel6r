@@ -57,7 +57,7 @@ Keep the first row at y=364 and the existing 18 px Persons / 22 px local-player 
 
 At 850 × 700, the Password label, visible Password controls, validation, and footer must remain separate and readable. With the popup closed, the complete roster heading and count must remain readable and visibly separated, including at `Local players: 15`. Expanded interface options must remain inside the canvas. Focus must remain visible without color. Directory registration failure must not be presented as hosted-session startup failure when the host service is running. NET-04 owns registration feedback.
 
-The editable representatives must show the default `Configure` state and the configured state with the focused mask and a separate `Remove` button. The two popup representatives must show wildcard coverage and an independent explicit subset without the old Password help in the exposed setup. The progress representative retains its prior scope. The [screenshot manifest](../screenshots/README.md#net-02-current-footer-capture-matrix) owns the artifacts.
+The editable representatives must show the default `Configure` state and the configured state with the focused mask and a separate `Remove` button. The two popup representatives must show wildcard coverage and an independent explicit subset without the old Password help in the exposed setup. The progress representative retains its prior scope. See the [current Host setup stills](../screenshots/README.md#current-ss-016) and the [pinned footer matrix and configured-state evidence][footer-evidence].
 
 ## Listening summary and popup
 
@@ -125,4 +125,6 @@ Product-owned [NET-SOLO](../../network-play-first-release.md#hosted-solo-round-r
 - Common Password entry must retain product-owned UTF-8, byte-limit, whole-event rejection, masking, and context-erasure behavior.
 - Password rejection feedback must remain secret-free in the existing validation region.
 
-NET-02, NET-02-LA, and NET-02-LE share these count and Password requirements and the editable footer above. NET-02-P and every unrelated diagram remain unchanged. The [current footer matrix](../screenshots/README.md#net-02-current-footer-capture-matrix) owns the affected representatives.
+NET-02, NET-02-LA, and NET-02-LE share these count and Password requirements and the editable footer above. NET-02-P and every unrelated diagram remain unchanged. The [footer evidence matrix][footer-evidence] defines the affected representatives.
+
+[footer-evidence]: https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/README.md#net-02-current-footer-capture-matrix

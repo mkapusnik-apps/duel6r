@@ -17,4 +17,4 @@ The representative PLAY-01 evidence must use a valid configuration.
 F2 does not change this layout.
 Mode, player count, score, result, sudden-death, and console variants do not create another arena view.
 
-Representative screenshot: [`SS-003`](../../design/screenshots/legacy.md#ss-003).
+The [current AP-L / SS-003 capture](../../design/screenshots/README.md#current-ss-003) shows six living players on unmirrored Duel 16 after the Local Play fade. The [matching AP-N Guest representative](../../design/screenshots/README.md#current-ss-019) is still missing.

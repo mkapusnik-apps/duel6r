@@ -57,4 +57,4 @@ SS-015 must show the compact popup over the actual retained main menu, with only
 
 Focused QA must check keyboard, controller, and pointer activation; all three destinations; outside-click isolation; Local Play shortcut isolation; repeated entry; and return transitions. Check containment at 850 by 700 and 1280 by 720 clients. Check scaled pointer alignment at 1920 by 1080. These checks add no permanent representatives unless an approved materially different presentation is needed.
 
-Preserve corrected macOS pointer mapping and full-drawable rendering from PR #110 and PR #119. Native Mac visual conformance remains deferred, not passed, under the [coordinated matrix](../screenshots/README.md#macos-deferred-coverage). Automated evidence is not native visual assessment.
+Preserve corrected macOS pointer mapping and full-drawable rendering from PR #110 and PR #119. Native Mac visual conformance remains deferred, not passed, under the [coordinated matrix](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/README.md#macos-deferred-coverage). Automated evidence is not native visual assessment.

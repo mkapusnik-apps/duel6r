@@ -95,4 +95,4 @@ The shared functional states are active world, first-second round-end update, fr
 
 ## Screenshot link
 
-Representative evidence: [`SS-003`](../design/screenshots/legacy.md#ss-003).
+The [current AP-L / SS-003 capture](../design/screenshots/README.md#current-ss-003) shows six living players on unmirrored Duel 16 after the Local Play fade. The [matching AP-N Guest representative](../design/screenshots/README.md#current-ss-019) is still missing.

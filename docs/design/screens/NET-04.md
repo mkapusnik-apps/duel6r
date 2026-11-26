@@ -108,7 +108,7 @@ Dedicated publication is service-owned. This screen requires no new passive publ
 
 ## Acceptance
 
-Preserve complete headings, owned-slot editing, guest read-only settings, readiness reasons, result access, and footer at both minimum sizes. Long endpoints must stay inside the header. Maximum membership must scroll under fixed headings. Capture current Team settings with mixed toggle states and full cycle values on the controller, then constrained guest read-only context. Ordinary completed dedicated results do not replace maximum-name, fourteen-winner, departed-winner, or interrupted-result obligations. Preserve player-hosted publication recovery separately. Capture and state dependencies are in the [scoped matrix](../screenshots/README.md#dedicated-extension-scoped-capture-matrix).
+Preserve complete headings, owned-slot editing, guest read-only settings, readiness reasons, result access, and footer at both minimum sizes. Long endpoints must stay inside the header. Maximum membership must scroll under fixed headings. Capture current Team settings with mixed toggle states and full cycle values on the controller, then constrained guest read-only context. Ordinary completed dedicated results do not replace maximum-name, fourteen-winner, departed-winner, or interrupted-result obligations. Preserve player-hosted publication recovery separately. Capture and state dependencies are in the [scoped matrix](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/README.md#dedicated-extension-scoped-capture-matrix).
 
 ## Product-eligible solo Start presentation
 

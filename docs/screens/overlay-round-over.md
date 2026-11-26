@@ -80,4 +80,4 @@ Primary sources are `source/Round.cpp:146-180`, `source/Game.cpp:51-79,130-169`,
 
 ## Screenshot link
 
-Current representative: [SS-011 — non-final Team result at `1|2`](../design/screenshots/README.md#current-ss-011). The [resumed `3|5` recipe](../design/screenshots/legacy.md#ss-011) is historical.
+The [current SS-011 capture](../design/screenshots/README.md#current-ss-011) shows the ordinary non-final four-team Local result at `1|2`, with the curtain and one backed bottom-center counter. The [resumed `3|5` recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-011) is a separate historical scenario.

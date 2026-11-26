@@ -135,11 +135,12 @@ the Pi's V3D renderer after behavioral preflight and source review:
 | NET-06, NET-07, NET-08, NET-09 | Final summary, reconnect, failure, host ended |
 | NET-10 | Loaded browser results |
 
-Store unchanged captures under `docs/design/screenshots/pi5/` with source SHA,
-binary hash, scenario, OS/Mesa/GPU, viewport, path and PNG hash. Missing captures
-block the visual gate. No capture is claimed by this plan. Independent security
-review must assess the new AES dispatch path; routine developer tests do not
-satisfy that independent gate.
+Preserve unchanged captures as revision-pinned evidence and link them from the
+[physical verification record](verification/raspberry-pi5-physical.md). Record
+the source SHA, binary hash, scenario, OS/Mesa/GPU, viewport, artifact path,
+and PNG hash. Missing captures block the visual gate. No capture is claimed by
+this plan. Independent security review must assess the new AES dispatch path;
+routine developer tests do not satisfy that independent gate.
 
 ## Local implementation verification (2026-09-30)
 

@@ -43,4 +43,4 @@ These earlier selector rules must not override current `Listen on all`, independ
 - Cancel, failure, Edit setup, and eligible Retry retain the selected address while it remains eligible.
 - Enumeration and selection do not discover peers or change host, Docker, firewall, route, NAT, or port-forwarding configuration.
 
-Planned representative screenshot: [`SS-016`](../../design/screenshots/legacy.md#ss-016).
+Current representative: [SS-016 — editable Host setup](../../design/screenshots/README.md#current-ss-016).

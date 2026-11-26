@@ -59,4 +59,4 @@ An unintentional guest disconnect from `NET-04`, `NET-05`, or `NET-06` enters th
 - No Pause, host migration, or manual identity/account action may appear.
 - No silence, refusal, unreachable, reset, timeout, host crash, host-machine/listener loss, temporary failure, or isolation-only state may use `NET-09` or claim that the host ended the session.
 
-Planned representative screenshot: [`SS-021`](../design/screenshots/legacy.md#ss-021).
+Current representative: [SS-021 — dedicated controller reconnecting](../design/screenshots/README.md#current-ss-021). The [earlier Guest reconnect recipe](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md#ss-021) is separate.

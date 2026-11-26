@@ -18,4 +18,4 @@ The separator adds 8 px to the panel height for each of the three group boundari
 Two-team and three-team states use the same treatment with one and two separator bands.
 Free-for-all and Predator structures use the unchanged centered overlay model.
 
-Representative screenshot: [`SS-010`](../../design/screenshots/legacy.md#ss-010).
+Current representative: [SS-010 — live four-team score view](../../design/screenshots/README.md#current-ss-010).

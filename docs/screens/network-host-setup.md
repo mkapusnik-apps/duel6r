@@ -138,4 +138,4 @@ The current linked UX specification owns unified host settings, control grouping
 - A required default network visual resource failure must use the existing required-resource failure behavior and must not load peer content as a fallback.
 - The invalid host-manifest reason and disabled Retry reason must remain readable without color, sound, or transient motion.
 
-Planned representative screenshot: [`SS-016`](../design/screenshots/legacy.md#ss-016).
+Current representative: [SS-016 — editable Host setup](../design/screenshots/README.md#current-ss-016).
