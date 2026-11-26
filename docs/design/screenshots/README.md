@@ -1,6 +1,6 @@
 # Current game screenshots
 
-The [screen inventory](../../screens/README.md) owns screen identities; the [design system](../../design.md) and linked wireframes own visual requirements. This catalog contains **29 of 35** current representatives. Six rows have no current image. The catalog records visible states only; it does not close behavioral, temporal, constrained-viewport, or native-platform acceptance.
+The [screen inventory](../../screens/README.md) owns screen identities; the [design system](../../design.md) and linked wireframes own visual requirements. This catalog contains **32 of 35** current representatives. Three rows have no current image. The catalog records visible states only; it does not close behavioral, temporal, constrained-viewport, or native-platform acceptance.
 
 ## Capture standard
 
@@ -27,8 +27,10 @@ Times are UTC on **2026-11-26** at PNG write completion, not GPU presentation. W
 | <a id="current-ss-002"></a>[MENU-02](MENU-02/MENU-02.png) · SS-002 | F3 after the same match, before dismissal: `Really delete? (Y/N)` over the four-action menu. | 09:21:54.495544605 | `b19682bdc0056b1226d8acc906ff0cc803f0e999eab7b5596b6b2493eaea7aa6` |
 | <a id="current-ss-007"></a>[MODE-01](MODE-01/MODE-01.png) · SS-007 | Active three-player Duel 04 Predator; faint Predator with visible held weapon, two opaque Marines, and live ranking. | 09:21:21.778757573 | `0dfad01638134235fce37d8155a366c6ad2196f1a85bed4095d37d66bc1d546e` |
 | <a id="current-ss-008"></a>[MODE-02](MODE-02/MODE-02.png) · SS-008 | Active mirrored Duel 09 Team deathmatch; Ada/Cal in Alpha and Ben/Dee in Bravo, matching headbands and named live groups. | 09:53:07.341576602 | `79ebbb021b33bb1fa6427d1c340519ef159544d5452b0388992edebb3b2af48c` |
+| <a id="current-ss-003"></a>[PLAY-01](PLAY-01/PLAY-01.png) · AP-L / SS-003 | Six living players in Local Deathmatch 1/1 after the start fade. The native console confirms unmirrored Duel 16; water, rooted trees, supports, elevator and HUD are visible. This is the Local Play reference, not a matched network comparison. | 11:12:04.163134070 | `02d188473d1659ae80759af7b7ca3946b957b38c5ec7213ca9798cf503f74bce` |
 | <a id="current-ss-009"></a>[PLAY-05](PLAY-05/PLAY-05.png) · SS-009 | Mirrored Duel 04 Quick Liquid Deathmatch; raised water and submerged living Bea with a partial blue air bar. Cal and Dee remain above water. | 09:52:07.130491296 | `edefba21531c9277c2f914bdbadb1b5fa4b150fc6e102bf5de99ebec57d74d0c` |
 | <a id="current-ss-010"></a>[OVER-01](OVER-01/OVER-01.png) · SS-010 | Tab before the first outcome of Duel 04 Teams, round 1/2. Four groups, three separators, actual zero scores, live arena and no curtain. | 09:23:40.809484435 | `9b2c843b03edd41d21492d9613f87e3c61441e5643b7ac3c6b0cf6982b303791` |
+| <a id="current-ss-011"></a>[OVER-02](OVER-02/OVER-02.png) · SS-011 | Actual non-final Duel 04 Local Teams result; Charlie wins with Cal and Gil still alive. Four groups and eight player rows, three separators, red curtain, and one backed bottom-center `Rounds: 1\|2`. | 11:12:30.104381704 | `8907737cfba33e64a4bcc30a22abeb805d67199765fe39e1f172b1a83c0e5e4a` |
 | <a id="current-ss-012"></a>[OVER-03](OVER-03/OVER-03.png) · FS-L / SS-012 | Duel 04 Local Deathmatch 1/1 after the final wait; Ben +1 and Ada −1 PTS. Compact score table, separate final counter and `End of Game`. | 09:21:51.954370159 | `b08aa169df79400565373538adf9b41640fa935f8e1c4b4ac690742905a6b5d9` |
 | <a id="current-ss-013"></a>[CONS-01](CONS-01/CONS-01.png) · SS-013 | Startup console over populated menu, blank input and four footer actions. Actual startup output names `alpine-flood.png`. | 09:20:42.494713480 | `3e1a957647c63b8c03a64dd298821d700e6212ab5acb4eb9ef5f232ec3d63fca` |
 | <a id="current-ss-014"></a>[CONS-02](CONS-02/CONS-02.png) · SS-014 | Console over live Local Deathmatch on mirrored Duel 16; actual round output, blank input, and one retained arena. This is not the AP-L comparator. | 09:24:54.018417684 | `3598aaccfbc0d0dd13f89f18fa53bf04588b16cdee66767f31756af23d7bd48f` |
@@ -44,13 +46,14 @@ Times are UTC on **2026-11-26** at PNG write completion, not GPU presentation. W
 | <a id="current-ss-018"></a>[NET-04](NET-04/NET-04.png) · SS-018 | Actual dedicated controller lobby: Ada is the sole ready player; mixed Team settings and enabled, focused Start match. | 09:33:34.268572017 | `7338fca14e8e77910c4641d9955c97b8f2a03f13ded65091563051e9e4950fe9` |
 | <a id="current-ss-025"></a>[NET-04-R](NET-04/NET-04-R.png) · SS-025 | Same dedicated controller after Return to lobby from NET-06; retained Completed history names Ben separately from current membership, readiness and settings. | 09:40:20.302260341 | `f434477e3c2e6c803797e18aaae07b96a662fb4885233792c5408dd46a1d87ab` |
 | <a id="current-net-05-r"></a>[NET-05-R](NET-05/NET-05-R.png) | Player-hosted Duel 04 Team deathmatch, frozen non-final `1\|3` before Advance. `Round outcome: Team Bravo`; Dee yellow, Cal red, no `Dead` suffix; separate actions, status and counter. | 09:35:49 | `ba8496a6ac43987ea6f0a2a313c3e3c94a5c4115acaa5baebcb3d58a4f267f14` |
+| <a id="current-net-05-w"></a>[NET-05-W](NET-05/NET-05-W.png) | Ivy/K1 admitted by Direct Join into player-hosted active round 2/9. The undimmed Guest view shows Connected, Ivy marked Waiting with no owned actor, `Your players join next round.`, and `Leave session`. | 11:55:19.178291586 | `a53f4852b78d0b8b1ca77f70faf09ab84f9016a11e829becb69988c13f8cb9ca` |
 | <a id="current-ss-020"></a>[NET-06](NET-06/NET-06.png) · FS-N / SS-020 | Dedicated controller after the final wait in actual Duel 04 Deathmatch 1/1. Ben +1 and Ada −1 PTS; compact cumulative scores, session-only result copy and focused Return to lobby. | 09:37:38.905348685 | `c95225e9e62c7506efaaad8d48a1688f208d9817fb2375d201a275a9a9a340a2` |
 | <a id="current-ss-021"></a>[NET-07](NET-07/NET-07.png) · SS-021 | Dedicated controller-only interruption during active play. Retained arena, 29 seconds remaining, both active-round notices, and focused End session. | 09:36:16.076879858 | `c27251ed5d0b3d4abb36d3bff3d628ac221168d68bd5670c9de5b4b42c330fdb` |
 | <a id="net-08-browser-password-rejection"></a>[NET-08](NET-08/NET-08.png) | Real wrong Password against the bound dedicated listing; `Connection not authorized.`, focused Edit setup and Return to browser, no Retry. | 09:33:43.250030180 | `c8070b87642578b3d3d533e15f1d0c981b8f6a7705e2641436b9e5c337a54375` |
 | <a id="current-ss-023"></a>[NET-09](NET-09/NET-09.png) · SS-023 | Dedicated Guest after an accepted intentional controller End; retained arena, no resume or local persistence, sole focused Return to Network. | 09:41:17.171980681 | `0dbcffd730e78195e1926bcf8f09768343f27d09926bd8cb7252325bade47d94` |
 | <a id="current-net-10"></a>[NET-10](NET-10/NET-10.png) | Fresh mixed results: selected protected ongoing player-hosted Open, genuinely completed Closed, ready-idle dedicated, and a separate lobby. | 09:39:30 | `3f0d0fad09a9589e19fda1826fc90ffb1cbe528f5ab7313fb36b49c12883a190` |
 | <a id="current-net-10-e"></a>[NET-10-E](NET-10/NET-10-E.png) | Successful zero-row read without continuation; inline empty state, no selected details, focused Refresh and disabled Join. | 09:27:01.658667107 | `1045c9a7577270674e993f34cb427aaf9d28c685c713f0e2bcbcf1eaa9706ff5` |
-| <a id="current-net-10-u"></a>[NET-10-U](NET-10/NET-10-U.png) | Actual browser-only failed refresh after a populated selection; inline unavailable reason, cached rows hidden, focused Refresh, disabled Join and available Direct/Back. | 09:40:02.134590352 | `4c51e18b1949485917977ada0a9b3ac3357d57e9772b2b1bd1a70e9e9f0d3b32` |
+| <a id="current-net-10-u"></a>[NET-10-U](NET-10/NET-10-U.png) | Fresh live browser-only HTTP 503 on Refresh after a populated selection; inline unavailable reason, cached rows hidden, focused Refresh, disabled Join and available Direct/Back. The capture matches the [November 12 original](https://github.com/mkapusnik-apps/duel6r/blob/f6d9ec752fd893cfc271f99c21e0bf10c802ef91/docs/design/screenshots/NET-10/NET-10-U.png) byte-for-byte. | 09:40:02.134590352 | `4c51e18b1949485917977ada0a9b3ac3357d57e9772b2b1bd1a70e9e9f0d3b32` |
 
 The three Browse images show the current absence of `LAN-first.` They do not establish conformance with that retained copy expectation.
 
@@ -58,12 +61,9 @@ The three Browse images show the current absence of `LAN-first.` They do not est
 
 | Representative | Disposition |
 |---|---|
-| <a id="current-ss-003"></a>PLAY-01 · AP-L / SS-003 | No matching unmirrored six-player Duel 16 original. The observed Local Play runs were mirrored. |
-| <a id="current-ss-011"></a>OVER-02 · SS-011 | No genuine non-final four-team result with the curtain and backed bottom-center counter was captured. |
-| <a id="current-ss-019"></a>NET-05 · AP-N / SS-019 | Real six-player degraded-but-Connected Guest play was observed. No qualifying original shows authoritative Invisibility on both body and held weapon with the opaque comparison. |
+| <a id="current-ss-019"></a>NET-05 · AP-N / SS-019 | Six-player degraded-but-Connected Guest play was observed on mirrored Duel 16, unlike the unmirrored Local Play reference. No qualifying original shows authoritative Invisibility on both body and held weapon with the opaque comparison. |
 | <a id="current-ss-026"></a>NET-05-C · SS-026 | Withheld: part of the underlying reconnect `End session` button remains visible and clipped below the active confirmation. |
-| <a id="current-net-05-s"></a>NET-05-S | Withheld: the pre-winner score panel clips the top of `Network connection degraded.` |
-| <a id="current-net-05-w"></a>NET-05-W | Real admitted Connected Waiting was observed only under the non-final score curtain, not in undimmed active play. |
+| <a id="current-net-05-s"></a>NET-05-S | Withheld: the pre-winner score panel clips `Network connection degraded.` in the three-row Listed Host view. The two-row Direct Guest view does not cover that overlap. |
 
 ## Archived evidence
 

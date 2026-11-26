@@ -181,7 +181,7 @@ Current Teams representative: [SS-024](../../design/screenshots/README.md#curren
 The PR #59 screenshots are historical because they show the prior person-action arrangement.
 The PR #60 Teams and non-Team artifacts are historical because they show the prior list height, person-name position, button geometry, and batch controller-detection caption.
 The PR #62 Teams and non-Team artifacts are historical because they show `<<` in Persons.
-The current PR #69 Teams and non-Team artifacts conform at assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
+The historical PR #69 Teams and non-Team artifacts conformed at assessment head `f4708d337bb82be55c553c64608bd75ccd64121f`.
 The historical baseline at [`default-1706x938.png`](https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/MENU-01/default-1706x938.png) is a reference for the unchanged retro controls and footer only.
 The historical baseline is not conformance evidence for the consolidated Persons list.
 Historical capture instruction: issue #38 was to replace these screenshots when it implemented the target footer variant. The linked screenshot manifest owns current artifact status and provenance.
