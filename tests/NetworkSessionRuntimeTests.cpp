@@ -1124,6 +1124,17 @@ namespace {
             row.expiresAt = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count() + 60000;
         }
+        void enterWithPendingRead(std::promise<Client::DirectoryPage> &response) {
+            menu.setupScreen = NetworkMenu::SetupScreen::Entry;
+            menu.entryRuntimeAvailable = true;
+            menu.focus = 1;
+            menu.browser.requested = std::chrono::steady_clock::now();
+            menu.browser.pending = response.get_future();
+            key(SDLK_RETURN);
+            menu.update(0);
+            D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && menu.browser.loading());
+            D6R_REQUIRE_EQ(3, menu.focus);
+        }
         void deliver(Client::DirectoryPage page) {
             menu.browser.requested = std::chrono::steady_clock::now();
             std::promise<Client::DirectoryPage> response;
@@ -1196,13 +1207,11 @@ D6R_TEST_CASE("NET-10 manual Refresh retains focus through pending updates and z
 D6R_TEST_CASE("NET-10 pending Refresh focus retention preserves initial focus and disabled traversal") {
     BrowserPresentationFixture f;
     auto &menu = f.menu;
-    menu.browser.requested = std::chrono::steady_clock::now();
     std::promise<Client::DirectoryPage> initial;
-    menu.browser.pending = initial.get_future(); menu.focus = 0;
-    menu.update(0); D6R_REQUIRE_EQ(3, menu.focus); // Initial pending read still uses Direct connect.
+    f.enterWithPendingRead(initial);
     initial.set_value({true, {}, {}}); menu.update(0);
-    D6R_REQUIRE_EQ(3, menu.focus); // No unsolicited focus change on completion.
-    menu.focus = 2; f.key(SDLK_RETURN);
+    D6R_REQUIRE_EQ(2, menu.focus);
+    f.key(SDLK_RETURN);
     std::promise<Client::DirectoryPage> manual;
     menu.browser.pending = manual.get_future(); menu.update(0);
     D6R_REQUIRE_EQ(2, menu.focus);
@@ -1215,6 +1224,62 @@ D6R_TEST_CASE("NET-10 pending Refresh focus retention preserves initial focus an
     D6R_REQUIRE_EQ(3, menu.focus); // Completion must not steal focus back after navigation.
     menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
     D6R_REQUIRE_EQ(2, menu.focus); // Refresh re-enters traversal only once enabled.
+}
+
+D6R_TEST_CASE("NET-10 initial read follows the result default until the user navigates or selects") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    menu.browser.requested = std::chrono::steady_clock::now();
+    ReviewController controller(f);
+    {
+        std::promise<Client::DirectoryPage> initial;
+        f.enterWithPendingRead(initial);
+        initial.set_value({true, {f.row}, {}}); menu.update(0);
+        D6R_REQUIRE_EQ(0, menu.focus);
+        D6R_REQUIRE(menu.selectedListing.empty());
+        f.key(SDLK_RETURN);
+        controller.pulse(SDL_CONTROLLER_BUTTON_A);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && !menu.browserSelection);
+        f.key(SDLK_DOWN);
+        D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
+        controller.pulse(SDL_CONTROLLER_BUTTON_A);
+        D6R_REQUIRE(menu.boundSelection());
+        D6R_REQUIRE_EQ(2, menu.focus); // Confirm opens bound Password setup, not Direct.
+        menu.back();
+    }
+    f.deliver({});
+    {
+        std::promise<Client::DirectoryPage> initial;
+        f.enterWithPendingRead(initial);
+        initial.set_value({}); menu.update(0);
+        D6R_REQUIRE_EQ(2, menu.focus);
+        D6R_REQUIRE(!menu.browserFocusEnabled(0) && menu.browserFocusEnabled(2));
+    }
+    {
+        std::promise<Client::DirectoryPage> initial;
+        f.enterWithPendingRead(initial);
+        f.key(SDLK_TAB); D6R_REQUIRE_EQ(6, menu.focus);
+        f.key(SDLK_TAB); D6R_REQUIRE_EQ(3, menu.focus); // Deliberately return to Direct.
+        initial.set_value({true, {f.row}, {}}); menu.update(0);
+        D6R_REQUIRE_EQ(3, menu.focus);
+    }
+    {
+        auto other = f.row;
+        other.id = other.sessionId = std::string(32, 'c');
+        f.deliver({true, {f.row, other}, {}});
+        std::promise<Client::DirectoryPage> initial;
+        f.enterWithPendingRead(initial);
+        f.click(100, 452); // A retained row is inspectable during the initial read.
+        D6R_REQUIRE_EQ(other.id, menu.selectedListing);
+        D6R_REQUIRE(!menu.browserFocusEnabled(1));
+        controller.pulse(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+        D6R_REQUIRE_EQ(3, menu.focus);
+        initial.set_value({true, {other, f.row}, {}}); menu.update(0);
+        D6R_REQUIRE_EQ(3, menu.focus);
+        D6R_REQUIRE_EQ(other.id, menu.selectedListing);
+        D6R_REQUIRE_EQ(other.sessionId, menu.selectedSessionIdentity);
+        D6R_REQUIRE(menu.browserFocusEnabled(1));
+    }
 }
 
 D6R_TEST_CASE("NET-10 compact upper Refresh keeps caption clearance full scaled hitbox and cyclic focus") {
@@ -1381,8 +1446,26 @@ D6R_TEST_CASE("NET-10 successful no-selection reason is blank while necessary ex
         menu.selectedListing.clear(); f.deliver({true, populated ? std::vector{f.row} : std::vector<Client::DirectoryListing>{}, {}});
         D6R_REQUIRE(reasonLine().empty()); D6R_REQUIRE(!menu.browserFocusEnabled(1));
     }
-    menu.selectedListing = f.row.id;
-    f.deliver({true, {}, {}}); D6R_REQUIRE_EQ(std::string("Session is no longer listed. Refresh and reselect."), reasonLine());
+    f.row.connectedPlayers = std::vector<std::string>{"Last connected player with an overflowing name"};
+    f.selected();
+    D6R_REQUIRE(f.text("Connected players") && menu.browserFocusEnabled(8));
+    f.key(SDLK_TAB); D6R_REQUIRE_EQ(8, menu.focus);
+    std::promise<Client::DirectoryPage> refresh;
+    menu.browser.pending = refresh.get_future();
+    menu.update(0); f.draw();
+    D6R_REQUIRE_EQ(0, menu.focus); // A hidden roster viewport falls back to inspectable results.
+    D6R_REQUIRE(!menu.browserFocusEnabled(8) && !menu.browserFocusEnabled(1));
+    D6R_REQUIRE(f.text("Player names unavailable."));
+    refresh.set_value({true, {}, {}}); menu.update(0); f.draw();
+    D6R_REQUIRE_EQ(2, menu.focus);
+    D6R_REQUIRE_EQ(f.row.sessionId, menu.selectedSessionIdentity);
+    D6R_REQUIRE(f.leftDetails().empty() && !f.text("Connected players") && !f.text("Player names unavailable."));
+    D6R_REQUIRE(!menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
+    auto other = f.row;
+    other.id = other.sessionId = std::string(32, 'c');
+    f.deliver({true, {other}, {}});
+    D6R_REQUIRE_EQ(std::string("Session is no longer listed. Refresh and reselect."), reasonLine());
+    D6R_REQUIRE(!f.text("Connected players") && !menu.browserFocusEnabled(1));
     for (const auto &test: {std::pair{"lobby", 15u}, std::pair{"closed", 2u}}) {
         auto row = f.row; row.phase = test.first; row.players = test.second;
         f.deliver({true, {row}, {}});

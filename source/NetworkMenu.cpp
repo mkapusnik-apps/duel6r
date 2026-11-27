@@ -1244,7 +1244,10 @@ namespace Duel6 {
                     setBrowserSelection(rows[browserScroll + row]); focus = 0; return;
                 }
             if (const int target = browserViewportAt(x, y)) {
-                if (browserFocusEnabled(target)) focus = target;
+                if (browserFocusEnabled(target)) {
+                    followInitialBrowserFocus = false;
+                    focus = target;
+                }
                 return;
             }
             for (const auto &action: BrowserActions)
@@ -1515,6 +1518,7 @@ namespace Duel6 {
         const auto snap = runtime.snapshot();
         if (confirmation == Confirmation::None && snap.journey == Client::NetworkJourney::Inactive
             && setupScreen == SetupScreen::Browser) {
+            followInitialBrowserFocus = false;
             const auto current = std::find(std::begin(BrowserFocusOrder), std::end(BrowserFocusOrder), focus);
             constexpr int count = std::size(BrowserFocusOrder);
             int position = current == std::end(BrowserFocusOrder) ? 0 : static_cast<int>(current - BrowserFocusOrder);
@@ -1640,12 +1644,14 @@ namespace Duel6 {
                 }
                 else if (focus == 1) {
                     setupScreen = SetupScreen::Browser; browser.refresh();
-                    focus = browser.result().listings.empty() ? 3 : 0; return;
+                    followInitialBrowserFocus = true;
+                    focus = 3; return;
                 }
                 else { close(); return; }
                 focus = 0; return;
             }
             if (setupScreen == SetupScreen::Browser) {
+                followInitialBrowserFocus = false;
                 if (focus == 0 || focus == 1) joinSelected();
                 else if (focus == 2) browser.refresh();
                 else if (focus == 3) { enterDirectSetup(); }
@@ -2110,11 +2116,15 @@ namespace Duel6 {
                     if (index >= browserScroll + BrowserVisibleRows) browserScroll = index - BrowserVisibleRows + 1;
                 }
             }
-            // A missing identity stays as a tombstone for "Session is no longer listed";
-            // never silently select another host. Failed refresh hides retained data until recovery.
+            // Initial focus follows the first result only until the user acts.
+            // A later refresh uses the ordinary unavailable-target fallback.
+            if (followInitialBrowserFocus && !browser.loading()) {
+                followInitialBrowserFocus = false;
+                focus = browserFocusEnabled(0) ? 0 : 2;
+            }
             // A manual Refresh keeps its existing focus while temporarily disabled.
-            // Traversal and activation still use browserFocusEnabled; initial reads
-            // and other unavailable focus targets retain the normal fallback.
+            // Traversal and activation still use browserFocusEnabled; other hidden
+            // or disabled targets use the normal fallback.
             if (!browserFocusEnabled(focus) && !(focus == 2 && browser.loading()))
                 focus = browserFocusEnabled(0) ? 0 : browser.loading() ? 3 : 2;
             if (browserDetailScroll) scrollBrowserDetail(BrowserDetailFocus, 0, 0);
@@ -2444,6 +2454,7 @@ namespace Duel6 {
     }
 
     void NetworkMenu::setBrowserSelection(const Client::DirectoryListing &row) {
+        followInitialBrowserFocus = false;
         if (selectedListing != row.id || selectedSessionIdentity != row.sessionId)
             browserDetailScroll = browserRosterScroll = browserRosterColumn = 0;
         selectedListing = row.id;
@@ -2550,7 +2561,9 @@ namespace Duel6 {
             drawFocusKeyline(34, y - 4, 782, 22, selection && focus == 0);
         }
         renderer.frame(Vector(32, 108), Vector(786, 128), 1.0f, Color::BLACK);
-        const auto details = browserDetails(selected, visibleRows, unconfirmed, !selectedListing.empty());
+        // Retain the identity for recovery, but only explain a missing selection
+        // when there are still listings to inspect.
+        const auto details = browserDetails(selected, visibleRows, unconfirmed, !rows.empty() && !selectedListing.empty());
         const int first = std::min(browserDetailScroll, details.maximumScroll());
         const int shown = std::min(details.visibleFields(), static_cast<int>(details.fields.size()) - first);
         const int topLine = BrowserDetailTop - font.getCharHeight();

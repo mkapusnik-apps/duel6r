@@ -67,6 +67,7 @@ namespace Duel6 {
         SDL_Keycode hostPasswordActivationKey = SDLK_UNKNOWN;
         bool hostPasswordActivationTextPending = false;
         Client::DirectoryBrowser browser;
+        bool followInitialBrowserFocus = false;
         std::string selectedListing;
         std::string selectedSessionIdentity;
         std::optional<Client::DirectoryListing> browserSelection;
