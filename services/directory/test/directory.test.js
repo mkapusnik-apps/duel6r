@@ -124,7 +124,7 @@ test('invalid optional names are discarded atomically and never carry across own
   const current = await directory.mutate(created.id, created.ownerToken, revision++, input);
   assert.deepEqual((await read()).connectedPlayers, [encode('Current')]);
   // A strict older binary keeps unknown document siblings on a metadata write.
-  await db.collection(collection).doc(created.id).update({ revision: revision });
+  await db.collection(collection).doc(created.id).update({ revision: ++revision });
   assert.equal(Object.hasOwn(await read(), 'connectedPlayers'), false);
   await directory.mutate(created.id, created.ownerToken, revision++, listing());
   assert.equal(Object.hasOwn((await db.collection(collection).doc(created.id).get()).data(), 'roster'), false);
