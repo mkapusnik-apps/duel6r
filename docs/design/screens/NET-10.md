@@ -4,7 +4,7 @@ Functional authority: [network-browser](../../screens/network-browser.md), [host
 
 Structural sources: [NET-10 results](../wireframes/NET-10/NET-10.svg), [NET-10-E empty](../wireframes/NET-10/NET-10-E.svg), and [NET-10-U failed refresh](../wireframes/NET-10/NET-10-U.svg).
 
-States retain NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, NET-10-unavailable, NET-10-dedicated-idle, and NET-10-dedicated-reserved. NET-10-dedicated-unsupported is retired for the four approved baseline clients; do not reuse it for ordinary full, stale, busy, closed, or security failure. Product owns its retirement in the functional inventory. No product screen is added. The layout refinement removes the two static browser captions, enlarges the list, frames selected details, and lowers paging and the single footer row. Discovery, selection, eligibility, joining, and recovery remain unchanged; NET-03 copy is outside this refinement.
+States retain NET-10-loading, NET-10-results, NET-10-empty, NET-10-stale, NET-10-unavailable, NET-10-dedicated-idle, and NET-10-dedicated-reserved. NET-10-dedicated-unsupported is retired for the four approved baseline clients; do not reuse it for ordinary full, stale, busy, closed, or security failure. Product owns its retirement in the functional inventory. Browse retains the existing list and framed selected details, paging, and single footer row. Discovery, selection, eligibility, joining, recovery, and NET-03 copy remain unchanged.
 
 ## Presentation and allocation
 
@@ -15,7 +15,7 @@ The Browse window is the existing raised panel at (24, 24), 802 by 544 logical p
 - **UX-NET-10-001** BROWSE SESSIONS must remain above the reserved directory-feedback allocation without `Sessions listed` on successful results.
 - **UX-NET-10-002** The table must retain its inset white body and fixed grey heading strip.
 - **UX-NET-10-003** Row selection must retain its selection fill/text, textual marker, and separate focus outline.
-- **UX-NET-10-004** The six headings must be Session / endpoint, Hosting, Players, Phase, Access, and Admission.
+- **UX-NET-10-004** The six headings must be `Session / endpoint`, `Mode`, `Hosting`, `Players`, `Phase`, and `Access`, in that order.
 - **UX-NET-10-005** Selected details must remain below the table and above paging with room for full endpoint/identity and eligibility. The read-only region must have a thin black border, at least 8 logical pixels of inner padding, and a 12-logical-pixel gap below the list. The border must not imply an action or add a focus stop.
 - **UX-NET-10-006** Pagination must show both framed directions when either direction exists and hide both when neither exists.
 - **UX-NET-10-007** The current page label must not invent a total and must hide with unnecessary pagination.
@@ -26,9 +26,9 @@ The Browse window is the existing raised panel at (24, 24), 802 by 544 logical p
 - **UX-NET-10-012** Long row endpoints must clip inside that column while selected details expose their complete validated value through wrapping or existing scrolling.
 - **UX-NET-10-013** Full selected session identity and mode must remain separately labeled and accessible without smaller text or split UTF-8 characters.
 
-Approximate column widths remain 256, 112, 72, 104, 96, and 144 logical pixels. Preserve standard metrics, fixed-height rows, full-row pointer targets, and the table/details relationship. A row count must not take precedence over required detail readability.
+Use the relative allocation in the wireframes. Keep `Session / endpoint` widest and fit `Team deathmatch`, `Player-hosted`, `Restricted`, and `Unconfirmed` without clipping or reducing the text size. Preserve fixed-height rows, full-row pointer targets, and the table/details relationship. A row count must not take precedence over required detail readability.
 
-On the existing logical canvas, inset the heading strip to (32, 490), 786 by 20, and the list body to (32, 248), 786 by 242. Preserve ten visible rows at the existing 22-logical-pixel pitch, all six headings, and the current column hierarchy. Only edge space narrows; do not reduce text or row height. Place the detail border at (32, 108), 786 by 128. Keep its 8-pixel inner padding and 12-pixel list separation; move its text origin 4 pixels right and fit wrapped values to the narrower inner width. Necessary eligibility explanations and ongoing/final-round context must stay inside the padding without covering paging or actions. These bounds apply to results, empty, and unavailable variants; hidden selected metadata must remain hidden.
+On the existing logical canvas, inset the heading strip to (32, 490), 786 by 20, and the list body to (32, 248), 786 by 242. Preserve ten visible rows at the existing 22-logical-pixel pitch. Place the detail border at (32, 108), 786 by 128. Keep its 8-pixel inner padding and 12-pixel list separation. Necessary eligibility explanations and ongoing/final-round context must stay inside the padding without covering paging or actions. These bounds apply to results, empty, and unavailable variants; hidden selected metadata must remain hidden.
 
 ## Upper Refresh and single-row footer
 
@@ -51,19 +51,19 @@ Initial results focus remains on the table. Completed empty/error focus remains 
 ## Mixed row content
 
 - **UX-NET-10-014** Hosting must show Player-hosted or Dedicated from validated classification rather than infer it from an address or password flag.
-- **UX-NET-10-015** Access must show No password or Password from validated none/password metadata consistent with passwordRequired for either hosting mode.
-- **UX-NET-10-016** Access must not disclose passwords, owner tokens, or reconnect credentials.
+- **UX-NET-10-015** For open admission in either hosting kind, `Access` must show `Open` for validated no-password protection or `Restricted` for validated password protection. Selected details must separately show `Protection: No password` or `Protection: Password` for any inspectable row, including when admission is blocked.
+- **UX-NET-10-016** Access and selected details must not disclose passwords, owner tokens, or reconnect credentials.
 - **UX-NET-10-017** Hosting and Access must not imply verified endpoint identity, certificate validation, or universal reachability.
 - **UX-NET-10-018** Players must show authoritative advertised count and effective capacity as count / limit, including reserved slots.
 - **UX-NET-10-019** A prepared empty dedicated session must show Idle and 0 / limit without inventing participants, a controller, or a round.
 - **UX-NET-10-020** Dedicated idle details must omit `Ready empty session. Your role is confirmed only after admission.` without replacement text. This omission must not imply a role assignment or change dedicated idle behavior.
-- **UX-NET-10-021** Controller reservation must show Reserved and truthful occupancy while Admission follows separately advertised eligibility.
-- **UX-NET-10-022** Phase must show the product-decoded Lobby, Round 1, Started, Idle, Reserved, or Cleanup context independently from Admission.
-- **UX-NET-10-023** Admission must show Open, Full, Closed, Busy, or Unconfirmed from approved availability.
+- **UX-NET-10-021** Controller reservation must show Reserved and truthful occupancy while Access reflects the separately advertised admission state.
+- **UX-NET-10-022** Phase must show the product-decoded Lobby, Round 1, Started, Idle, Reserved, or Cleanup context independently from Access.
+- **UX-NET-10-023** For visible rows, pending refresh or age-stale results must show `Unconfirmed` in Access. Otherwise the admission state `busy`, `closed`, or `full` must show `Busy`, `Closed`, or `Full`, respectively, regardless of password protection. `Closed` must stay `Closed` at capacity. Only open admission uses the protection-dependent labels in UX-NET-10-015.
 - **UX-NET-10-024** Cleanup/busy details must explain the temporary block without service-administration or controller-election actions.
-- **UX-NET-10-025** Unknown or unvalidated metadata must not default to Player-hosted, No password, or Open or open a credential task.
+- **UX-NET-10-025** Unknown or unvalidated metadata must not default to Player-hosted, No password, Open, or a known mode, or open a credential task. Missing or unsupported mode metadata must follow existing directory validation and fail-closed handling; do not substitute an idle placeholder for rejected data.
 
-Retired Invite metadata must not be relabeled Password or No password. Product owns safe exclusion, fail-closed page handling, and legacy capability isolation. Action-layout changes authorize no protocol adapter or security fallback.
+For a prepared dedicated `Idle` session, the row and selected details must show `Not set` for Mode: the advertised default is not a configured match. For other validated rows, both must show the advertised gameplay mode as `Deathmatch`, `Predator`, or `Team deathmatch`. Mode is not a compatibility indicator; the actual connection retains the release/content checks. Retired Invite metadata must not be relabeled Password or No password. Product owns safe exclusion, fail-closed page handling, and legacy capability isolation.
 
 ## Selection and recovery
 
@@ -97,7 +97,7 @@ Empty/error bodies must show no session rows, body dividers, separators, scrollb
 | NET-10-results | Six-column table/details; no successful-load status; conditional pagination |
 | NET-10-empty | `No active sessions listed. You can host a session or connect directly.` once in the white body; successful no-selection reason blank |
 | NET-10-unavailable | `Directory unavailable. Direct connection and local play are still available.` once in the white body; cached rows/details hidden; necessary unavailable explanation retained |
-| NET-10-stale | Age-stale successful rows inspectable; Admission Unconfirmed; successful refresh required |
+| NET-10-stale | Age-stale successful rows inspectable; Access `Unconfirmed`; successful refresh required |
 | NET-10-loading | Loading or refreshing in the reserved status region; no false empty/error outcome; joining disabled |
 
 An empty intermediate page may use `No active sessions on this page. Continue with Next page.` Successful current populated results without selection and successful zero-row results must leave the reason line blank without a replacement instruction. Join selected remains disabled. Loading, unavailable, full, closed, stale, expired, and removed-selection explanations remain when applicable.
@@ -111,8 +111,8 @@ A generic Selected session label is permitted without retained metadata. A retry
 - **UX-NET-10-046** The browser must omit `A listing does not guarantee reachability.` in every state without replacement text.
 - The existing `LAN-first.` text and vertical position must remain unchanged; the common horizontal inset applies to its placement only, without introducing absent copy.
 - Context must wrap or use existing scrolling before it covers paging or the footer.
-- **UX-NET-10-044** The results representative must pair a selected protected ongoing Open session with a genuinely completed Closed session and mixed-hosting context.
-- **UX-NET-10-045** Started or Password must not imply Closed; joining must follow product-authorized Admission and existing freshness/capability checks.
+- **UX-NET-10-044** The results representative must pair a selected protected ongoing `Restricted` session with a genuinely completed `Closed` session and a ready-idle dedicated `Open` session.
+- **UX-NET-10-045** Started or password protection must not imply Closed; joining must follow product-authorized admission and existing freshness/capability checks, not the displayed Access label.
 
 Product determines eligibility and the confirmed lobby, immediate-play, Connected-waiting, or rejection destination. The UI must not infer that decision from Phase, capacity, a listing label, or a local timer.
 
@@ -137,4 +137,4 @@ Check single/multiple pages, refresh-driven pagination changes, hidden input exc
 
 Both selected hosting modes must retain immutable targets and protection-aware Password focus. All joining paths must use the same validated availability, freshness, identity, capability, and admission checks. Stills do not establish those behaviors, security, leases, or lifecycle authority.
 
-The [inner-padding evidence matrix](https://github.com/mkapusnik-apps/duel6r/blob/379cfbcac8c384e37d13d5a1a03c1be26cbc0314/docs/design/screenshots/README.md#net-10-current-inner-padding-matrix) defines the affected [NET-10 results](../screenshots/README.md#current-net-10), [NET-10-E empty](../screenshots/README.md#current-net-10-e), and [NET-10-U unavailable](../screenshots/README.md#current-net-10-u) representatives at 1280 by 900. Reuse the prior dedicated-idle supplement for its unchanged copy/state scope, not as evidence of the new outer inset. Do not refresh gameplay, NET-03, or historical unsupported-platform images for this layout-only refinement.
+The current catalog records the [NET-10 results](../screenshots/README.md#current-net-10), [NET-10-E empty](../screenshots/README.md#current-net-10-e), and [NET-10-U unavailable](../screenshots/README.md#current-net-10-u) representatives at 1280 by 900 for Mode and combined Access. The [prior inner-padding evidence matrix](https://github.com/mkapusnik-apps/duel6r/blob/379cfbcac8c384e37d13d5a1a03c1be26cbc0314/docs/design/screenshots/README.md#net-10-current-inner-padding-matrix) defines the existing native profile; its prior headers do not establish the new column composition. Reuse the prior dedicated-idle supplement for its unchanged copy/state scope only, not as evidence of the inset or new columns. No new representative is needed for gameplay, NET-03, or an unsupported-platform state.
