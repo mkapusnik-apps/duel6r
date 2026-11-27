@@ -23,5 +23,6 @@ export function configuration(env = process.env) {
   if (!/^[0-9]{1,5}$/.test(portText) || Number(portText) < 1 || Number(portText) > 65535) {
     throw new Error('Invalid PORT.');
   }
-  return { projectId, databaseId, port: Number(portText), mode };
+  const connectedRoster = env.D6R_DIRECTORY_CONNECTED_ROSTER === '1';
+  return { projectId, databaseId, port: Number(portText), mode, connectedRoster };
 }

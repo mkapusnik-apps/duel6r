@@ -2,7 +2,7 @@
 
 ## Purpose and authority
 
-This screen lets the user find active registered player-hosted and ready dedicated sessions, including a prepared zero-occupancy dedicated session, and select one for admission. [NET-DIR-001 through NET-DIR-033](../network-host-directory.md) own its functional behavior. Listing, selection and provisional offers grant no controller, host, participant or operator authority.
+This screen lets the user find active registered player-hosted and ready dedicated sessions, including a prepared zero-occupancy dedicated session, inspect the selected session's public connected-player names, and select a session for admission. [NET-DIR-001 through NET-DIR-038](../network-host-directory.md) own directory behavior. Listing, selection and provisional offers grant no controller, host, participant or operator authority.
 
 ## Entry, actions, and transitions
 
@@ -44,9 +44,17 @@ Mixed results must retain hosting kind, admission availability, phase including 
 
 The selected identity remains bound if idle changes to lobby or first-round while setup is open; the actual service determines role and destination. End/expiry/restart makes old selections invalid immediately before directory removal, even if old/new rows coexist after lost removal. Rejection precedes authority allocation and never redirects to the fresh session. A changed endpoint or selection requires refresh; explicit unbound Direct transition clears selected mode/identity binding and secrets. Same-session Return preserves identity. Directory failure must not stop current gameplay, direct joining or Local Play.
 
+## Selected roster
+
+Display names must come only from the selected listing and follow [NET-DIR-034–038](../network-host-directory.md#public-connected-player-names). Show names from the latest successful, current read for the selected unexpired listing, not a live presence guarantee. Distinguish a validated empty roster from unavailable names. Neither roster state changes occupancy, eligibility, or binding.
+
+While a refresh is pending, results are age-stale, or the selected listing has expired, show no names even if core details remain inspectable. A failed read or an empty result must hide the roster with the other selected details; retry must not restore it before success. Clearing, removing, or replacing the selection must clear its names immediately. An explicit selection or successful same-identity recovery may show only the newly selected or recovered listing's current roster.
+
 ## Functional acceptance
 
 NET-DIR-AC-001 through NET-DIR-AC-005 and NET-DIR-AC-007 through NET-DIR-AC-009 apply with NET-PASS-AC-001–005. Evidence must cover protected and unprotected listings in both hosting kinds, protection-aware focus, explicit non-empty input on No password, the common encrypted channel, eligible dedicated setup on all approved client targets, ready idle/concurrent first commits, phase/capacity/reservations, same-session Return/fresh reuse, retired/unknown/legacy fail-closed behavior, stale/wrong/ended/restarted selections, disabled joining when genuinely ineligible, bounded browsing and failure independence. NET-DIR-AC-006 retains its player-hosted listening-coverage scope. These are approved targets, not implementation or conformance claims.
+
+NET-DIR-AC-010 applies to the selected roster and its directory boundaries.
 
 UX owns layout, navigation presentation, feedback, focus, accessibility, and responsive behavior in [NET-10](../design/screens/NET-10.md). This contract does not select controls or geometry.
 

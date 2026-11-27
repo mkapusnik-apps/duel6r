@@ -1,6 +1,6 @@
 # NET-10 — Mixed session browser
 
-Functional authority: [network-browser](../../screens/network-browser.md), [host-directory](../../network-host-directory.md), especially NET-DIR-013/014/027/032 and NET-PASS-001–018, and product-owned NET-ADM/NET-SOLO. Presentation retains mixed Hosting, common Password, and bound selection in both hosting modes. Product owns phase decoding, eligibility, the common encrypted channel, supported clients, waiting admission, and final closure.
+Functional authority: [network-browser](../../screens/network-browser.md), [host-directory](../../network-host-directory.md), especially NET-DIR-013/014/027/032/034–038 and NET-PASS-001–018, and product-owned NET-ADM/NET-SOLO. Presentation retains mixed Hosting, common Password, and bound selection in both hosting modes. Product owns public name disclosure, phase decoding, eligibility, the common encrypted channel, supported clients, waiting admission, and final closure.
 
 Structural sources: [NET-10 results](../wireframes/NET-10/NET-10.svg), [NET-10-E empty](../wireframes/NET-10/NET-10-E.svg), and [NET-10-U failed refresh](../wireframes/NET-10/NET-10-U.svg).
 
@@ -23,12 +23,20 @@ The Browse window is the existing raised panel at (24, 24), 802 by 544 logical p
 - **UX-NET-10-009** The table must lose visible rows before details, paging, or footer overlap.
 - **UX-NET-10-010** Loading, empty, stale, and unavailable feedback must retain their owning allocation.
 - **UX-NET-10-011** Session / endpoint must retain the largest column allocation.
-- **UX-NET-10-012** Long row endpoints must clip inside that column while selected details expose their complete validated value through wrapping or existing scrolling.
+- **UX-NET-10-012** Long row endpoints must clip inside that column while selected details expose their complete validated value through wrapping and scrolling when needed.
 - **UX-NET-10-013** Full selected session identity and mode must remain separately labeled and accessible without smaller text or split UTF-8 characters.
 
 Use the relative allocation in the wireframes. Keep `Session / endpoint` widest and fit `Team deathmatch`, `Player-hosted`, `Restricted`, and `Unconfirmed` without clipping or reducing the text size. Preserve fixed-height rows, full-row pointer targets, and the table/details relationship. A row count must not take precedence over required detail readability.
 
 On the existing logical canvas, inset the heading strip to (32, 490), 786 by 20, and the list body to (32, 248), 786 by 242. Preserve ten visible rows at the existing 22-logical-pixel pitch. Place the detail border at (32, 108), 786 by 128. Keep its 8-pixel inner padding and 12-pixel list separation. Necessary eligibility explanations and ongoing/final-round context must stay inside the padding without covering paging or actions. These bounds apply to results, empty, and unavailable variants; hidden selected metadata must remain hidden.
+
+### Selected details and connected players
+
+- **UX-NET-10-047** For an inspectable selection, divide the detail interior into two approximately equal halves. In the left half, show each existing parameter on its own labeled line: `Session`, `Mode`, `Endpoint`, and `Protection`. Wrap overlong values at complete UTF-8 characters and keep eligibility and match context separate and readable. If wrapped values overflow, allow the parameter viewport to scroll without moving the border or covering the reason, paging, or footer.
+- **UX-NET-10-048** In the right half, move the standard inset white listbox up into the former heading space and omit `Connected players` without a replacement heading. Keep five visible rows at the existing height and text size. This is a read-only list: no player selection, action, or transfer of session selection. Right-align a fixed, non-interactive count line below the box, clear of its focus outline and inside the detail border. Show `N connected` using the validated connected roster length, not the table's occupancy. For vertical overflow, show the visible range and total instead (for example, `11–15 / 15`), without repeating the total. Keep the existing `Col …` cue on the same line when names overflow horizontally. Make all 15 rows reachable vertically and let the user scroll across clipped names without splitting UTF-8 characters.
+- **UX-NET-10-049** Use `No connected players.` in the box with `0 connected` below it only for a validated empty roster. Use `Player names unavailable.` with no count or overflow cue when an inspectable selection has no current valid roster, including while pending, age-stale, or expired. Neither message is a player row or input target. With no inspectable selection, hide the listbox and count line; do not add a placeholder to the successful empty or failed read layouts.
+
+Within selected details, only viewports with overflow may receive focus. Use the normal focus keyline and supported keyboard, controller, and pointer scrolling within the applicable viewport. Route pointer scrolling to the viewport under the pointer, and directional scrolling to the focused viewport; neither may move the session selection or page. Read-only scrolling must not trigger Join. If a detail viewport loses overflow or becomes hidden, use UX-NET-10-040. Use the existing desktop canvas and scale at all supported sizes; never reduce type to fit either half.
 
 ## Upper Refresh and single-row footer
 
@@ -44,7 +52,7 @@ These values use the existing 850 by 700 logical canvas and bottom-left renderer
 - Whole button rectangles must remain pointer targets with current pressed, disabled, focus, and canvas-scaling behavior.
 - The former lower Refresh action must not remain as a separate affordance or activation target. Direct connect must occupy its approved single-row footer bounds. Conditional paging must keep the 8-pixel gap above that row: Previous page at (32, 72) and Next page at (568, 72), each 250 by 24, with the centered current-page label between them moved up 4 pixels. Former bounds must not retain duplicate action targets.
 
-Forward traversal must cycle Refresh → table → Previous page → Next page → Join selected → Direct connect → Back → Refresh. Reverse traversal must reverse this cycle. Both must skip hidden or disabled browser controls under existing eligibility.
+Forward traversal must cycle Refresh → table → left detail viewport if scrollable → connected-player listbox if scrollable → Previous page → Next page → Join selected → Direct connect → Back → Refresh. Reverse traversal must reverse this cycle. Both must skip hidden, disabled, or non-scrollable read-only targets. Without detail overflow, traversal is unchanged.
 
 Initial results focus remains on the table. Completed empty/error focus remains on Refresh when enabled. Pending initial-read focus remains on Direct connect. This browser-specific cycle must not change focused-disabled retention on other screens.
 
@@ -111,7 +119,7 @@ A generic Selected session label is permitted without retained metadata. A retry
 - **UX-NET-10-046** The browser must omit `A listing does not guarantee reachability.` in every state without replacement text.
 - The existing `LAN-first.` text and vertical position must remain unchanged; the common horizontal inset applies to its placement only, without introducing absent copy.
 - Context must wrap or use existing scrolling before it covers paging or the footer.
-- **UX-NET-10-044** The results representative must pair a selected protected ongoing `Restricted` session with a genuinely completed `Closed` session and a ready-idle dedicated `Open` session.
+- **UX-NET-10-044** The results representative must show the selected protected session at `15 / 15` with 15 connected players and `Full`, alongside an eligible ongoing `Restricted` session, a genuinely completed `Closed` session, and a ready-idle dedicated `Open` session.
 - **UX-NET-10-045** Started or password protection must not imply Closed; joining must follow product-authorized admission and existing freshness/capability checks, not the displayed Access label.
 
 Product determines eligibility and the confirmed lobby, immediate-play, Connected-waiting, or rejection destination. The UI must not infer that decision from Phase, capacity, a listing label, or a local timer.
@@ -137,4 +145,12 @@ Check single/multiple pages, refresh-driven pagination changes, hidden input exc
 
 Both selected hosting modes must retain immutable targets and protection-aware Password focus. All joining paths must use the same validated availability, freshness, identity, capability, and admission checks. Stills do not establish those behaviors, security, leases, or lifecycle authority.
 
-The current catalog records the [NET-10 results](../screenshots/README.md#current-net-10), [NET-10-E empty](../screenshots/README.md#current-net-10-e), and [NET-10-U unavailable](../screenshots/README.md#current-net-10-u) representatives at 1280 by 900 for Mode and combined Access. The [prior inner-padding evidence matrix](https://github.com/mkapusnik-apps/duel6r/blob/379cfbcac8c384e37d13d5a1a03c1be26cbc0314/docs/design/screenshots/README.md#net-10-current-inner-padding-matrix) defines the existing native profile; its prior headers do not establish the new column composition. Reuse the prior dedicated-idle supplement for its unchanged copy/state scope only, not as evidence of the inset or new columns. No new representative is needed for gameplay, NET-03, or an unsupported-platform state.
+### Minimum native capture matrix
+
+Use the existing native Linux x86-64 Docker Release GL4/Lua ON profile with shipped font and assets and the full 1280 × 900 client. Use disposable display names in owned sessions. Apply the [catalog capture standard](../screenshots/README.md#capture-standard).
+
+| Wireframe | State | Visible result | Destination |
+|---|---|---|---|
+| `NET-10` | Browse, fresh mixed results under UX-NET-10-044; select the protected `15 / 15` Full lobby and scroll to the last name | Five final names in the white listbox, with no heading and `11–15 / 15` right-aligned below it. The left fields, `Protection: Password`, full reason, and disabled Join remain visible. | `docs/design/screenshots/NET-10/NET-10.png` |
+
+Reuse the existing [NET-10-E empty](../screenshots/README.md#current-net-10-e) and [NET-10-U unavailable](../screenshots/README.md#current-net-10-u) stills for their unchanged layout. Check the transitions from named results to pending, stale, failed, empty, and removed selections for the absence of old names; unchanged stills do not prove those transitions. Check true empty versus unavailable copy and left/right overflow at the existing minimum viewport, with the first and fifteenth names reachable. No new still is needed for every listing state, platform, NET-02, NET-03, or gameplay.
