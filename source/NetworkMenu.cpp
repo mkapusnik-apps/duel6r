@@ -2116,12 +2116,6 @@ namespace Duel6 {
                     if (index >= browserScroll + BrowserVisibleRows) browserScroll = index - BrowserVisibleRows + 1;
                 }
             }
-            // Initial focus follows the first result only until the user acts.
-            // A later refresh uses the ordinary unavailable-target fallback.
-            if (followInitialBrowserFocus && !browser.loading()) {
-                followInitialBrowserFocus = false;
-                focus = browserFocusEnabled(0) ? 0 : 2;
-            }
             // A manual Refresh keeps its existing focus while temporarily disabled.
             // Traversal and activation still use browserFocusEnabled; other hidden
             // or disabled targets use the normal fallback.
@@ -2346,6 +2340,13 @@ namespace Duel6 {
         } else {
             previousRetryEligible = false;
         }
+        // Dispatch this frame's input against the visible pending default first.
+        // Only an untouched Browse entry follows the first completed result.
+        if (currentSnapshot.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser
+            && followInitialBrowserFocus && !browser.loading()) {
+            followInitialBrowserFocus = false;
+            focus = browserFocusEnabled(0) ? 0 : 2;
+        }
     }
 
     void NetworkMenu::drawText(Int32 x, Int32 y, const std::string &text, Color color) const { font.print(x, y, color, text); }
@@ -2546,6 +2547,8 @@ namespace Duel6 {
                     : "No active sessions on this page. Continue with Next page.", Color(89));
         }
         const auto *selected = selectedBrowserListing();
+        // Keep the table keyline inside the white body and out of the headings.
+        drawFocusKeyline(36, 252, 778, 234, focus == 0 && visibleRows && !rows.empty() && !selected);
         for (int index = browserScroll; visibleRows && index < static_cast<int>(rows.size()) && index < browserScroll + BrowserVisibleRows; ++index) {
             const auto &row = rows[index]; const Int32 y = 470 - (index - browserScroll) * 22;
             const bool selection = &row == selected;

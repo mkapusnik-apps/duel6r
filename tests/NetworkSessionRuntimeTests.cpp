@@ -1106,10 +1106,14 @@ namespace {
             D6R_REQUIRE(!fixture.application.input.getJoys().empty());
         }
         ~ReviewController() { SDL_JoystickClose(joystick); SDL_JoystickDetachVirtual(device); }
+        void setButton(SDL_GameControllerButton button, bool down) {
+            D6R_REQUIRE_EQ(0, SDL_JoystickSetVirtualButton(joystick, button, down));
+            SDL_JoystickUpdate(); fixture.application.processEvents(fixture.menu);
+        }
         void pulse(SDL_GameControllerButton button) {
             for (bool down: {true, false}) {
-                D6R_REQUIRE_EQ(0, SDL_JoystickSetVirtualButton(joystick, button, down));
-                SDL_JoystickUpdate(); fixture.application.processEvents(fixture.menu); fixture.menu.update(0);
+                setButton(button, down);
+                fixture.menu.update(0);
             }
         }
     };
@@ -1279,6 +1283,66 @@ D6R_TEST_CASE("NET-10 initial read follows the result default until the user nav
         D6R_REQUIRE_EQ(other.id, menu.selectedListing);
         D6R_REQUIRE_EQ(other.sessionId, menu.selectedSessionIdentity);
         D6R_REQUIRE(menu.browserFocusEnabled(1));
+    }
+}
+
+D6R_TEST_CASE("NET-10 controller Confirm on initial completion activates the visible pending Direct action") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    f.selected();
+    ReviewController controller(f);
+    const auto directAddress = menu.address;
+    const auto directPort = menu.port;
+    for (auto result: {Client::DirectoryPage{true, {f.row}, {}}, Client::DirectoryPage{true, {}, {}},
+                      Client::DirectoryPage{}}) {
+        std::promise<Client::DirectoryPage> initial;
+        f.enterWithPendingRead(initial);
+        f.draw();
+        D6R_REQUIRE(f.frame(298, 30, 254, 36, 2)); // The last visible focus is Direct connect.
+        D6R_REQUIRE_EQ(f.row.id, menu.selectedListing); // Populated completion could otherwise open this binding.
+
+        controller.setButton(SDL_CONTROLLER_BUTTON_A, true);
+        initial.set_value(std::move(result)); // Read and controller edge become ready for the same update.
+        menu.update(0);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join && !menu.joinFromBrowser && !menu.browserSelection);
+        D6R_REQUIRE(!menu.browser.loading()); // No replacement Refresh was started.
+        D6R_REQUIRE_EQ(0, menu.focus);
+        D6R_REQUIRE_EQ(directAddress, menu.address);
+        D6R_REQUIRE_EQ(directPort, menu.port);
+        menu.update(0); // Holding Confirm must not re-trigger it in Direct setup.
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Join && !menu.boundSelection());
+        D6R_REQUIRE(menu.runtime.snapshot().journey == Client::NetworkJourney::Inactive);
+        controller.setButton(SDL_CONTROLLER_BUTTON_A, false);
+        menu.update(0);
+    }
+}
+
+D6R_TEST_CASE("NET-10 focused unselected table draws a keyline without selecting or enabling Join") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    std::promise<Client::DirectoryPage> initial;
+    f.enterWithPendingRead(initial);
+    initial.set_value({true, {f.row}, {}}); menu.update(0);
+    const auto tableKeyline = [&] { return f.frame(34, 250, 782, 238, 2); };
+    const auto rowKeyline = [&] { return f.frame(32, 464, 786, 26, 2); };
+    for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
+        f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
+        f.draw();
+        D6R_REQUIRE(tableKeyline() && !rowKeyline());
+        D6R_REQUIRE(menu.selectedListing.empty() && !menu.browserFocusEnabled(1));
+        D6R_REQUIRE(!f.fill(34, 466, 782, 22, Color(0, 0, 200)));
+        f.key(SDLK_TAB); f.draw();
+        D6R_REQUIRE(!tableKeyline() && !rowKeyline());
+        menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
+        D6R_REQUIRE_EQ(0, menu.focus);
+    }
+    f.key(SDLK_DOWN); f.draw();
+    D6R_REQUIRE(!tableKeyline() && rowKeyline());
+    D6R_REQUIRE(f.fill(34, 466, 782, 22, Color(0, 0, 200)) && menu.browserFocusEnabled(1));
+    for (bool available: {false, true}) {
+        f.deliver({available, {}, {}});
+        D6R_REQUIRE(!tableKeyline() && !rowKeyline() && !menu.browserFocusEnabled(1));
+        D6R_REQUIRE(f.frame(704, 516, 116, 28, 2)); // Refresh retains its own outline.
     }
 }
 
