@@ -7,7 +7,7 @@ import { createServer } from './http.js';
 try {
   const config = configuration();
   const db = new Firestore({ projectId: config.projectId, databaseId: config.databaseId });
-  const server = createServer(new Directory(db));
+  const server = createServer(new Directory(db, { connectedRoster: config.connectedRoster }));
   server.on('error', () => { console.error('Directory startup failed.'); process.exitCode = 1; });
   server.listen(config.port, '0.0.0.0');
   let stopping = false;

@@ -20,6 +20,18 @@ test('rejects invalid configuration without echoing environment values', () => {
   assert.throws(() => configuration({ GOOGLE_CLOUD_PROJECT: 'demo-test', NODE_ENV: 'unknown' }));
 });
 
+test('connected roster activation is off by default and accepts only the exact string opt-in', () => {
+  for (const NODE_ENV of ['test', 'development', 'production']) {
+    const env = { GOOGLE_CLOUD_PROJECT: 'demo-test', NODE_ENV,
+      ...(NODE_ENV === 'production' ? {} : { FIRESTORE_EMULATOR_HOST: 'localhost:8081' }) };
+    assert.equal(configuration(env).connectedRoster, false);
+    for (const D6R_DIRECTORY_CONNECTED_ROSTER of ['0', 'true', ' 1', '1 ', '01', 1]) {
+      assert.equal(configuration({ ...env, D6R_DIRECTORY_CONNECTED_ROSTER }).connectedRoster, false);
+    }
+    assert.equal(configuration({ ...env, D6R_DIRECTORY_CONNECTED_ROSTER: '1' }).connectedRoster, true);
+  }
+});
+
 test('database configuration preserves the default and accepts explicit named databases', () => {
   assert.equal(configuration({ GOOGLE_CLOUD_PROJECT: 'demo-test' }).databaseId, '(default)');
   for (const databaseId of ['(default)', 'staging-directory', 'directory', 'abcd', 'a'.repeat(62) + '1']) {

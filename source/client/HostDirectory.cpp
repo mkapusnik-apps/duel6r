@@ -9,6 +9,7 @@
 #endif
 #include <curl/curl.h>
 #include <algorithm>
+#include <cctype>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
@@ -159,30 +160,96 @@ namespace Duel6::Client {
             if (mixed) row.connectedPlayers = decodeRoster(value, row.players);
             return row;
         }
-        Json::Value parse(const std::string &body) {
+        bool jsonWhitespace(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+
+        // The legacy parser does not consume JSON escapes. Inside the optional
+        // roster only, normalize string tokens to the wire alphabet or an invalid
+        // sentinel. Keep punctuation and every core field for the existing parser.
+        std::string safeRosterString(std::string_view raw) {
+            std::string text;
+            bool inAlphabet = true;
+            for (std::size_t i = 0; i < raw.size(); ++i) {
+                unsigned value = static_cast<unsigned char>(raw[i]);
+                if (value < 0x20) throw std::invalid_argument("Invalid directory JSON string.");
+                if (value == '\\') {
+                    if (++i == raw.size()) throw std::invalid_argument("Invalid directory JSON string.");
+                    switch (raw[i]) {
+                        case 'u':
+                            value = 0;
+                            for (int digit = 0; digit < 4; ++digit) {
+                                if (++i == raw.size()) throw std::invalid_argument("Invalid directory JSON escape.");
+                                constexpr std::string_view digits = "0123456789abcdef";
+                                const auto nibble = digits.find(static_cast<char>(std::tolower(static_cast<unsigned char>(raw[i]))));
+                                if (nibble == std::string_view::npos) throw std::invalid_argument("Invalid directory JSON escape.");
+                                value = value * 16 + static_cast<unsigned>(nibble);
+                            }
+                            break;
+                        case '"': case '\\': case '/': case 'b': case 'f': case 'n': case 'r': case 't':
+                            // None of these escapes can decode to a base64url character.
+                            inAlphabet = false;
+                            continue;
+                        default: throw std::invalid_argument("Invalid directory JSON escape.");
+                    }
+                }
+                if (value > 127 || RosterAlphabet.find(static_cast<char>(value)) == std::string_view::npos)
+                    inAlphabet = false;
+                else text += static_cast<char>(value);
+            }
+            return inAlphabet ? text : "!";
+        }
+
+        Json::Value parse(const std::string &body, bool mixedPage = false) {
             if (body.size() > 65536) throw std::invalid_argument("Directory response too large.");
             unsigned depth = 0;
-            bool quoted = false, escaped = false, ended = false;
-            for (char c: body) {
+            bool quoted = false, escaped = false, stringHasEscape = false, ended = false;
+            bool inListings = false, inRoster = false;
+            std::size_t stringStart = 0, listingsStart = std::string::npos, keptFrom = 0;
+            std::string normalized;
+            for (std::size_t index = 0; index < body.size(); ++index) {
+                const char c = body[index];
                 if (ended) {
-                    if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+                    if (!jsonWhitespace(c))
                         throw std::invalid_argument("Trailing directory response data.");
                     continue;
                 }
                 if (quoted) {
                     if (escaped) escaped = false;
-                    else if (c == '\\') escaped = true;
-                    else if (c == '"') quoted = false;
-                } else if (c == '"') quoted = true;
+                    else if (c == '\\') escaped = stringHasEscape = true;
+                    else if (c == '"') {
+                        quoted = false;
+                        if (!mixedPage) continue;
+                        const auto token = std::string_view(body).substr(stringStart + 1, index - stringStart - 1);
+                        if (inRoster && stringHasEscape) {
+                            normalized.append(body, keptFrom, stringStart + 1 - keptFrom);
+                            normalized += safeRosterString(token);
+                            keptFrom = index;
+                        } else if (!inRoster && ((depth == 1 && token == "listings")
+                                   || (inListings && depth == 3 && token == "connectedPlayers"))) {
+                            const auto colon = body.find_first_not_of(" \t\r\n", index + 1);
+                            if (colon == std::string::npos || body[colon] != ':') continue;
+                            if (depth == 1) listingsStart = body.find_first_not_of(" \t\r\n", colon + 1);
+                            else inRoster = true;
+                        }
+                    }
+                    continue;
+                }
+                if (inRoster && depth == 3 && (c == ',' || c == '}' || c == ']')) inRoster = false;
+                if (c == '"') { quoted = true; stringHasEscape = false; stringStart = index; }
                 else if (c == '[' || c == '{') {
+                    if (index == listingsStart && c == '[') inListings = true;
                     if (++depth > 8) throw std::invalid_argument("Directory response nesting exceeds limit.");
                 } else if (c == ']' || c == '}') {
                     if (depth == 0) throw std::invalid_argument("Invalid directory response.");
+                    if (depth == 2) inListings = false;
                     --depth;
                     if (depth == 0) ended = true;
                 }
             }
             if (!ended || depth != 0 || quoted) throw std::invalid_argument("Invalid directory response.");
+            if (keptFrom != 0) {
+                normalized.append(body, keptFrom, std::string::npos);
+                return Json::Parser().parse(std::vector<Uint8>(normalized.begin(), normalized.end()));
+            }
             return Json::Parser().parse(std::vector<Uint8>(body.begin(), body.end()));
         }
         std::string encode(const DirectoryListing &row) {
@@ -322,7 +389,7 @@ namespace Duel6::Client {
     DirectoryPage decodeDirectoryPage(const std::string &body, const std::string &cursor, bool mixed) {
         DirectoryPage page;
         try {
-            const auto value = parse(body), rows = value.get("listings");
+            const auto value = parse(body, mixed), rows = value.get("listings");
             if (mixed && value.get("contract").asString() != "mixed-v2") return page;
             if (!cursor.empty() && !validCursor(cursor, mixed)) return page;
             if (rows.getLength() > 25) return page;
@@ -401,6 +468,7 @@ namespace Duel6::Client {
             std::string id, owner, session, collection;
             unsigned revision = 0;
             bool rosterSupported = false;
+            bool rosterFollowUp = false;
             auto next = Clock::now();
             for (;;) {
                 DirectoryListing listing;
@@ -421,9 +489,11 @@ namespace Duel6::Client {
                     (void) dependencies.request("DELETE", collection + "/" + id, {}, owner, revision, &stopping);
                     id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
                     published.store(false);
+                    rosterFollowUp = false;
                 }
                 collection = listing.dedicated() ? "/v2/listings" : "/v1/listings";
                 if (body.empty()) {
+                    rosterFollowUp = false;
                     published.store(false);
                     if (!id.empty()) {
                         const auto removal = dependencies.request("DELETE", collection + "/" + id, {}, owner, revision, &stopping);
@@ -439,12 +509,14 @@ namespace Duel6::Client {
                 const auto method = id.empty() ? "POST" : "PUT";
                 const auto path = id.empty() ? collection : collection + "/" + id;
                 const auto roster = rosterSupported ? encodeRoster(listing) : std::string{};
+                bool wroteRoster = !roster.empty();
                 auto response = dependencies.request(method, path,
                     roster.empty() ? body : body.substr(0, body.size() - 1) + roster + "}", owner, revision, &stopping);
                 if (!roster.empty() && response.status == 400 && !stopping) {
                     // A strict older instance rejected the extension before writing.
                     // Retry only that definite rejection, using the same owner and revision.
                     response = dependencies.request(method, path, body, owner, revision, &stopping);
+                    wroteRoster = false;
                 }
                 bool success = false;
                 bool sendRosterNext = false;
@@ -465,9 +537,8 @@ namespace Duel6::Client {
                             if (!hex(owner, 64)) throw std::invalid_argument("Invalid listing.");
                         }
                         id = row.id; session = row.sessionId; revision = row.revision; success = true;
-                        const auto previouslySupported = rosterSupported;
                         rosterSupported = supportsRoster(value);
-                        sendRosterNext = !previouslySupported && rosterSupported && !encodeRoster(listing).empty();
+                        sendRosterNext = rosterSupported && !wroteRoster && !rosterFollowUp && !encodeRoster(listing).empty();
                     }
                 } catch (...) {}
                 Network::Trust::secureEraseMemory(response.body.data(), response.body.size());
@@ -480,6 +551,9 @@ namespace Duel6::Client {
                     id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
                 }
                 next = sendRosterNext ? Clock::now() : attempted + std::chrono::seconds(20);
+                // A strict/capable fleet can accept the fallback repeatedly. Limit
+                // each write cycle to one prompt repair before normal renewal.
+                rosterFollowUp = sendRosterNext;
                 // Coalesce rapid state changes without an unbounded publication loop.
                 std::unique_lock<std::mutex> lock(mutex);
                 pending.store(dirty);

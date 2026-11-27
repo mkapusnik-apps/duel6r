@@ -108,7 +108,7 @@ D6R_TEST_CASE("NET-DIR roster negotiation keeps one owner through a strict metad
     std::mutex mutex;
     const std::string id(32, 'a'), owner(64, 'b');
     const auto session = Client::directorySessionId(14);
-    unsigned revision = 0, strictRejects = 0;
+    unsigned revision = 0, strictRejects = 0, nextStrictRejects = 0;
     bool oldService = false;
     std::vector<std::string> accepted;
     Client::DirectoryPublisherDependencies dependencies;
@@ -122,8 +122,9 @@ D6R_TEST_CASE("NET-DIR roster negotiation keeps one owner through a strict metad
             D6R_REQUIRE_EQ(revision, expected);
         } else D6R_REQUIRE_EQ(0u, revision); // No duplicate registration.
         if (method == "DELETE") return Client::DirectoryResponse{204, {}};
-        if (oldService && body.find("connectedPlayers") != std::string::npos) {
+        if ((oldService || nextStrictRejects) && body.find("connectedPlayers") != std::string::npos) {
             ++strictRejects;
+            if (nextStrictRejects) --nextStrictRejects;
             return Client::DirectoryResponse{400, {}};
         }
         accepted.push_back(body);
@@ -171,6 +172,28 @@ D6R_TEST_CASE("NET-DIR roster negotiation keeps one owner through a strict metad
         std::lock_guard<std::mutex> lock(mutex);
         D6R_REQUIRE(accepted[4].find("connectedPlayers") == std::string::npos);
         D6R_REQUIRE(accepted[5].find("\"connectedPlayers\":[]") != std::string::npos);
+        // Strict instance rejects the extended PUT, capable instance accepts
+        // the core fallback. The listing then needs a prompt named renewal.
+        nextStrictRejects = 1;
+    }
+    row.connectedPlayers = std::vector<std::string>{"A"};
+    publisher.update(row);
+    D6R_REQUIRE(current(8));
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE_EQ(2u, strictRejects);
+        D6R_REQUIRE(accepted[6].find("connectedPlayers") == std::string::npos);
+        D6R_REQUIRE(accepted[7].find("\"connectedPlayers\":[\"QQ\"]") != std::string::npos);
+        nextStrictRejects = 3;
+    }
+    row.connectedPlayers = std::vector<std::string>{"B"};
+    publisher.update(row);
+    D6R_REQUIRE(current(10));
+    std::this_thread::sleep_for(1200ms); // More than the prompt writer's one-second coalescing interval.
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE_EQ(10u, revision);
+        D6R_REQUIRE_EQ(1u, nextStrictRejects);
     }
     publisher.stop();
 }

@@ -48,6 +48,35 @@ TTL is enabled on `directoryListings.leaseExpiry` in each database. TTL deletion
 is asynchronous; the application excludes expired records without waiting for it.
 Retain the `leaseExpiry` query index. Do not exempt it from indexing for TTL.
 
+## Connected-player roster activation
+
+Roster storage is off unless `D6R_DIRECTORY_CONNECTED_ROSTER` is exactly `1`.
+While off, the directory accepts and serves listing metadata without storing
+connected-player names or advertising roster support.
+
+Before enabling any roster-writing revision, including one reachable through a
+candidate URL, an authorized project operator must:
+
+1. In project `duel-6-reloaded`, disable automatic single-field indexes only for
+   field `rosterNames` in collection group `directoryListings`. Apply this
+   exemption in both named databases: `staging-directory` and `directory`.
+2. Wait for both field operations to complete. Record the completed operations
+   and confirm in each managed database that the leaf has an explicit,
+   non-inherited exemption with no indexes, no reversion in progress, and no
+   composite index that includes it. Confirm that the existing `leaseExpiry`
+   query index and active TTL policy remain in place. Do not change unrelated
+   index or retention settings.
+
+Keep roster storage off until this evidence is recorded for both databases.
+Emulator tests prove application behavior, not managed Firestore index or TTL
+state. The application does not poll the Firestore Admin API.
+
+The staging and production workflows set `env_vars_update_strategy: overwrite`
+and omit `D6R_DIRECTORY_CONNECTED_ROSTER`. Automatic deployments therefore keep
+roster storage off until separately authorized activation and verification
+configuration is in place. A later automatic revision overwrites any authorized
+manual activation.
+
 ## Provisioning and access boundaries
 
 Provisioning uses an authorized operator, not a CI deployment identity. The enabled

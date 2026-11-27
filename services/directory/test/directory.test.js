@@ -13,6 +13,7 @@ const db = new Firestore({ projectId: config.projectId });
 const collection = `testDirectory${randomBytes(8).toString('hex')}`;
 let clock = 100_000;
 const directory = new Directory(db, { collection, now: () => clock });
+const rosterDirectory = new Directory(db, { collection, now: () => clock, connectedRoster: true });
 const listing = (changes = {}) => ({
   sessionId: 'a'.repeat(32), address: '192.168.1.5', port: 25000,
   mode: 'deathmatch', players: 2, capacity: 15, passwordRequired: false,
@@ -60,6 +61,7 @@ test('mixed publication isolates legacy reads, immutable classification and owne
 });
 
 test('current owned connected names are public in mixed reads regardless of protection and admission', async () => {
+  const directory = rosterDirectory;
   const encode = value => Buffer.from(value).toString('base64url');
   const names = Array.from({ length: 15 }, () => encode('"\\é' + 'x'.repeat(60)));
   const closed = await directory.register(listing({ phase: 'closed', players: 15, passwordRequired: true,
@@ -85,6 +87,12 @@ test('current owned connected names are public in mixed reads regardless of prot
     assert.deepEqual(get(busy.id).connectedPlayers, [encode('Waiting')]);
     assert.equal(get(busy.id).players, 2);
     assert.equal(Object.hasOwn(get(oldPublisher.id), 'connectedPlayers'), false);
+    const stored = (await db.collection(collection).doc(closed.id).get()).data();
+    assert.deepEqual(Object.keys(stored).sort(), ['expiresAt', 'leaseExpiry', 'listing', 'ownerHash',
+      'revision', 'rosterNames', 'rosterRevision']);
+    assert.deepEqual(stored.rosterNames, names);
+    assert.equal(stored.rosterRevision, stored.revision);
+    assert.equal(Object.hasOwn(stored.listing, 'connectedPlayers'), false);
     for (const row of mixed.listings) {
       assert.equal(Object.hasOwn(row, 'ownerToken'), false);
       assert.equal(Object.hasOwn(row, 'ownerHash'), false);
@@ -100,6 +108,7 @@ test('current owned connected names are public in mixed reads regardless of prot
 });
 
 test('invalid optional names are discarded atomically and never carry across owner revisions', async () => {
+  const directory = rosterDirectory;
   const encode = value => Buffer.from(value).toString('base64url');
   const created = await directory.register(listing({ connectedPlayers: [encode('Former')] }));
   const read = async () => (await directory.list(undefined, true)).listings.find(row => row.id === created.id);
@@ -126,12 +135,41 @@ test('invalid optional names are discarded atomically and never carry across own
   // A strict older binary keeps unknown document siblings on a metadata write.
   await db.collection(collection).doc(created.id).update({ revision: ++revision });
   assert.equal(Object.hasOwn(await read(), 'connectedPlayers'), false);
+  const ref = db.collection(collection).doc(created.id);
+  await ref.update({ roster: { revision, names: [encode('Nested')] } });
+  assert.equal(Object.hasOwn(await read(), 'connectedPlayers'), false);
   await directory.mutate(created.id, created.ownerToken, revision++, listing());
-  assert.equal(Object.hasOwn((await db.collection(collection).doc(created.id).get()).data(), 'roster'), false);
+  const replaced = (await ref.get()).data();
+  for (const key of ['roster', 'rosterNames', 'rosterRevision']) assert.equal(Object.hasOwn(replaced, key), false);
   const refreshed = await directory.mutate(created.id, created.ownerToken, revision, input);
   assert.equal(refreshed.expiresAt, current.expiresAt);
   clock = refreshed.expiresAt;
   assert.equal(await read(), undefined);
+});
+
+test('default-off writer and reader keep metadata usable but neither advertise nor retain names', async () => {
+  const names = [Buffer.from('Current').toString('base64url')];
+  const input = listing({ connectedPlayers: names, passwordRequired: true });
+  const fields = ['roster', 'rosterNames', 'rosterRevision', 'connectedPlayers', 'connectedRosterSupported'];
+  const assertNoNames = value => {
+    for (const field of fields) assert.equal(Object.hasOwn(value, field), false);
+  };
+  const metadataOnly = await directory.register(input);
+  assertNoNames(metadataOnly);
+  assertNoNames((await db.collection(collection).doc(metadataOnly.id).get()).data());
+  const named = await rosterDirectory.register(input);
+  const read = async service => (await service.list(undefined, true)).listings.find(row => row.id === named.id);
+  assert.deepEqual((await read(rosterDirectory)).connectedPlayers, names);
+  assertNoNames(await read(directory));
+  await assert.rejects(directory.mutate(named.id, '0'.repeat(64), 1, input), status(401));
+  const updated = await directory.mutate(named.id, named.ownerToken, 1, { ...input, phase: 'closed' });
+  assertNoNames(updated);
+  assertNoNames((await db.collection(collection).doc(named.id).get()).data());
+  const row = await read(rosterDirectory);
+  assertNoNames(row);
+  assert.equal(row.phase, 'closed');
+  assert.equal(row.passwordRequired, true);
+  assert.equal(row.revision, 2);
 });
 
 test('retired invite lease rows are excluded without reinterpretation or database mutation', async () => {

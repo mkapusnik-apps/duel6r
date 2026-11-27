@@ -25,7 +25,9 @@ test('entry point routes listings to the selected database without default fallb
       await new Promise(resolve => socket.close(resolve));
       const env = { ...process.env, NODE_ENV: 'test', PORT: String(port) };
       delete env.D6R_DIRECTORY_FIRESTORE_DATABASE;
+      delete env.D6R_DIRECTORY_CONNECTED_ROSTER;
       if (databaseId !== undefined) env.D6R_DIRECTORY_FIRESTORE_DATABASE = databaseId;
+      if (index === 1) env.D6R_DIRECTORY_CONNECTED_ROSTER = '1';
       const child = spawn(process.execPath, ['src/main.js'], { env, stdio: 'ignore' });
       const exited = once(child, 'exit');
       const url = `http://127.0.0.1:${port}/v1/listings`;
@@ -47,10 +49,14 @@ test('entry point routes listings to the selected database without default fallb
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId: randomBytes(16).toString('hex'),
             address: '192.168.1.5', port: 25000, mode: 'deathmatch', players: 2,
-            capacity: 15, passwordRequired: false, phase: 'lobby' }),
+             capacity: 15, passwordRequired: false, phase: 'lobby', connectedPlayers: ['QQ'] }),
           signal: AbortSignal.timeout(10_000) });
         assert.equal(response.status, 201);
         created = await response.json();
+        assert.equal(created.connectedRosterSupported, index === 1 ? true : undefined);
+        const mixed = await fetch(`http://127.0.0.1:${port}/v2/listings`).then(res => res.json());
+        assert.deepEqual(mixed.listings.find(row => row.id === created.id).connectedPlayers,
+          index === 1 ? ['QQ'] : undefined);
         const path = `directoryListings/${created.id}`;
         assert.equal((await databases[index].doc(path).get()).exists, true);
         assert.equal((await databases[1 - index].doc(path).get()).exists, false);

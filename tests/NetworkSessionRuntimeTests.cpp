@@ -594,6 +594,26 @@ D6R_TEST_CASE("NET-DIR mixed decoder keeps a bounded literal roster independent 
     }
     const auto old = decode("");
     D6R_REQUIRE(old.available && !old.listings.front().connectedPlayers);
+
+    auto neighbor = core;
+    neighbor.replace(neighbor.find(std::string(32, 'a')), 32, std::string(32, 'b'));
+    // The string escapes in this invalid optional list must not affect the
+    // containing listing or a neighboring listing's core and roster.
+    const auto mixed = [&](const std::string &first, const std::string &second) {
+        return Client::decodeDirectoryPage("{\"contract\":\"mixed-v2\",\"listings\":["
+            + first + R"(,"connectedPlayers":["QQ","Bad\"value",{"field\"":"nested\\quote"}]},)"
+            + second + R"(,"connectedPlayers":["\u0051Q"]}],"nextCursor":null})", {}, true);
+    };
+    const auto isolated = mixed(core, neighbor);
+    D6R_REQUIRE(isolated.available && isolated.listings.size() == 2);
+    D6R_REQUIRE(!isolated.listings[0].connectedPlayers && isolated.listings[0].passwordRequired);
+    D6R_REQUIRE_EQ(std::string(32, 'a'), isolated.listings[0].id);
+    D6R_REQUIRE_EQ(std::string(32, 'b'), isolated.listings[1].id);
+    D6R_REQUIRE(isolated.listings[1].connectedPlayers
+                && *isolated.listings[1].connectedPlayers == std::vector<std::string>{"A"});
+    auto badCore = core;
+    badCore.replace(badCore.find("deathmatch"), std::string("deathmatch").size(), "unknown");
+    D6R_REQUIRE(!mixed(badCore, neighbor).available);
 }
 
 D6R_TEST_CASE("NET-DIR browser retains roster order for connected waiting and dead slots only") {
@@ -4641,17 +4661,17 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     D6R_REQUIRE_EQ(rows.front().id, menu.selectedListing);
     D6R_REQUIRE(menu.browserFocusEnabled(1));
     // Page position is rendered from real cursor navigation, with no invented total.
-    // Traverse paging before the footer, skipping disabled Previous on page one.
+    // Loopback has scrollable details before paging; skip disabled Previous on page one.
     scrollToLast();
     auto rendered = texts();
     D6R_REQUIRE(rendered.find("Page 1\n") != std::string::npos);
     D6R_REQUIRE(rendered.find("Previous page") < rendered.find("Join selected"));
     D6R_REQUIRE(rendered.find("Next page") < rendered.find("Join selected"));
-    for (int expected: {5, 1, 3, 6, 2, 0}) {
+    for (int expected: {7, 5, 1, 3, 6, 2, 0}) {
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
         menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
     }
-    for (int expected: {2, 6, 3, 1, 5, 0}) {
+    for (int expected: {2, 6, 3, 1, 5, 7, 0}) {
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, KMOD_SHIFT));
         menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
     }
@@ -4665,16 +4685,16 @@ D6R_TEST_CASE("NET-DIR refresh shrink normalizes visible rows selection and inpu
     D6R_REQUIRE(rendered.find("Page 2\n") != std::string::npos);
     D6R_REQUIRE(rendered.find("127.0.0.1:25000") != std::string::npos);
     menu.focus = 0; menu.keyEvent(KeyPressEvent(SDLK_DOWN, SysEvent::ButtonState::PRESSED, 0));
-    for (int expected: {4, 5, 1, 3, 6, 2, 0}) {
+    for (int expected: {7, 4, 5, 1, 3, 6, 2, 0}) {
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
         menu.update(0); D6R_REQUIRE_EQ(expected, menu.focus);
     }
-    // Directional/controller traversal shares the same row -> paging -> footer order.
-    for (int expected: {4, 5, 1, 3, 6, 2, 0}) {
+    // Directional/controller traversal shares the same row -> details -> paging -> footer order.
+    for (int expected: {7, 4, 5, 1, 3, 6, 2, 0}) {
         menu.moveFocus(1); D6R_REQUIRE_EQ(expected, menu.focus);
     }
     menu.browser.received -= std::chrono::seconds(31);
-    for (int expected: {4, 3, 6, 2, 0}) {
+    for (int expected: {7, 4, 3, 6, 2, 0}) {
         menu.keyEvent(KeyPressEvent(SDLK_TAB, SysEvent::ButtonState::PRESSED, 0));
         D6R_REQUIRE_EQ(expected, menu.focus); // stale Next and Join stay excluded
     }

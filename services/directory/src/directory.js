@@ -76,11 +76,11 @@ function validateRoster(value, occupancy) {
   return value.slice();
 }
 
-function listingInput(value) {
+function listingInput(value, connectedRoster) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { listing: validateListing(value) };
   const { connectedPlayers, ...core } = value;
   const listing = validateListing(core);
-  return { listing, names: validateRoster(connectedPlayers, listing.players) };
+  return { listing, names: connectedRoster ? validateRoster(connectedPlayers, listing.players) : undefined };
 }
 
 export function validFrontend(address) {
@@ -97,17 +97,18 @@ function publicListing(id, data, mixed = true, withRoster = false) {
   if (!mixed) { delete listing.hosting; delete listing.protection; delete listing.admission; }
   // Older writers may retain unknown document fields while incrementing the
   // revision. Never present that old roster as part of their replacement.
-  if (mixed && withRoster && data.roster?.revision === data.revision) {
-    const names = validateRoster(data.roster.names, listing.players);
+  if (mixed && withRoster && data.rosterRevision === data.revision) {
+    const names = validateRoster(data.rosterNames, listing.players);
     if (names !== undefined) listing.connectedPlayers = names;
   }
   return { id, ...listing, expiresAt: data.expiresAt, revision: data.revision };
 }
 
 export class Directory {
-  constructor(db, { now = Date.now, collection = 'directoryListings' } = {}) {
+  constructor(db, { now = Date.now, collection = 'directoryListings', connectedRoster = false } = {}) {
     this.db = db;
     this.now = now;
+    this.connectedRoster = connectedRoster === true;
     this.listings = db.collection(collection);
     this.limits = db.collection(`${collection}Limits`);
   }
@@ -131,7 +132,7 @@ export class Directory {
   }
 
   async register(input, mixed = false) {
-    const { listing, names } = listingInput(input);
+    const { listing, names } = listingInput(input, this.connectedRoster);
     requireValue(mixed || listing.hosting === 'player-hosted');
     await this.quota('register');
     const id = randomBytes(16).toString('hex');
@@ -139,16 +140,21 @@ export class Directory {
     const expiresAt = this.now() + LEASE_MS;
     const data = { listing, ownerHash: digest(ownerToken), revision: 1, expiresAt,
       leaseExpiry: Timestamp.fromMillis(expiresAt) };
-    if (names !== undefined) data.roster = { revision: data.revision, names };
+    // Keep names in one top-level leaf for index exemption, not inside an indexed map.
+    if (names !== undefined) {
+      data.rosterNames = names;
+      data.rosterRevision = data.revision;
+    }
     await this.listings.doc(id).create(data);
-    return { ...publicListing(id, data), ownerToken, connectedRosterSupported: true };
+    return { ...publicListing(id, data), ownerToken,
+      ...(this.connectedRoster ? { connectedRosterSupported: true } : {}) };
   }
 
   async mutate(id, ownerToken, revision, input, mixed = false) {
     requireValue(typeof id === 'string' && idPattern.test(id));
     requireValue(typeof ownerToken === 'string' && tokenPattern.test(ownerToken), 401);
     requireValue(Number.isSafeInteger(revision) && revision >= 1);
-    const { listing, names } = input === null ? { listing: null } : listingInput(input);
+    const { listing, names } = input === null ? { listing: null } : listingInput(input, this.connectedRoster);
     await this.quota('mutate');
     const ref = this.listings.doc(id);
     return this.db.runTransaction(async tx => {
@@ -169,9 +175,15 @@ export class Directory {
       const replacement = { ...data, listing, revision: revision + 1, expiresAt,
         leaseExpiry: Timestamp.fromMillis(expiresAt) };
       delete replacement.roster;
-      if (names !== undefined) replacement.roster = { revision: replacement.revision, names };
+      delete replacement.rosterNames;
+      delete replacement.rosterRevision;
+      if (names !== undefined) {
+        replacement.rosterNames = names;
+        replacement.rosterRevision = replacement.revision;
+      }
       tx.set(ref, replacement);
-      return { ...publicListing(id, replacement), connectedRosterSupported: true };
+      return { ...publicListing(id, replacement),
+        ...(this.connectedRoster ? { connectedRosterSupported: true } : {}) };
     }, { maxAttempts: 3 });
   }
 
@@ -202,7 +214,7 @@ export class Directory {
       listings: page.filter(doc => doc.data().expiresAt > readTime
         && doc.data().listing.protection !== 'invite' // Retired records expire; never reinterpret them.
         && (mixed || validateListing(doc.data().listing).hosting === 'player-hosted'))
-        .map(doc => publicListing(doc.id, doc.data(), mixed, true)),
+        .map(doc => publicListing(doc.id, doc.data(), mixed, this.connectedRoster)),
       nextCursor: snapshot.size > PAGE_SIZE ? `${mixed ? 'm2_' : ''}${page.at(-1).data().expiresAt}-${page.at(-1).id}` : null
     };
   }
