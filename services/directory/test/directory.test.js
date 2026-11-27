@@ -59,6 +59,81 @@ test('mixed publication isolates legacy reads, immutable classification and owne
   await directory.mutate(created.id, created.ownerToken, 2, null, true);
 });
 
+test('current owned connected names are public in mixed reads regardless of protection and admission', async () => {
+  const encode = value => Buffer.from(value).toString('base64url');
+  const names = Array.from({ length: 15 }, () => encode('"\\é' + 'x'.repeat(60)));
+  const closed = await directory.register(listing({ phase: 'closed', players: 15, passwordRequired: true,
+    connectedPlayers: names }));
+  const idle = await directory.register(dedicated({ connectedPlayers: [] }), true);
+  const busy = await directory.register(dedicated({ phase: 'cleanup', admission: 'busy', players: 2,
+    connectedPlayers: [encode('Waiting')] }), true);
+  const oldPublisher = await directory.register(listing());
+  assert.equal(closed.connectedRosterSupported, true);
+  assert.equal(Object.hasOwn(closed, 'connectedPlayers'), false);
+
+  const server = createServer(directory);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const mixed = await fetch(`${origin}/v2/listings`).then(response => {
+      assert.equal(response.status, 200);
+      return response.json();
+    });
+    const get = id => mixed.listings.find(row => row.id === id);
+    assert.deepEqual(get(closed.id).connectedPlayers, names);
+    assert.deepEqual(get(idle.id).connectedPlayers, []);
+    assert.deepEqual(get(busy.id).connectedPlayers, [encode('Waiting')]);
+    assert.equal(get(busy.id).players, 2);
+    assert.equal(Object.hasOwn(get(oldPublisher.id), 'connectedPlayers'), false);
+    for (const row of mixed.listings) {
+      assert.equal(Object.hasOwn(row, 'ownerToken'), false);
+      assert.equal(Object.hasOwn(row, 'ownerHash'), false);
+      assert.equal(Object.hasOwn(row, 'connectedRosterSupported'), false);
+    }
+    const legacy = await fetch(`${origin}/v1/listings`).then(response => response.json());
+    assert.equal(legacy.listings.length, 2);
+    assert.ok(legacy.listings.every(row => !Object.hasOwn(row, 'connectedPlayers') && !Object.hasOwn(row, 'hosting')));
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('invalid optional names are discarded atomically and never carry across owner revisions', async () => {
+  const encode = value => Buffer.from(value).toString('base64url');
+  const created = await directory.register(listing({ connectedPlayers: [encode('Former')] }));
+  const read = async () => (await directory.list(undefined, true)).listings.find(row => row.id === created.id);
+  const input = listing({ connectedPlayers: [encode('Current')] });
+  assert.deepEqual((await read()).connectedPlayers, [encode('Former')]);
+  await assert.rejects(directory.mutate(created.id, '0'.repeat(64), 1, input), status(401));
+  await assert.rejects(directory.mutate(created.id, created.ownerToken, 2, input), status(409));
+  await assert.rejects(directory.mutate(created.id, created.ownerToken, 1,
+    { ...input, phase: 'unknown' }), status(400));
+  assert.deepEqual((await read()).connectedPlayers, [encode('Former')]);
+  const invalidEntries = ['', 'YR', 'wK8', encode('x'.repeat(65)), encode('line\nbreak'), encode('\0'),
+    encode('\u202e'), encode('\u2069'), encode('\u2029'), encode('\u009f'), { name: 'private' }];
+  let revision = 1;
+  for (const connectedPlayers of [
+    ...invalidEntries.map(name => [encode('Valid'), name]), [encode('A'), encode('B'), encode('C')], null, {},
+  ]) {
+    await directory.mutate(created.id, created.ownerToken, revision++, listing({ connectedPlayers }));
+    const row = await read();
+    assert.equal(Object.hasOwn(row, 'connectedPlayers'), false);
+    assert.equal(row.players, 2);
+  }
+  const current = await directory.mutate(created.id, created.ownerToken, revision++, input);
+  assert.deepEqual((await read()).connectedPlayers, [encode('Current')]);
+  // A strict older binary keeps unknown document siblings on a metadata write.
+  await db.collection(collection).doc(created.id).update({ revision: revision });
+  assert.equal(Object.hasOwn(await read(), 'connectedPlayers'), false);
+  await directory.mutate(created.id, created.ownerToken, revision++, listing());
+  assert.equal(Object.hasOwn((await db.collection(collection).doc(created.id).get()).data(), 'roster'), false);
+  const refreshed = await directory.mutate(created.id, created.ownerToken, revision, input);
+  assert.equal(refreshed.expiresAt, current.expiresAt);
+  clock = refreshed.expiresAt;
+  assert.equal(await read(), undefined);
+});
+
 test('retired invite lease rows are excluded without reinterpretation or database mutation', async () => {
   const id = 'f'.repeat(32);
   await db.collection(collection).doc(id).set({ listing: dedicated({ protection: 'invite' }),

@@ -54,6 +54,12 @@ namespace Duel6 {
         }
         constexpr Float32 CanvasMaximumScale = 1.35f;
         constexpr int BrowserVisibleRows = 10;
+        constexpr int BrowserDetailFocus = 7, BrowserRosterFocus = 8;
+        constexpr int BrowserDetailX = 40, BrowserRosterX = 429, BrowserDetailWidth = 381;
+        constexpr int BrowserDetailBottom = 116, BrowserDetailTop = 228, BrowserLinePitch = 18;
+        constexpr int BrowserRosterTop = 210;
+        constexpr int BrowserDetailLines = 6, BrowserDetailColumns = 47, BrowserRosterRows = 5, BrowserRosterColumns = 44;
+        constexpr int BrowserFocusOrder[] = {0, BrowserDetailFocus, BrowserRosterFocus, 4, 5, 1, 3, 6, 2};
         struct SetupFooterBounds {
             Int32 primaryX, primaryY, backX, backY;
         };
@@ -69,8 +75,7 @@ namespace Duel6 {
             Int32 x, y, width, height;
             const char *caption;
         };
-        // Shared visual/pointer bounds and cyclic traversal: Refresh, rows,
-        // paging, footer, then Refresh (rows are the implicit first anchor).
+        // Shared visual and pointer bounds for browser actions.
         constexpr BrowserAction BrowserActions[] = {
             {4, 32, 72, 250, 24, "Previous page"},
             {5, 568, 72, 250, 24, "Next page"},
@@ -201,6 +206,61 @@ namespace Duel6 {
                 while (offset < text.size() && text[offset] == ' ') ++offset;
             }
             return lines;
+        }
+
+        bool directoryExpired(const Client::DirectoryListing &row) {
+            return row.expiresAt <= std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        }
+
+        struct BrowserDetails {
+            std::vector<std::string> fields, reason;
+            int visibleFields() const { return BrowserDetailLines - static_cast<int>(reason.size()); }
+            int maximumScroll() const { return std::max(0, static_cast<int>(fields.size()) - visibleFields()); }
+        };
+
+        BrowserDetails browserDetails(const Client::DirectoryListing *selected, bool available, bool unconfirmed,
+                                      bool missingSelection) {
+            BrowserDetails result;
+            std::string reason;
+            if (selected) {
+                appendWrapped(result.fields, "Session: " + selected->sessionId, BrowserDetailColumns);
+                appendWrapped(result.fields, std::string("Mode: ") + directoryMode(*selected), BrowserDetailColumns);
+                appendWrapped(result.fields, "Endpoint: " + selected->endpoint.host + ":" + std::to_string(selected->endpoint.port),
+                              BrowserDetailColumns);
+                appendWrapped(result.fields, selected->passwordRequired ? "Protection: Password" : "Protection: No password",
+                              BrowserDetailColumns);
+                if (Network::Trust::classifyIpv4Literal(selected->endpoint.host) == Network::Trust::EndpointScope::Loopback) {
+                    for (const auto *note: {"Same-machine endpoint. Only clients on the host machine can connect.",
+                                           "Loopback address; not verified as the advertised host on this machine."}) {
+                        const auto lines = wrappedLines(note, BrowserDetailColumns);
+                        result.fields.insert(result.fields.end(), lines.begin(), lines.end());
+                    }
+                }
+                if (selected->joinable() && selected->phase == "started")
+                    reason = "Match in progress. Your players join next round if admitted.";
+                if (selected->joinable() && selected->phase == "final-round")
+                    reason = "Final round in progress. You may not play in this match if admitted.";
+                if (!selected->joinable()) reason = (selected->players >= selected->capacity ? "Session is full. " : "")
+                    + std::string(selected->admissionState() == "busy" ? "Cleanup in progress. Admission is temporarily unavailable."
+                        : selected->admissionState() == "closed" ? "Admission is closed." : "");
+                if (directoryExpired(*selected)) reason = "Session listing expired. Refresh before joining.";
+            } else if (available && missingSelection) {
+                reason = "Session is no longer listed. Refresh and reselect.";
+            }
+            if (unconfirmed || !available) reason = "Refresh successfully before joining. Availability unconfirmed.";
+            result.reason = wrappedLines(reason, selected ? BrowserDetailColumns : 96);
+            return result;
+        }
+
+        int rosterMaximumLine(const std::vector<std::string> &names) {
+            return std::max(0, static_cast<int>(names.size()) - BrowserRosterRows);
+        }
+
+        int rosterMaximumColumn(const std::vector<std::string> &names) {
+            int width = 0;
+            for (const auto &name: names) width = std::max(width, static_cast<int>(utf8Length(name)));
+            return std::max(0, width - BrowserRosterColumns);
         }
 
         bool pointerInside(Int32 x, Int32 y, Int32 left, Int32 bottom, Int32 width, Int32 height) {
@@ -1181,9 +1241,12 @@ namespace Duel6 {
             const auto &rows = browser.result().listings;
             for (int row = 0; browser.available() && row < BrowserVisibleRows && browserScroll + row < static_cast<int>(rows.size()); ++row)
                 if (pointerInside(x, y, 34, 466 - row * 22, 782, 22)) {
-                    selectedListing = rows[browserScroll + row].id;
-                    selectedSessionIdentity = rows[browserScroll + row].sessionId; focus = 0; return;
+                    setBrowserSelection(rows[browserScroll + row]); focus = 0; return;
                 }
+            if (const int target = browserViewportAt(x, y)) {
+                if (browserFocusEnabled(target)) focus = target;
+                return;
+            }
             for (const auto &action: BrowserActions)
                 if (pointerInside(x, y, action.x, action.y, action.width, action.height)) {
                     if (browserFocusEnabled(action.focus)) { focus = action.focus; activate(); }
@@ -1399,6 +1462,19 @@ namespace Duel6 {
         }
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser) {
             if (!browser.available()) return;
+            const auto &screen = service.getVideo().getScreen();
+            const auto width = screen.getClientWidth(), height = screen.getClientHeight();
+            const auto scale = canvasScale(width, height);
+            if (scale <= 0) return;
+            const int x = int((event.getX() - (width - Int32(CanvasWidth * scale)) / 2) / scale);
+            const int y = int((event.getY() - (height - Int32(CanvasHeight * scale)) / 2) / scale);
+            if (const int target = browserViewportAt(x, y)) {
+                const bool horizontal = SDL_GetModState() & KMOD_SHIFT;
+                scrollBrowserDetail(target, horizontal ? 0 : -event.getAmountY(),
+                                    event.getAmountX() - (horizontal ? event.getAmountY() : 0));
+                return;
+            }
+            if (!pointerInside(x, y, 32, 248, 786, 242)) return;
             browserScroll = std::clamp(browserScroll - event.getAmountY(), 0,
                 std::max(0, static_cast<int>(browser.result().listings.size()) - BrowserVisibleRows));
             return;
@@ -1439,12 +1515,12 @@ namespace Duel6 {
         const auto snap = runtime.snapshot();
         if (confirmation == Confirmation::None && snap.journey == Client::NetworkJourney::Inactive
             && setupScreen == SetupScreen::Browser) {
-            int position = 0;
-            for (int index = 0; index < 6; ++index)
-                if (BrowserActions[index].focus == focus) position = index + 1;
+            const auto current = std::find(std::begin(BrowserFocusOrder), std::end(BrowserFocusOrder), focus);
+            constexpr int count = std::size(BrowserFocusOrder);
+            int position = current == std::end(BrowserFocusOrder) ? 0 : static_cast<int>(current - BrowserFocusOrder);
             do {
-                position = (position + direction + 7) % 7;
-                focus = position == 0 ? 0 : BrowserActions[position - 1].focus;
+                position = (position + direction + count) % count;
+                focus = BrowserFocusOrder[position];
             } while (!browserFocusEnabled(focus));
             return;
         }
@@ -1579,7 +1655,7 @@ namespace Duel6 {
                 else if (focus == 5) {
                     if (browserFocusEnabled(5)) { browser.next(); browserScroll = 0; selectedListing.clear(); selectedSessionIdentity.clear(); }
                 }
-                else { setupScreen = SetupScreen::Entry; focus = 0; }
+                else if (focus == 6) { setupScreen = SetupScreen::Entry; focus = 0; }
                 return;
             }
             const int fields = setupFields();
@@ -1939,7 +2015,17 @@ namespace Duel6 {
         }
         if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser && focus == 0
             && (event.getCode() == SDLK_UP || event.getCode() == SDLK_DOWN)) {
-            selectBrowserRow(event.getCode() == SDLK_DOWN ? 1 : -1); return;
+            consumeKey(); selectBrowserRow(event.getCode() == SDLK_DOWN ? 1 : -1); return;
+        }
+        if (snap.journey == Client::NetworkJourney::Inactive && setupScreen == SetupScreen::Browser
+            && (focus == BrowserDetailFocus || focus == BrowserRosterFocus)) {
+            const auto key = event.getCode();
+            const int vertical = key == SDLK_UP ? -1 : key == SDLK_DOWN ? 1
+                : key == SDLK_PAGEUP ? -BrowserRosterRows : key == SDLK_PAGEDOWN ? BrowserRosterRows : 0;
+            const int horizontal = key == SDLK_LEFT ? -1 : key == SDLK_RIGHT ? 1 : 0;
+            if (vertical || horizontal) {
+                consumeKey(); scrollBrowserDetail(focus, vertical, horizontal); return;
+            }
         }
         if (event.getCode() == SDLK_ESCAPE) backKey();
         else if (event.getCode() == SDLK_TAB || event.getCode() == SDLK_DOWN)
@@ -2031,6 +2117,8 @@ namespace Duel6 {
             // and other unavailable focus targets retain the normal fallback.
             if (!browserFocusEnabled(focus) && !(focus == 2 && browser.loading()))
                 focus = browserFocusEnabled(0) ? 0 : browser.loading() ? 3 : 2;
+            if (browserDetailScroll) scrollBrowserDetail(BrowserDetailFocus, 0, 0);
+            if (browserRosterScroll || browserRosterColumn) scrollBrowserDetail(BrowserRosterFocus, 0, 0);
         }
         runtime.suppressGameplayInput(confirmation != Confirmation::None);
         runtime.update();
@@ -2056,6 +2144,7 @@ namespace Duel6 {
                               || currentSnapshot.presentation.resynchronizing);
         bool sessionBack = false, uiConfirm = false, uiBack = false;
         bool uiUp = false, uiDown = false, uiLeft = false, uiRight = false;
+        bool uiPrevious = false, uiNext = false;
         for (const auto &controller: service.getInput().getJoys()) {
             sessionBack = sessionBack || controller.isPressed(GameController::CONTROLLER_BUTTON_BACK);
             uiConfirm = uiConfirm || controller.isPressed(GameController::CONTROLLER_BUTTON_A);
@@ -2067,7 +2156,9 @@ namespace Duel6 {
             uiLeft = uiLeft || controller.isPressed(GameController::CONTROLLER_BUTTON_DPAD_LEFT)
                     || controller.getAxis(GameController::CONTROLLER_AXIS_LEFTX) < -16000;
             uiRight = uiRight || controller.isPressed(GameController::CONTROLLER_BUTTON_DPAD_RIGHT)
-                    || controller.getAxis(GameController::CONTROLLER_AXIS_LEFTX) > 16000;
+                     || controller.getAxis(GameController::CONTROLLER_AXIS_LEFTX) > 16000;
+            uiPrevious = uiPrevious || controller.isPressed(GameController::CONTROLLER_BUTTON_LEFTSHOULDER);
+            uiNext = uiNext || controller.isPressed(GameController::CONTROLLER_BUTTON_RIGHTSHOULDER);
         }
         const std::uint32_t controllerActions = (uiConfirm ? Network::Input::Shoot : 0u)
                 | (uiBack ? Network::Input::PickOrSwapWeapon : 0u) | (uiUp ? Network::Input::Jump : 0u)
@@ -2143,11 +2234,21 @@ namespace Duel6 {
                     || (uiLeft && !controllerLeft) || (uiRight && !controllerRight)) {
                     moveListeningFocus(uiDown || uiRight ? 1 : -1);
                 }
-            } else if (setupScreen == SetupScreen::Browser && currentSnapshot.journey == Client::NetworkJourney::Inactive && focus == 0) {
-                if (uiUp && !controllerUp) selectBrowserRow(-1);
-                if (uiDown && !controllerDown) selectBrowserRow(1);
-                if (uiLeft && !controllerLeft) moveFocus(-1);
-                if (uiRight && !controllerRight) moveFocus(1);
+            } else if (setupScreen == SetupScreen::Browser && currentSnapshot.journey == Client::NetworkJourney::Inactive) {
+                // Shoulder buttons traverse even when the directional pad owns
+                // both axes of a read-only viewport.
+                if (uiPrevious && !browserPreviousHeld) moveFocus(-1);
+                else if (uiNext && !browserNextHeld) moveFocus(1);
+                else {
+                    const int vertical = (uiDown && !controllerDown) - (uiUp && !controllerUp);
+                    const int horizontal = (uiRight && !controllerRight) - (uiLeft && !controllerLeft);
+                    if (focus == BrowserDetailFocus || focus == BrowserRosterFocus)
+                        scrollBrowserDetail(focus, vertical, horizontal);
+                    else if (focus == 0) {
+                        if (vertical) selectBrowserRow(vertical);
+                        if (horizontal) moveFocus(horizontal);
+                    } else if (vertical) moveFocus(vertical);
+                }
             } else if (resultFocused && currentSnapshot.canonical
                        && currentSnapshot.journey == Client::NetworkJourney::Summary) {
                 moveFinalSummary(currentSnapshot, (uiDown && !controllerDown ? 1 : 0) - (uiUp && !controllerUp ? 1 : 0),
@@ -2192,6 +2293,8 @@ namespace Duel6 {
             controllerUp = uiUp; controllerDown = uiDown;
             controllerLeft = uiLeft; controllerRight = uiRight;
         }
+        browserPreviousHeld = uiPrevious;
+        browserNextHeld = uiNext;
         previousRoundSummary = roundSummary;
         if (confirmation != Confirmation::None && !uiConfirm
             && !service.getInput().isPressed(SDLK_RETURN) && !service.getInput().isPressed(SDLK_SPACE))
@@ -2321,9 +2424,55 @@ namespace Duel6 {
         if (rows.empty()) return;
         const auto current = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
         const int index = current == rows.end() ? 0 : std::clamp(static_cast<int>(current - rows.begin()) + direction, 0, static_cast<int>(rows.size()) - 1);
-        selectedListing = rows[index].id; selectedSessionIdentity = rows[index].sessionId;
+        setBrowserSelection(rows[index]);
         if (index < browserScroll) browserScroll = index;
         if (index >= browserScroll + BrowserVisibleRows) browserScroll = index - BrowserVisibleRows + 1;
+    }
+
+    const Client::DirectoryListing *NetworkMenu::selectedBrowserListing() const {
+        if (!browser.available()) return nullptr;
+        const auto &rows = browser.result().listings;
+        const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) {
+            return row.id == selectedListing && (selectedSessionIdentity.empty() || row.sessionId == selectedSessionIdentity);
+        });
+        return selected == rows.end() ? nullptr : &*selected;
+    }
+
+    const std::vector<std::string> *NetworkMenu::browserRoster(const Client::DirectoryListing *selected) const {
+        if (!selected || browser.loading() || browser.stale() || directoryExpired(*selected)) return nullptr;
+        return selected->connectedPlayers ? &*selected->connectedPlayers : nullptr;
+    }
+
+    void NetworkMenu::setBrowserSelection(const Client::DirectoryListing &row) {
+        if (selectedListing != row.id || selectedSessionIdentity != row.sessionId)
+            browserDetailScroll = browserRosterScroll = browserRosterColumn = 0;
+        selectedListing = row.id;
+        selectedSessionIdentity = row.sessionId;
+    }
+
+    int NetworkMenu::browserViewportAt(Int32 x, Int32 y) const {
+        const auto *selected = selectedBrowserListing();
+        if (!selected) return 0;
+        if (pointerInside(x, y, BrowserRosterX, BrowserDetailBottom, BrowserDetailWidth, BrowserRosterTop - BrowserDetailBottom))
+            return BrowserRosterFocus;
+        if (x >= BrowserDetailX && x < BrowserDetailX + BrowserDetailWidth
+            && y >= BrowserDetailBottom && y < BrowserDetailTop) {
+            const auto detail = browserDetails(selected, true, browser.loading() || browser.stale(), false);
+            if (y >= BrowserDetailTop - detail.visibleFields() * BrowserLinePitch) return BrowserDetailFocus;
+        }
+        return 0;
+    }
+
+    void NetworkMenu::scrollBrowserDetail(int target, int rows, int columns) {
+        const auto *selected = selectedBrowserListing();
+        if (target == BrowserDetailFocus) {
+            const auto detail = browserDetails(selected, browser.available(), browser.loading() || browser.stale(),
+                                               !selectedListing.empty());
+            browserDetailScroll = std::clamp(browserDetailScroll + rows, 0, detail.maximumScroll());
+        } else if (const auto *roster = browserRoster(selected)) {
+            browserRosterScroll = std::clamp(browserRosterScroll + rows, 0, rosterMaximumLine(*roster));
+            browserRosterColumn = std::clamp(browserRosterColumn + columns, 0, rosterMaximumColumn(*roster));
+        } else browserRosterScroll = browserRosterColumn = 0;
     }
 
     void NetworkMenu::joinSelected() {
@@ -2332,6 +2481,7 @@ namespace Duel6 {
         const auto selected = std::find_if(rows.begin(), rows.end(), [&](const auto &row) { return row.id == selectedListing; });
         if (selected == rows.end() || !browserFocusEnabled(1)) return;
         browserSelection = *selected;
+        browserSelection->connectedPlayers.reset();
         if (!joinFromBrowser) { playerHostedAddress = address; playerHostedPort = port; }
         joinFromBrowser = true;
         address = selected->endpoint.host; port = std::to_string(selected->endpoint.port);
@@ -2350,6 +2500,14 @@ namespace Duel6 {
         if (index == 2) return !browser.loading();
         if (index == 4) return browser.hasPrevious() && !browser.loading();
         if (index == 5) return !browser.result().nextCursor.empty() && !browser.stale() && !browser.loading();
+        if (index == BrowserDetailFocus) {
+            const auto *selected = selectedBrowserListing();
+            return selected && browserDetails(selected, true, browser.loading() || browser.stale(), false).maximumScroll() > 0;
+        }
+        if (index == BrowserRosterFocus) {
+            const auto *roster = browserRoster(selectedBrowserListing());
+            return roster && (rosterMaximumLine(*roster) != 0 || rosterMaximumColumn(*roster) != 0);
+        }
         return index == 3 || index == 6;
     }
 
@@ -2376,12 +2534,10 @@ namespace Duel6 {
                     ? "No active sessions listed. You can host a session or connect directly."
                     : "No active sessions on this page. Continue with Next page.", Color(89));
         }
-        const Client::DirectoryListing *selected = nullptr;
-        if (visibleRows) for (const auto &row: rows) if (row.id == selectedListing
-            && (selectedSessionIdentity.empty() || row.sessionId == selectedSessionIdentity)) selected = &row;
+        const auto *selected = selectedBrowserListing();
         for (int index = browserScroll; visibleRows && index < static_cast<int>(rows.size()) && index < browserScroll + BrowserVisibleRows; ++index) {
             const auto &row = rows[index]; const Int32 y = 470 - (index - browserScroll) * 22;
-            const bool selection = row.id == selectedListing;
+            const bool selection = &row == selected;
             if (selection) renderer.quadXY(Vector(34, y - 4), Vector(782, 22), Color(0, 0, 200));
             const Color rowColor = selection ? Color::WHITE : Color::BLACK;
             drawClippedText(38, y, (selection ? "> " : "  ") + row.endpoint.host + ":" + std::to_string(row.endpoint.port),
@@ -2393,34 +2549,45 @@ namespace Duel6 {
             drawText(AccessX, y, directoryAccess(row, unconfirmed), rowColor);
             drawFocusKeyline(34, y - 4, 782, 22, selection && focus == 0);
         }
-        std::string reason = selected ? ""
-            : !visibleRows ? "Refresh successfully before joining. Availability unconfirmed."
-            : selectedListing.empty() ? "" : "Session is no longer listed. Refresh and reselect.";
-        if (selected && selected->joinable() && selected->phase == "started")
-            reason = "Match in progress. Your players join next round if admitted.";
-        if (selected && selected->joinable() && selected->phase == "final-round")
-            reason = "Final round in progress. You may not play in this match if admitted.";
-        if (selected && !selected->joinable()) reason = (selected->players >= selected->capacity ? "Session is full. " : "")
-            + std::string(selected->admissionState() == "busy" ? "Cleanup in progress. Admission is temporarily unavailable."
-                : selected->admissionState() == "closed" ? "Admission is closed." : "");
-        if (selected && selected->expiresAt <= std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count())
-            reason = "Session listing expired. Refresh before joining.";
-        if (unconfirmed) reason = "Refresh successfully before joining. Availability unconfirmed.";
-        std::vector<std::string> details;
-        if (selected) {
-            appendWrapped(details, "Session: " + selected->sessionId + " • Mode: " + directoryMode(*selected)
-                + " • Protection: " + (selected->passwordRequired ? "Password" : "No password"), 96);
-            appendWrapped(details, "Endpoint: " + selected->endpoint.host + ":" + std::to_string(selected->endpoint.port), 96);
-        }
-        appendWrapped(details, reason, 96);
-        if (selected && Network::Trust::classifyIpv4Literal(selected->endpoint.host) == Network::Trust::EndpointScope::Loopback) {
-            appendWrapped(details, "Same-machine endpoint. Only clients on the host machine can connect.", 96);
-            appendWrapped(details, "Loopback address; not verified as the advertised host on this machine.", 96);
-        }
         renderer.frame(Vector(32, 108), Vector(786, 128), 1.0f, Color::BLACK);
-        for (std::size_t index = 0; index < details.size(); ++index)
-            drawText(40, 212 - static_cast<Int32>(index) * 18, details[index]);
+        const auto details = browserDetails(selected, visibleRows, unconfirmed, !selectedListing.empty());
+        const int first = std::min(browserDetailScroll, details.maximumScroll());
+        const int shown = std::min(details.visibleFields(), static_cast<int>(details.fields.size()) - first);
+        const int topLine = BrowserDetailTop - font.getCharHeight();
+        const int detailHeight = details.visibleFields() * BrowserLinePitch;
+        drawFocusKeyline(BrowserDetailX, BrowserDetailTop - detailHeight, BrowserDetailWidth, detailHeight,
+                         focus == BrowserDetailFocus && details.maximumScroll() > 0);
+        for (int line = 0; line < shown; ++line)
+            drawText(BrowserDetailX, topLine - line * BrowserLinePitch, details.fields[first + line]);
+        for (std::size_t line = 0; line < details.reason.size(); ++line)
+            drawText(BrowserDetailX, topLine - (shown + static_cast<int>(line)) * BrowserLinePitch, details.reason[line]);
+        if (selected) {
+            drawText(BrowserRosterX, topLine, "Connected players");
+            const auto *roster = browserRoster(selected);
+            const int vertical = roster ? rosterMaximumLine(*roster) : 0;
+            const int horizontal = roster ? rosterMaximumColumn(*roster) : 0;
+            const int start = std::min(browserRosterScroll, vertical);
+            const int column = std::min(browserRosterColumn, horizontal);
+            drawField(BrowserRosterX, BrowserDetailBottom, BrowserDetailWidth, BrowserRosterTop - BrowserDetailBottom,
+                      focus == BrowserRosterFocus && (vertical || horizontal));
+            constexpr int TextX = BrowserRosterX + 8, TextY = 190;
+            if (!roster || roster->empty()) {
+                drawText(TextX, TextY, roster ? "No connected players." : "Player names unavailable.", Color(89));
+            } else {
+                const int count = std::min(BrowserRosterRows, static_cast<int>(roster->size()) - start);
+                for (int line = 0; line < count; ++line)
+                    drawText(TextX, TextY - line * BrowserLinePitch,
+                             utf8Slice((*roster)[start + line], column, BrowserRosterColumns));
+                if (vertical || horizontal) {
+                    std::string position;
+                    if (vertical) position = std::to_string(start + 1) + "–" + std::to_string(start + count)
+                        + " / " + std::to_string(roster->size());
+                    if (horizontal) position += (position.empty() ? "Col " : "  Col ")
+                        + std::to_string(column + 1) + "/" + std::to_string(horizontal + 1);
+                    drawText(BrowserRosterX + BrowserDetailWidth - font.getTextWidth(position, 16), topLine, position);
+                }
+            }
+        }
         const bool pagination = browser.hasPrevious() || !browser.result().nextCursor.empty();
         if (pagination) {
             const std::string page = "Page " + std::to_string(browser.pageNumber());
@@ -3087,6 +3254,12 @@ namespace Duel6 {
             drawAction(336, "Join", focus == 1, entryRuntimeAvailable);
             drawAction(291, "Back", focus == 2);
             if (!entryRuntimeAvailable) drawText(317, 263, "Network runtime unavailable");
+            else {
+                const std::string publicNames = "Player names in listed sessions are public.";
+                const std::string passwordNotice = "Passwords do not hide player names.";
+                drawText((CanvasWidth - font.getTextWidth(publicNames, 16)) / 2, 268, publicNames);
+                drawText((CanvasWidth - font.getTextWidth(passwordNotice, 16)) / 2, 250, passwordNotice);
+            }
             renderer.setViewMatrix(Matrix::IDENTITY);
             return;
         }

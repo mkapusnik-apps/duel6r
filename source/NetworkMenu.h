@@ -72,6 +72,8 @@ namespace Duel6 {
         std::optional<Client::DirectoryListing> browserSelection;
         bool joinFromBrowser = false;
         int browserScroll = 0;
+        int browserDetailScroll = 0, browserRosterScroll = 0, browserRosterColumn = 0;
+        bool browserPreviousHeld = false, browserNextHeld = false;
         Network::ListeningSelection listening;
         std::vector<std::string> hostAddresses;
         bool hostAddressSelectorOpen = false;
@@ -186,6 +188,11 @@ namespace Duel6 {
         void drawResult(const Network::Replication::CanonicalState &state, bool retained) const;
         void drawConfirmation() const;
         void drawBrowser() const;
+        const Client::DirectoryListing *selectedBrowserListing() const;
+        const std::vector<std::string> *browserRoster(const Client::DirectoryListing *selected) const;
+        void setBrowserSelection(const Client::DirectoryListing &row);
+        int browserViewportAt(Int32 x, Int32 y) const;
+        void scrollBrowserDetail(int target, int rows, int columns);
         void selectBrowserRow(int direction);
         void joinSelected();
         bool browserFocusEnabled(int index) const;

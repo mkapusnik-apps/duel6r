@@ -6,7 +6,7 @@ This screen separates network play from local-only Play. It is a modal over `MEN
 
 `NET-AC-001`, `NET-AC-002`, `NET-AC-003`, `NET-AC-015`, `NET-AC-017`, and `NET-AC-019` remain applicable. [NET-DIR-009](../network-host-directory.md) owns browser requests and selection. [NET-DIR-015](../network-host-directory.md) retains directory independence and direct-connection recovery. No platform, compatibility, admission, or gameplay requirement changes.
 
-UX owns the compact modal layout, removal of explanatory text, focus, input presentation, and visual rules in [NET-01 presentation](../design/screens/NET-01.md). This screen does not show host settings or endpoint fields.
+UX owns the compact modal layout, omission of the former scope copy, focus, input presentation, and visual rules in [NET-01 presentation](../design/screens/NET-01.md). With Host and Join available, the modal presents the [NET-DIR-039 public-name notice](../network-host-directory.md#public-connected-player-names) before either action. The notice is informational; it adds no action. This screen does not show host settings or endpoint fields.
 
 ## Entry actions and outcomes
 

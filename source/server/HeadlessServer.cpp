@@ -2302,6 +2302,7 @@ namespace Duel6::Server {
                     listing.protection = listing.passwordRequired ? "password" : "none";
                     listing.mode = "deathmatch"; listing.capacity = Network::MaxNetworkPlayers;
                     listing.phase = "idle"; listing.admission = "open";
+                    listing.connectedPlayers.emplace();
                     if (hostedMatch) {
                         const auto snapshot = hostedMatch->currentSnapshot();
                         if (snapshot) {
@@ -2309,6 +2310,7 @@ namespace Duel6::Server {
                             listing.mode = state.settings.mode == "Predator" ? "predator" : state.settings.mode == "Team deathmatch" ? "teams" : "deathmatch";
                             for (const auto &player: state.players)
                                 if (player.lifeState != Network::Replication::LifeState::Departed) ++listing.players;
+                            listing.connectedPlayers = Client::directoryConnectedPlayers(state, listing.players);
                             listing.phase = state.phase == Network::Replication::Phase::Lobby ? "lobby"
                                 : state.phase == Network::Replication::Phase::ActiveRound
                                     ? state.currentRoundNumber == state.settings.roundLimit ? "final-round"

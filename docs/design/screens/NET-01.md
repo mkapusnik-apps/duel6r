@@ -1,10 +1,10 @@
 # NET-01 — Network entry
 
-Functional contract: [network-entry](../../screens/network-entry.md), including NET-AC-001–003 and NET-AC-015–019. [NET-DIR-009 and NET-DIR-015](../../network-host-directory.md) own browser entry and directory independence. Structural wireframe: [NET-01](../wireframes/NET-01/NET-01.svg). Current capture: [SS-015](../screenshots/README.md#current-ss-015).
+Functional contract: [network-entry](../../screens/network-entry.md), including NET-AC-001–003 and NET-AC-015–019. [NET-DIR-009 and NET-DIR-015](../../network-host-directory.md) own browser entry and directory independence. [NET-DIR-039](../../network-host-directory.md#public-connected-player-names) owns the public-name notice and its exact copy. Structural wireframe: [NET-01](../wireframes/NET-01/NET-01.svg). Representative: [SS-015](../screenshots/README.md#current-ss-015).
 
 ## Scope and authority
 
-This bounded change presents NET-01 as a modal over MENU-01. It replaces the former full task panel, scope copy, and four-action entry. Product owns Host, browser-entry Join, and Back outcomes. NET-10 and NET-03 destination layouts and behavior remain unchanged. The [shared visual baseline](../../design.md#unified-network-presentation) supplies unchanged styling and desktop scaling. This section owns the changed NET-01-specific structure.
+NET-01 is a modal over MENU-01. Product owns Host, browser-entry Join, and Back outcomes. The public-name notice does not change those actions or their destinations. The [shared visual baseline](../../design.md#unified-network-presentation) supplies unchanged styling and desktop scaling.
 
 Stable screen and wireframe IDs remain `NET-01`. The representative is initial inactive entry with Host focused. No new functional state ID or presentation class is introduced.
 
@@ -12,7 +12,7 @@ Stable screen and wireframe IDs remain `NET-01`. The representative is initial i
 
 - **UX-NET-01-001** The popup must show `NETWORK PLAY` in the existing panel title strip.
 - **UX-NET-01-002** The popup must show `Host`, `Join`, and `Back` in one centered column in that order.
-- **UX-NET-01-003** The popup must omit the former LAN, directory, compatibility, and participant-limit copy.
+- **UX-NET-01-003** The popup must continue to omit the former LAN, directory, compatibility, and participant-limit copy. The NET-DIR-039 notice does not restore any of that copy.
 - **UX-NET-01-004** A focused enabled action must retain the same surface and caption alignment as the other enabled actions.
 - **UX-NET-01-005** An unavailable action must retain a readable boundary and its existing reason without moving Back off screen.
 
@@ -41,7 +41,7 @@ All positions below use logical px and a top-left origin. The SVG annotation mar
 | Join | 275 | 332 | 300 | 32 |
 | Back | 275 | 377 | 300 | 32 |
 
-The title strip retains its existing height and inset. The action column has 40 logical px side clearance. The container shrinks; text and input targets do not shrink. Fixed allocation is sufficient for the three approved captions. Existing unavailable-action feedback must stay within unused popup body clearance without overlapping actions or the title.
+The title strip retains its existing height and inset. The action column has 40 logical px side clearance. When Host and Join are available, center the two exact NET-DIR-039 lines below Back at the standard text size, as shown in the wireframe. The notice uses the existing 380 by 210 popup without moving the actions or their focus outlines. It has no input target or focus stop. When the network runtime is unavailable, show `Network runtime unavailable` in the existing feedback space instead of the notice. Host and Join remain disabled, and Back remains enabled. Neither text may overlap the actions, focus outlines, or title.
 
 Supported desktop clients use the existing scale `min(1.35, clientWidth/850, clientHeight/700)`. The minimum supported menu client is 850 by 700 px. There is no mobile layout or new viewport class. The underlying menu retains its existing layout; the SVG shows contextual groups, not a new MENU-01 specification.
 
@@ -53,7 +53,7 @@ Enter, Space, or controller Confirm activates the focused action. Escape or cont
 
 ## Acceptance and evidence
 
-SS-015 must show the compact popup over the actual retained main menu, with only three framed actions and Host's visible outer focus keyline. The former scope copy must be absent. Banner/version and unobscured main-menu groups must remain in their original positions. The popup must not replace the main menu with a background-only replica. A still does not prove input isolation or destination behavior.
+SS-015 must show the compact popup over the actual retained main menu, with the two complete NET-DIR-039 lines below the three framed actions and Host's visible outer focus keyline. The former scope copy must be absent. Banner/version and unobscured main-menu groups must remain in their original positions. The popup must not replace the main menu with a background-only replica. A still does not prove input isolation or destination behavior.
 
 Focused QA must check keyboard, controller, and pointer activation; all three destinations; outside-click isolation; Local Play shortcut isolation; repeated entry; and return transitions. Check containment at 850 by 700 and 1280 by 720 clients. Check scaled pointer alignment at 1920 by 1080. These checks add no permanent representatives unless an approved materially different presentation is needed.
 

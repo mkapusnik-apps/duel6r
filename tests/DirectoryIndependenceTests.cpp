@@ -104,6 +104,77 @@ D6R_TEST_CASE("NET-DIR publication revalidates concrete coverage updates one lis
     { std::lock_guard<std::mutex> lock(mutex); D6R_REQUIRE_EQ(3u, requests.size()); }
 }
 
+D6R_TEST_CASE("NET-DIR roster negotiation keeps one owner through a strict metadata-only service") {
+    std::mutex mutex;
+    const std::string id(32, 'a'), owner(64, 'b');
+    const auto session = Client::directorySessionId(14);
+    unsigned revision = 0, strictRejects = 0;
+    bool oldService = false;
+    std::vector<std::string> accepted;
+    Client::DirectoryPublisherDependencies dependencies;
+    dependencies.listeningAddresses = [] { return std::vector<std::string>{"10.0.0.3"}; };
+    dependencies.request = [&](const auto &method, const auto &path, const auto &body, const auto &token,
+                               unsigned expected, const auto *) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (method != "POST") {
+            D6R_REQUIRE_EQ(std::string("/v1/listings/") + id, path);
+            D6R_REQUIRE_EQ(owner, token);
+            D6R_REQUIRE_EQ(revision, expected);
+        } else D6R_REQUIRE_EQ(0u, revision); // No duplicate registration.
+        if (method == "DELETE") return Client::DirectoryResponse{204, {}};
+        if (oldService && body.find("connectedPlayers") != std::string::npos) {
+            ++strictRejects;
+            return Client::DirectoryResponse{400, {}};
+        }
+        accepted.push_back(body);
+        return Client::DirectoryResponse{method == "POST" ? 201 : 200,
+            "{\"id\":\"" + id + "\",\"sessionId\":\"" + session + "\",\"address\":\"10.0.0.3\","
+            "\"port\":26660,\"players\":1,\"capacity\":15,\"mode\":\"deathmatch\",\"phase\":\"lobby\","
+            "\"passwordRequired\":false,\"expiresAt\":2000000000000,\"revision\":" + std::to_string(++revision)
+            + ",\"ownerToken\":\"" + owner + "\"" + (oldService ? "" : ",\"connectedRosterSupported\":true") + "}"};
+    };
+    Client::DirectoryPublisher publisher({"0.0.0.0"}, dependencies);
+    Client::DirectoryListing row;
+    row.sessionId = session; row.endpoint = {"0.0.0.0", 26660}; row.players = 1;
+    row.capacity = 15; row.mode = "deathmatch"; row.phase = "lobby";
+    row.connectedPlayers = std::vector<std::string>{u8"\"\\é"};
+    publisher.update(row);
+    const auto current = [&](unsigned target) {
+        return await([&] {
+            std::lock_guard<std::mutex> lock(mutex);
+            return revision >= target && publisher.available() && !publisher.busy();
+        });
+    };
+    D6R_REQUIRE(current(2));
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE(accepted[0].find("connectedPlayers") == std::string::npos);
+        D6R_REQUIRE(accepted[1].find("\"connectedPlayers\":[\"IlzDqQ\"]") != std::string::npos);
+        oldService = true;
+    }
+    row.connectedPlayers = std::vector<std::string>{"Renamed"};
+    publisher.update(row);
+    D6R_REQUIRE(current(3));
+    row.connectedPlayers->clear();
+    publisher.update(row);
+    D6R_REQUIRE(current(4));
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE_EQ(1u, strictRejects);
+        D6R_REQUIRE(accepted[2].find("connectedPlayers") == std::string::npos);
+        D6R_REQUIRE(accepted[3].find("connectedPlayers") == std::string::npos);
+        oldService = false;
+    }
+    publisher.retry();
+    D6R_REQUIRE(current(6));
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE(accepted[4].find("connectedPlayers") == std::string::npos);
+        D6R_REQUIRE(accepted[5].find("\"connectedPlayers\":[]") != std::string::npos);
+    }
+    publisher.stop();
+}
+
 D6R_TEST_CASE("Directory outage does not block actual protected Host direct Join or End") {
     Port offline; // Bound but never listening: a real unavailable loopback origin.
     Environment url("D6R_DIRECTORY_URL", "http://127.0.0.1:" + std::to_string(offline.number));

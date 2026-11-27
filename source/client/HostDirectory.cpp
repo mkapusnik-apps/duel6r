@@ -3,6 +3,7 @@
 #include "DirectoryOrigin.h"
 #include "../json/JsonParser.h"
 #include "../network/NetworkTrustPolicy.h"
+#include "../network/StateReplication.h"
 #ifdef __APPLE__
 #include "../network/SecureSession.h"
 #endif
@@ -22,6 +23,76 @@
 namespace Duel6::Client {
     namespace {
         using Clock = std::chrono::steady_clock;
+        constexpr std::string_view RosterAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+        bool validRoster(const std::vector<std::string> &names, unsigned occupancy) {
+            return names.size() <= Network::MaxNetworkPlayers && names.size() <= occupancy
+                && std::all_of(names.begin(), names.end(), Network::Trust::validParticipantName);
+        }
+
+        std::string rosterNameToWire(std::string_view name) {
+            std::string output;
+            unsigned bits = 0;
+            std::uint32_t packed = 0;
+            for (unsigned char byte: name) {
+                packed = (packed << 8) | byte;
+                bits += 8;
+                while (bits >= 6) {
+                    bits -= 6;
+                    output += RosterAlphabet[(packed >> bits) & 63u];
+                }
+            }
+            if (bits != 0) output += RosterAlphabet[(packed << (6 - bits)) & 63u];
+            return output;
+        }
+
+        std::optional<std::vector<std::string>> decodeRoster(const Json::Value &value, unsigned occupancy) {
+            try {
+                const auto roster = value.get("connectedPlayers");
+                if (roster.getType() != Json::Value::Type::Array) return std::nullopt;
+                const auto count = roster.getLength();
+                if (count > Network::MaxNetworkPlayers || count > occupancy) return std::nullopt;
+                std::vector<std::string> names;
+                for (Size index = 0; index < count; ++index) {
+                    const auto wire = roster.get(index).asString();
+                    if (wire.size() < 2 || wire.size() > (Network::Trust::MaxParticipantNameBytes * 8 + 5) / 6)
+                        return std::nullopt;
+                    std::string name;
+                    unsigned bits = 0;
+                    std::uint32_t packed = 0;
+                    for (char ch: wire) {
+                        const auto digit = RosterAlphabet.find(ch);
+                        if (digit == std::string_view::npos) return std::nullopt;
+                        packed = (packed << 6) | static_cast<std::uint32_t>(digit);
+                        bits += 6;
+                        if (bits >= 8) {
+                            bits -= 8;
+                            name += static_cast<char>((packed >> bits) & 255u);
+                        }
+                    }
+                    if (!Network::Trust::validParticipantName(name) || rosterNameToWire(name) != wire)
+                        return std::nullopt;
+                    names.push_back(std::move(name));
+                }
+                return names;
+            } catch (...) { return std::nullopt; }
+        }
+
+        std::string encodeRoster(const DirectoryListing &row) {
+            if (!row.connectedPlayers || !validRoster(*row.connectedPlayers, row.players)) return {};
+            std::string output = ",\"connectedPlayers\":[";
+            for (std::size_t index = 0; index < row.connectedPlayers->size(); ++index) {
+                if (index) output += ',';
+                output += "\"" + rosterNameToWire((*row.connectedPlayers)[index]) + "\"";
+            }
+            return output + ']';
+        }
+
+        bool supportsRoster(const Json::Value &acknowledgement) {
+            try { return acknowledgement.get("connectedRosterSupported").asBoolean(); }
+            catch (...) { return false; }
+        }
+
         bool hex(const std::string &value, std::size_t length = 32) {
             return value.size() == length && std::all_of(value.begin(), value.end(), [](char c) {
                 return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
@@ -85,6 +156,7 @@ namespace Duel6::Client {
             const int revision = integer("revision");
             if (revision < 1) throw std::invalid_argument("Invalid directory response.");
             row.revision = revision;
+            if (mixed) row.connectedPlayers = decodeRoster(value, row.players);
             return row;
         }
         Json::Value parse(const std::string &body) {
@@ -143,6 +215,26 @@ namespace Duel6::Client {
     }
     std::string directorySessionId(std::uint64_t id) {
         std::ostringstream out; out << std::hex << std::setfill('0') << std::setw(32) << id; return out.str();
+    }
+    std::optional<std::vector<std::string>> directoryConnectedPlayers(
+            const Network::Replication::CanonicalState &state, unsigned occupancy) {
+        namespace R = Network::Replication;
+        std::vector<const R::PlayerState *> connected;
+        for (const auto &player: state.players) {
+            if (player.lifeState == R::LifeState::Departed) continue;
+            const auto owner = std::find_if(state.participants.begin(), state.participants.end(), [&](const auto &p) {
+                return p.participantId == player.ownerParticipantId && p.connection == R::ConnectionState::Connected
+                    && std::find(p.ownedPlayerIds.begin(), p.ownedPlayerIds.end(), player.playerId) != p.ownedPlayerIds.end();
+            });
+            if (owner != state.participants.end()) connected.push_back(&player);
+        }
+        std::sort(connected.begin(), connected.end(), [](const auto *a, const auto *b) {
+            return a->rosterPosition < b->rosterPosition;
+        });
+        std::vector<std::string> names;
+        for (const auto *player: connected) names.push_back(player->displayName);
+        if (!validRoster(names, occupancy)) return std::nullopt;
+        return names;
     }
     bool directoryOriginMatchesFrontend(const std::string &origin, const Network::Endpoint &frontend) {
         // Use the same maintained URL parser as HTTP, not a second URL grammar or
@@ -258,6 +350,7 @@ namespace Duel6::Client {
     }
     void DirectoryBrowser::refresh() {
         if (pending.valid()) return;
+        for (auto &row: page.listings) row.connectedPlayers.reset();
         requested = Clock::now();
         pending = std::async(std::launch::async, directoryPage, cursor);
     }
@@ -274,7 +367,17 @@ namespace Duel6::Client {
         if (pending.valid() && pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             auto next = pending.get();
             if (next.available) { page = std::move(next); received = Clock::now(); }
-            else page.available = false;
+            else {
+                page.available = false;
+                for (auto &row: page.listings) row.connectedPlayers.reset();
+            }
+        }
+        if (page.available) {
+            const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            const bool unconfirmed = stale() || loading();
+            for (auto &row: page.listings)
+                if (unconfirmed || row.expiresAt <= now) row.connectedPlayers.reset();
         }
         if (Clock::now() - requested >= std::chrono::seconds(20)) refresh();
     }
@@ -297,6 +400,7 @@ namespace Duel6::Client {
         void run() {
             std::string id, owner, session, collection;
             unsigned revision = 0;
+            bool rosterSupported = false;
             auto next = Clock::now();
             for (;;) {
                 DirectoryListing listing;
@@ -332,9 +436,18 @@ namespace Duel6::Client {
                 }
                 const auto attempted = Clock::now();
                 pending.store(true);
-                auto response = dependencies.request(id.empty() ? "POST" : "PUT",
-                    id.empty() ? collection : collection + "/" + id, body, owner, revision, &stopping);
+                const auto method = id.empty() ? "POST" : "PUT";
+                const auto path = id.empty() ? collection : collection + "/" + id;
+                const auto roster = rosterSupported ? encodeRoster(listing) : std::string{};
+                auto response = dependencies.request(method, path,
+                    roster.empty() ? body : body.substr(0, body.size() - 1) + roster + "}", owner, revision, &stopping);
+                if (!roster.empty() && response.status == 400 && !stopping) {
+                    // A strict older instance rejected the extension before writing.
+                    // Retry only that definite rejection, using the same owner and revision.
+                    response = dependencies.request(method, path, body, owner, revision, &stopping);
+                }
                 bool success = false;
+                bool sendRosterNext = false;
                 try {
                     if (response.status == 200 || response.status == 201) {
                         const auto value = parse(response.body);
@@ -352,6 +465,9 @@ namespace Duel6::Client {
                             if (!hex(owner, 64)) throw std::invalid_argument("Invalid listing.");
                         }
                         id = row.id; session = row.sessionId; revision = row.revision; success = true;
+                        const auto previouslySupported = rosterSupported;
+                        rosterSupported = supportsRoster(value);
+                        sendRosterNext = !previouslySupported && rosterSupported && !encodeRoster(listing).empty();
                     }
                 } catch (...) {}
                 Network::Trust::secureEraseMemory(response.body.data(), response.body.size());
@@ -363,7 +479,7 @@ namespace Duel6::Client {
                 if (!success && (response.status == 401 || id.empty())) {
                     id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
                 }
-                next = attempted + std::chrono::seconds(20);
+                next = sendRosterNext ? Clock::now() : attempted + std::chrono::seconds(20);
                 // Coalesce rapid state changes without an unbounded publication loop.
                 std::unique_lock<std::mutex> lock(mutex);
                 pending.store(dirty);
@@ -392,7 +508,7 @@ namespace Duel6::Client {
     void DirectoryPublisher::update(DirectoryListing listing) {
         std::lock_guard<std::mutex> lock(impl->mutex);
         if (impl->stopping) return;
-        if (encode(impl->desired) == encode(listing)) return;
+        if (encode(impl->desired) == encode(listing) && impl->desired.connectedPlayers == listing.connectedPlayers) return;
         impl->desired = std::move(listing); impl->dirty = true; pending.store(true);
         if (!impl->worker.joinable()) impl->worker = std::thread([this] { impl->run(); });
         impl->changed.notify_all();

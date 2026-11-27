@@ -426,6 +426,7 @@ namespace Duel6::Client {
                 listing.capacity = 15;
                 for (const auto &player: state.players)
                     if (player.lifeState != Network::Replication::LifeState::Departed) ++listing.players;
+                listing.connectedPlayers = directoryConnectedPlayers(state, listing.players);
                 listing.passwordRequired = passwordRequired;
                 listing.protection = passwordRequired ? "password" : "none";
                 listing.mode = state.settings.mode == "Predator" ? "predator" : state.settings.mode == "Team deathmatch" ? "teams" : "deathmatch";

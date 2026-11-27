@@ -11,6 +11,8 @@
 #include "../network/Protocol.h"
 #include "../network/PublicSession.h"
 
+namespace Duel6::Network::Replication { struct CanonicalState; }
+
 namespace Duel6::Client {
     struct DirectoryListing {
         std::string id, sessionId, mode, phase;
@@ -20,6 +22,7 @@ namespace Duel6::Client {
         std::string hosting = "player-hosted", protection = "none", admission;
         double expiresAt = 0;
         unsigned revision = 0;
+        std::optional<std::vector<std::string>> connectedPlayers;
         bool dedicated() const { return hosting == "dedicated"; }
         std::string admissionState() const {
             return admission.empty() ? (phase == "closed" ? "closed" : players >= capacity ? "full" : "open") : admission;
@@ -49,6 +52,8 @@ namespace Duel6::Client {
     DirectoryPage directoryPage(const std::string &cursor);
     DirectoryPage decodeDirectoryPage(const std::string &body, const std::string &cursor = {}, bool mixed = false);
     std::string directorySessionId(std::uint64_t id);
+    std::optional<std::vector<std::string>> directoryConnectedPlayers(
+            const Network::Replication::CanonicalState &state, unsigned occupancy);
     // Compare the URL parser's validated host and effective numeric port, without DNS.
     bool directoryOriginMatchesFrontend(const std::string &origin, const Network::Endpoint &frontend);
 
