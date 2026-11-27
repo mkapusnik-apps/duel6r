@@ -1,6 +1,6 @@
 # Current game screenshots
 
-The [screen inventory](../../screens/README.md) owns screen identities; the [design system](../../design.md) and linked wireframes own visual requirements. This catalog records **32 of 35** current representatives. Three rows have no current image. The catalog records visible states only; it does not close behavioral, temporal, constrained-viewport, or native-platform acceptance.
+The [screen inventory](../../screens/README.md) owns screen identities; the [design system](../../design.md) and linked wireframes own visual requirements. This catalog records **31 of 35** current representatives. Four rows have no current image. The catalog records visible states only; it does not close behavioral, temporal, constrained-viewport, or native-platform acceptance.
 
 ## Capture standard
 
@@ -11,7 +11,7 @@ Replace a representative at its stable path when its appearance or representativ
 <a id="current-representative-originals"></a>
 ## Current representatives
 
-**Source and profile.** Except for the three Browse rows noted below, originals use clean source [`dabdc89774962fac3e4951f46a6c5cfc6a18475a`](https://github.com/mkapusnik-apps/duel6r/commit/dabdc89774962fac3e4951f46a6c5cfc6a18475a), Ubuntu 24.04.5 Linux x86-64 Docker Release GL4/Lua ON, shipped font and assets, private 24-bit Xvfb with software OpenGL, dummy audio, and native keyboard/pointer input. The network worker reported Mesa llvmpipe (LLVM 20.1.2), OpenGL 4.5 Core; this is not a per-frame measurement. Local and owned network scenarios used disposable persons and real game outcomes.
+**Source and profile.** Except for NET-10-E and NET-10-U noted below, originals use clean source [`dabdc89774962fac3e4951f46a6c5cfc6a18475a`](https://github.com/mkapusnik-apps/duel6r/commit/dabdc89774962fac3e4951f46a6c5cfc6a18475a), Ubuntu 24.04.5 Linux x86-64 Docker Release GL4/Lua ON, shipped font and assets, private 24-bit Xvfb with software OpenGL, dummy audio, and native keyboard/pointer input. The network worker reported Mesa llvmpipe (LLVM 20.1.2), OpenGL 4.5 Core; this is not a per-frame measurement. Local and owned network scenarios used disposable persons and real game outcomes.
 
 - Application SHA-256: `2e1c7285135df60b5c052b2c5509059c058665b835eb5fa8db253be387f610ef`.
 - 470-file runtime manifest SHA-256: `6d66bf859fa990a089e6b276c5b41045362ba87b8c6637bb7f8c82d9f9202f5e`.
@@ -51,11 +51,8 @@ Unless otherwise stated, times are UTC on **2026-11-26** at PNG write completion
 | <a id="current-ss-021"></a>[NET-07](NET-07/NET-07.png) · SS-021 | Dedicated controller-only interruption during active play. Retained arena, 29 seconds remaining, both active-round notices, and focused End session. | 09:36:16.076879858 | `c27251ed5d0b3d4abb36d3bff3d628ac221168d68bd5670c9de5b4b42c330fdb` |
 | <a id="net-08-browser-password-rejection"></a>[NET-08](NET-08/NET-08.png) | Real wrong Password against the bound dedicated listing; `Connection not authorized.`, focused Edit setup and Return to browser, no Retry. | 09:33:43.250030180 | `c8070b87642578b3d3d533e15f1d0c981b8f6a7705e2641436b9e5c337a54375` |
 | <a id="current-ss-023"></a>[NET-09](NET-09/NET-09.png) · SS-023 | Dedicated Guest after an accepted intentional controller End; retained arena, no resume or local persistence, sole focused Return to Network. | 09:41:17.171980681 | `0dbcffd730e78195e1926bcf8f09768343f27d09926bd8cb7252325bade47d94` |
-| <a id="current-net-10"></a>[NET-10](NET-10/NET-10.png) | Fresh mixed results: selected protected player-hosted lobby at `15 / 15` and `Full`, alongside a completed `Closed` match, a ready-idle dedicated `Open` session, and an ongoing `Restricted` match. The left side shows each labeled field separately, with `Session is full.` and Join disabled. The focused white roster on the right shows entries `11–15 / 15`. | 2026-11-27 14:59:53.798598–14:59:54.439606 | `632ffd81a05680a61d106f16eed8ecb88f1c5e2ff101101da272fe4a49de7851` |
 | <a id="current-net-10-e"></a>[NET-10-E](NET-10/NET-10-E.png) | Successful empty read before publishers, without continuation. All six revised headings and the complete inline message are visible; the reason is blank, no rows or selection appear, Refresh is focused, and Join is disabled. | 2026-11-27 00:36:01.241079272–00:36:01.492828669 | `846a46306c6ff1f94630b2e28b9039b60d9d2171e3d6a807ab501a67cabaca9b` |
 | <a id="current-net-10-u"></a>[NET-10-U](NET-10/NET-10-U.png) | Browser-only HTTP 503 on Refresh after a populated selection. All six headings and the complete inline error and reason are visible; no cached rows or details appear, Refresh is focused, Join is disabled, and Direct connect remains available. | 2026-11-27 00:39:33.225188178–00:39:33.628669170 | `f0e05204391618efdd73edc463b423bd84732bc30db6421625a752424c1a5e96` |
-
-**NET-10 provenance.** The populated roster original uses frozen source `a7ecce8ffc8fe5a516414394071e0597ad67040a` and the verified `linux-x86_64.sha256sums` runtime (application SHA-256 `5d8d2cf70be819d809d0cc8ac46c3f441104878a4678e49c723d47e95e980ca7`). It covers the full 1280 × 900 native client on Linux x86-64 Docker Release GL4/Lua ON with shipped font and assets, private 24-bit Xvfb, and native input. The UTC interval runs from acquisition start through PNG write completion, not GPU presentation.
 
 **NET-10-E and NET-10-U provenance.** The retained empty and unavailable originals were accepted for the visible Mode and Access change at their original producer, `d0c41dc515cfddf6eb6d3df50be8cc2f2afeb797` on `feature/browse-session-mode-access`. Both cover the full 1280 × 900 native client on Ubuntu 24.04.5 Linux x86-64 Docker Release GL4/Lua ON with shipped font and assets, private Xvfb, Mesa llvmpipe/OpenGL 4.5 Core, and native keyboard/pointer input. Application SHA-256: `7b2dced7c08b77fc8881227dbb1c16a4800a88aa5da70477ab7a5440746beb06`; 475-file runtime identity SHA-256: `176a0fa4c7eef6e3eed141f54968f2ac27274d28df5bdd6a15db73c264eac392`. UTC intervals run from acquisition start through PNG write completion, not GPU presentation.
 
@@ -65,6 +62,7 @@ The Browse images omit `LAN-first.` as in the prior results capture. They do not
 
 | Representative | Disposition |
 |---|---|
+| <a id="current-net-10"></a>NET-10 | Replace the [prior populated result][pre-count-footer] using the [native capture matrix](../screens/NET-10.md#minimum-native-capture-matrix). The prior original shows the range above the box, not the current count line below it. |
 | <a id="current-ss-019"></a>NET-05 · AP-N / SS-019 | Six-player degraded-but-Connected Guest play was observed on mirrored Duel 16, unlike the unmirrored Local Play reference. No qualifying original shows authoritative Invisibility on both body and held weapon with the opaque comparison. |
 | <a id="current-ss-026"></a>NET-05-C · SS-026 | Withheld: part of the underlying reconnect `End session` button remains visible and clipped below the active confirmation. |
 | <a id="current-net-05-s"></a>NET-05-S | Withheld: the pre-winner score panel clips `Network connection degraded.` in the three-row Listed Host view. The two-row Direct Guest view does not cover that overlap. |
@@ -79,6 +77,7 @@ The Browse images omit `LAN-first.` as in the prior results capture. They do not
 
 [prior-tree]: https://github.com/mkapusnik-apps/duel6r/tree/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots
 [pre-roster]: https://github.com/mkapusnik-apps/duel6r/blob/e5eb6c87f126a9f0acd1c7422aba68c9f7d49095/docs/design/screenshots/README.md#current-net-10
+[pre-count-footer]: https://github.com/mkapusnik-apps/duel6r/blob/07a5536a9495872a79eb063e0f7ee588179eb1ef/docs/design/screenshots/README.md#current-net-10
 [prior-manifest]: https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/README.md
 [legacy]: https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/legacy.md
 [arena-matrix]: https://github.com/mkapusnik-apps/duel6r/blob/dabdc89774962fac3e4951f46a6c5cfc6a18475a/docs/design/screenshots/README.md#shared-arena-verification-follow-up

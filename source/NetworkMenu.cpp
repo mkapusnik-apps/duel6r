@@ -57,7 +57,7 @@ namespace Duel6 {
         constexpr int BrowserDetailFocus = 7, BrowserRosterFocus = 8;
         constexpr int BrowserDetailX = 40, BrowserRosterX = 429, BrowserDetailWidth = 381;
         constexpr int BrowserDetailBottom = 116, BrowserDetailTop = 228, BrowserLinePitch = 18;
-        constexpr int BrowserRosterTop = 210;
+        constexpr int BrowserRosterBottom = 134, BrowserRosterTop = BrowserDetailTop;
         constexpr int BrowserDetailLines = 6, BrowserDetailColumns = 47, BrowserRosterRows = 5, BrowserRosterColumns = 44;
         constexpr int BrowserFocusOrder[] = {0, BrowserDetailFocus, BrowserRosterFocus, 4, 5, 1, 3, 6, 2};
         struct SetupFooterBounds {
@@ -2465,7 +2465,7 @@ namespace Duel6 {
     int NetworkMenu::browserViewportAt(Int32 x, Int32 y) const {
         const auto *selected = selectedBrowserListing();
         if (!selected) return 0;
-        if (pointerInside(x, y, BrowserRosterX, BrowserDetailBottom, BrowserDetailWidth, BrowserRosterTop - BrowserDetailBottom))
+        if (pointerInside(x, y, BrowserRosterX, BrowserRosterBottom, BrowserDetailWidth, BrowserRosterTop - BrowserRosterBottom))
             return BrowserRosterFocus;
         if (x >= BrowserDetailX && x < BrowserDetailX + BrowserDetailWidth
             && y >= BrowserDetailBottom && y < BrowserDetailTop) {
@@ -2578,30 +2578,30 @@ namespace Duel6 {
         for (std::size_t line = 0; line < details.reason.size(); ++line)
             drawText(BrowserDetailX, topLine - (shown + static_cast<int>(line)) * BrowserLinePitch, details.reason[line]);
         if (selected) {
-            drawText(BrowserRosterX, topLine, "Connected players");
             const auto *roster = browserRoster(selected);
             const int vertical = roster ? rosterMaximumLine(*roster) : 0;
             const int horizontal = roster ? rosterMaximumColumn(*roster) : 0;
             const int start = std::min(browserRosterScroll, vertical);
             const int column = std::min(browserRosterColumn, horizontal);
-            drawField(BrowserRosterX, BrowserDetailBottom, BrowserDetailWidth, BrowserRosterTop - BrowserDetailBottom,
-                      focus == BrowserRosterFocus && (vertical || horizontal));
-            constexpr int TextX = BrowserRosterX + 8, TextY = 190;
+            drawField(BrowserRosterX, BrowserRosterBottom, BrowserDetailWidth, BrowserRosterTop - BrowserRosterBottom);
+            // Keep the bottom keyline flush with the box so it clears the count below.
+            drawFocusKeyline(BrowserRosterX, BrowserRosterBottom + 2, BrowserDetailWidth,
+                             BrowserRosterTop - BrowserRosterBottom - 2, focus == BrowserRosterFocus && (vertical || horizontal));
+            constexpr int TextX = BrowserRosterX + 8, TextY = BrowserRosterTop - 20;
+            const int count = roster ? std::min(BrowserRosterRows, static_cast<int>(roster->size()) - start) : 0;
             if (!roster || roster->empty()) {
                 drawText(TextX, TextY, roster ? "No connected players." : "Player names unavailable.", Color(89));
             } else {
-                const int count = std::min(BrowserRosterRows, static_cast<int>(roster->size()) - start);
                 for (int line = 0; line < count; ++line)
                     drawText(TextX, TextY - line * BrowserLinePitch,
                              utf8Slice((*roster)[start + line], column, BrowserRosterColumns));
-                if (vertical || horizontal) {
-                    std::string position;
-                    if (vertical) position = std::to_string(start + 1) + "–" + std::to_string(start + count)
-                        + " / " + std::to_string(roster->size());
-                    if (horizontal) position += (position.empty() ? "Col " : "  Col ")
-                        + std::to_string(column + 1) + "/" + std::to_string(horizontal + 1);
-                    drawText(BrowserRosterX + BrowserDetailWidth - font.getTextWidth(position, 16), topLine, position);
-                }
+            }
+            if (roster) {
+                const auto total = std::to_string(roster->size());
+                auto position = vertical ? std::to_string(start + 1) + "–" + std::to_string(start + count) + " / " + total
+                                         : total + " connected";
+                if (horizontal) position += "  Col " + std::to_string(column + 1) + "/" + std::to_string(horizontal + 1);
+                drawText(BrowserRosterX + BrowserDetailWidth - font.getTextWidth(position, 16), BrowserDetailBottom, position);
             }
         }
         const bool pagination = browser.hasPrevious() || !browser.result().nextCursor.empty();

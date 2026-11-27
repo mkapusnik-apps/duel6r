@@ -1160,6 +1160,12 @@ namespace {
             for (const auto &line: leftDetails()) text += (text.empty() ? "" : " ") + line;
             return text;
         }
+        bool hasRosterFooter() const {
+            return std::any_of(recorder.quads.begin(), recorder.quads.end(), [&](const auto &quad) {
+                return quad.material.getTexture() != Texture{} && quad.vertices[0].x >= 429
+                    && quad.vertices[0].y >= 116 && quad.vertices[2].y <= 132;
+            });
+        }
         bool fill(int x, int y, int width, int height, Color color) const {
             return std::any_of(recorder.quads.begin(), recorder.quads.end(), [&](const auto &quad) {
                 return quad.material.getTexture() == Texture{} && quad.material.getColor() == color
@@ -1512,24 +1518,24 @@ D6R_TEST_CASE("NET-10 successful no-selection reason is blank while necessary ex
     }
     f.row.connectedPlayers = std::vector<std::string>{"Last connected player with an overflowing name"};
     f.selected();
-    D6R_REQUIRE(f.text("Connected players") && menu.browserFocusEnabled(8));
+    D6R_REQUIRE(f.text("1 connected  Col 1/3") && menu.browserFocusEnabled(8));
     f.key(SDLK_TAB); D6R_REQUIRE_EQ(8, menu.focus);
     std::promise<Client::DirectoryPage> refresh;
     menu.browser.pending = refresh.get_future();
     menu.update(0); f.draw();
     D6R_REQUIRE_EQ(0, menu.focus); // A hidden roster viewport falls back to inspectable results.
     D6R_REQUIRE(!menu.browserFocusEnabled(8) && !menu.browserFocusEnabled(1));
-    D6R_REQUIRE(f.text("Player names unavailable."));
+    D6R_REQUIRE(f.text("Player names unavailable.") && !f.hasRosterFooter());
     refresh.set_value({true, {}, {}}); menu.update(0); f.draw();
     D6R_REQUIRE_EQ(2, menu.focus);
     D6R_REQUIRE_EQ(f.row.sessionId, menu.selectedSessionIdentity);
-    D6R_REQUIRE(f.leftDetails().empty() && !f.text("Connected players") && !f.text("Player names unavailable."));
+    D6R_REQUIRE(f.leftDetails().empty() && !f.hasRosterFooter() && !f.text("Player names unavailable."));
     D6R_REQUIRE(!menu.browserFocusEnabled(0) && !menu.browserFocusEnabled(1));
     auto other = f.row;
     other.id = other.sessionId = std::string(32, 'c');
     f.deliver({true, {other}, {}});
     D6R_REQUIRE_EQ(std::string("Session is no longer listed. Refresh and reselect."), reasonLine());
-    D6R_REQUIRE(!f.text("Connected players") && !menu.browserFocusEnabled(1));
+    D6R_REQUIRE(!f.hasRosterFooter() && !menu.browserFocusEnabled(1));
     for (const auto &test: {std::pair{"lobby", 15u}, std::pair{"closed", 2u}}) {
         auto row = f.row; row.phase = test.first; row.players = test.second;
         f.deliver({true, {row}, {}});
@@ -1752,9 +1758,10 @@ D6R_TEST_CASE("NET-10 connected names are read-only scrollable and cleared acros
     f.row.connectedPlayers->push_back(longName);
     const auto selection = f.row.id;
     f.selected();
-    D6R_REQUIRE(f.text("Connected players") && f.text("Connected 1") && f.text("Session is full. "));
+    D6R_REQUIRE(!f.text("Connected players") && f.text("Connected 1") && f.text("Session is full. "));
     D6R_REQUIRE(!menu.browserFocusEnabled(7) && menu.browserFocusEnabled(8) && !menu.browserFocusEnabled(1));
-    D6R_REQUIRE(f.fill(429, 116, 381, 94, Color::WHITE));
+    D6R_REQUIRE(f.fill(429, 134, 381, 94, Color::WHITE));
+    D6R_REQUIRE(f.text("1–5 / 15  Col 1/6") && !f.text("15 connected"));
     f.key(SDLK_TAB); D6R_REQUIRE_EQ(8, menu.focus);
     f.key(SDLK_RETURN); controller.pulse(SDL_CONTROLLER_BUTTON_A);
     D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && !menu.browserSelection);
@@ -1763,16 +1770,17 @@ D6R_TEST_CASE("NET-10 connected names are read-only scrollable and cleared acros
     controller.pulse(SDL_CONTROLLER_BUTTON_LEFTSHOULDER); D6R_REQUIRE_EQ(8, menu.focus);
     menu.mouseWheelEvent(MouseWheelEvent(500, 150, 0, -50)); f.draw();
     D6R_REQUIRE(f.text("Connected 11") && f.text(prefix + u8"é"));
+    D6R_REQUIRE(f.text("11–15 / 15  Col 1/6"));
     D6R_REQUIRE(!f.text("Connected 10"));
     D6R_REQUIRE(reviewTextQuad(f, prefix + u8"é").vertices[2].x <= 802);
     menu.mouseWheelEvent(MouseWheelEvent(500, 150, 50, 0)); f.draw();
     D6R_REQUIRE(f.text(std::string(38, 'A') + u8"é Last"));
+    D6R_REQUIRE(f.text("11–15 / 15  Col 6/6"));
     D6R_REQUIRE_EQ(0, menu.browserScroll); D6R_REQUIRE_EQ(selection, menu.selectedListing);
-    f.click(580, 221); D6R_REQUIRE_EQ(8, menu.focus); // The label never changes selection.
 
     auto assertUnavailable = [&] {
         f.draw();
-        D6R_REQUIRE(f.text("Player names unavailable.") && !f.text("Connected 1"));
+        D6R_REQUIRE(f.text("Player names unavailable.") && !f.text("Connected 1") && !f.hasRosterFooter());
         D6R_REQUIRE(!menu.browserFocusEnabled(8));
     };
     menu.browser.received -= std::chrono::seconds(31); assertUnavailable();
@@ -1780,20 +1788,66 @@ D6R_TEST_CASE("NET-10 connected names are read-only scrollable and cleared acros
     std::promise<Client::DirectoryPage> pending; menu.browser.pending = pending.get_future();
     assertUnavailable();
     pending.set_value({}); menu.update(0); f.draw();
-    D6R_REQUIRE(!f.text("Connected players") && !f.text("Player names unavailable."));
+    D6R_REQUIRE(!f.hasRosterFooter() && !f.text("Player names unavailable."));
     f.deliver({true, {f.row}, {}}); D6R_REQUIRE(f.text("Connected 1"));
     auto replaced = f.row; replaced.sessionId = Client::directorySessionId(99);
     replaced.connectedPlayers = std::vector<std::string>{"Replacement"};
     f.deliver({true, {replaced}, {}});
-    D6R_REQUIRE(!f.text("Connected players") && !f.text("Replacement"));
+    D6R_REQUIRE(!f.hasRosterFooter() && !f.text("Replacement"));
     menu.selectBrowserRow(1); f.draw();
-    D6R_REQUIRE(f.text("Replacement") && !f.text("Connected 1"));
+    D6R_REQUIRE(f.text("Replacement") && !f.text("Connected 1") && f.text("1 connected"));
     D6R_REQUIRE(!menu.browserFocusEnabled(8));
     replaced.expiresAt = 1; f.deliver({true, {replaced}, {}}); assertUnavailable();
     replaced.expiresAt = f.row.expiresAt; replaced.connectedPlayers.emplace();
     f.deliver({true, {replaced}, {}});
-    D6R_REQUIRE(f.text("No connected players.") && !f.text("Player names unavailable."));
-    menu.selectedListing.clear(); f.draw(); D6R_REQUIRE(!f.text("Connected players") && !menu.browserFocusEnabled(8));
+    D6R_REQUIRE(f.text("No connected players.") && f.text("0 connected") && !f.text("Player names unavailable."));
+    menu.selectedListing.clear(); f.draw(); D6R_REQUIRE(!f.hasRosterFooter() && !menu.browserFocusEnabled(8));
+}
+
+D6R_TEST_CASE("NET-10 roster footer stays below the box and never receives scaled pointer input") {
+    BrowserPresentationFixture f;
+    auto &menu = f.menu;
+    f.row.players = f.row.capacity;
+    f.row.connectedPlayers.emplace();
+    for (int index = 1; index <= 15; ++index) f.row.connectedPlayers->push_back("Name " + std::to_string(index));
+    f.selected();
+    for (const auto &[width, height]: {std::pair{850, 700}, {1280, 720}, {1280, 900}, {1920, 1080}}) {
+        f.video.screen = ScreenParameters(width, height, 24, 24, 0, false);
+        const float scale = std::min(1.35f, std::min(float(width) / 850, float(height) / 700));
+        const int tx = (width - int(850 * scale)) / 2, ty = (height - int(700 * scale)) / 2;
+        const auto click = [&](int x, int y) {
+            f.click(tx + int(x * scale), ty + int(y * scale));
+            f.click(tx + int(x * scale), ty + int(y * scale), false);
+        };
+        const auto wheel = [&](int x, int y, int delta) {
+            menu.mouseWheelEvent(MouseWheelEvent(tx + int(x * scale), ty + int(y * scale), 0, delta));
+        };
+        menu.focus = 0;
+        menu.browserRosterScroll = 0;
+        click(780, 124);
+        wheel(780, 124, -5);
+        D6R_REQUIRE_EQ(0, menu.focus);
+        D6R_REQUIRE_EQ(0, menu.browserRosterScroll);
+        click(550, 221); // Former heading height is now part of the viewport.
+        D6R_REQUIRE_EQ(8, menu.focus);
+        wheel(550, 221, -10);
+        f.draw();
+        D6R_REQUIRE(f.fill(429, 134, 381, 94, Color::WHITE) && f.frame(427, 134, 385, 96, 2));
+        D6R_REQUIRE(!f.text("Connected players") && !f.text("15 connected"));
+        D6R_REQUIRE(!f.text("Name 10") && f.text("Name 11") && f.text("Name 15"));
+        const auto &footer = reviewTextQuad(f, "11–15 / 15");
+        D6R_REQUIRE_EQ(810.0f, footer.vertices[2].x);
+        D6R_REQUIRE_EQ(116.0f, footer.vertices[0].y);
+        D6R_REQUIRE_EQ(132.0f, footer.vertices[2].y);
+        for (const auto &label: {"Name 11", "Name 15"}) {
+            const auto &name = reviewTextQuad(f, label);
+            D6R_REQUIRE(name.vertices[0].y >= 134 && name.vertices[2].y <= 228);
+        }
+        f.key(SDLK_RETURN);
+        D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Browser && !menu.browserFocusEnabled(1));
+        D6R_REQUIRE_EQ(f.row.id, menu.selectedListing);
+        D6R_REQUIRE_EQ(0, menu.browserScroll);
+    }
 }
 
 D6R_TEST_CASE("NET-10 single-page pagination is absent from drawing pointer and traversal; multi-page group persists") {
