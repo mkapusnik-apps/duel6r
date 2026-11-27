@@ -93,6 +93,23 @@ namespace Duel6 {
                 : row.phase == "cleanup" ? "Cleanup" : "Started";
         }
 
+        const char *directoryMode(const Client::DirectoryListing &row) {
+            const auto *mode = row.mode == "deathmatch" ? "Deathmatch" : row.mode == "predator" ? "Predator"
+                : row.mode == "teams" ? "Team deathmatch" : nullptr;
+            if (!mode) return ""; // The directory decoder rejects unrecognized modes.
+            return row.dedicated() && row.phase == "idle" ? "Not set" : mode;
+        }
+
+        const char *directoryAccess(const Client::DirectoryListing &row, bool unconfirmed) {
+            if (unconfirmed) return "Unconfirmed";
+            const auto admission = row.admissionState();
+            if (admission == "busy") return "Busy";
+            if (admission == "closed") return "Closed";
+            if (admission == "full") return "Full";
+            if (admission == "open") return row.passwordRequired ? "Restricted" : "Open";
+            return "";
+        }
+
         std::size_t utf8Length(std::string_view value);
         std::string utf8Slice(const std::string &value, std::size_t first, std::size_t characters);
         void appendWrapped(std::vector<std::string> &lines, const std::string &text, std::size_t width) {
@@ -2337,18 +2354,20 @@ namespace Duel6 {
     }
 
     void NetworkMenu::drawBrowser() const {
+        constexpr Int32 ModeX = 286, HostingX = 418, PlayersX = 530, PhaseX = 602, AccessX = 702;
         drawPanel(24, 24, 802, 544, "BROWSE SESSIONS");
         const auto &rows = browser.result().listings;
         const bool visibleRows = browser.available();
         const bool replacement = !browser.loading() && (!visibleRows || rows.empty());
+        const bool unconfirmed = browser.loading() || browser.stale();
         if (browser.loading()) drawClippedText(34, 516,
             visibleRows && !rows.empty() ? "Refreshing... Previous results may be out of date." : "Loading sessions...", 82);
         else if (visibleRows && browser.stale()) drawClippedText(34, 516,
             "Directory unavailable. Previous results may be out of date.", 82);
         renderer.quadXY(Vector(32, 490), Vector(786, 20), Color(170));
-        drawText(34, 494, "Session / endpoint"); drawText(286, 494, "Hosting");
-        drawText(398, 494, "Players"); drawText(470, 494, "Phase");
-        drawText(574, 494, "Access"); drawText(670, 494, "Admission");
+        drawText(34, 494, "Session / endpoint"); drawText(ModeX, 494, "Mode");
+        drawText(HostingX, 494, "Hosting"); drawText(PlayersX, 494, "Players");
+        drawText(PhaseX, 494, "Phase"); drawText(AccessX, 494, "Access");
         drawField(32, 248, 786, 242);
         if (replacement) {
             drawText(40, 470, !visibleRows
@@ -2365,15 +2384,13 @@ namespace Duel6 {
             const bool selection = row.id == selectedListing;
             if (selection) renderer.quadXY(Vector(34, y - 4), Vector(782, 22), Color(0, 0, 200));
             const Color rowColor = selection ? Color::WHITE : Color::BLACK;
-            drawClippedText(38, y, (selection ? "> " : "  ") + row.endpoint.host + ":" + std::to_string(row.endpoint.port)
-                , 30, rowColor);
-            drawText(286, y, row.dedicated() ? "Dedicated" : "Player-hosted", rowColor);
-            drawText(398, y, std::to_string(row.players) + " / " + std::to_string(row.capacity), rowColor);
-            drawText(470, y, directoryPhase(row), rowColor);
-            drawText(574, y, row.passwordRequired ? "Password" : "No password", rowColor);
-            const auto admission = row.admissionState();
-            drawText(670, y, browser.stale() || browser.loading() ? "Unconfirmed" : admission == "busy" ? "Busy"
-                : admission == "closed" ? "Closed" : row.players >= row.capacity ? "Full" : "Open", rowColor);
+            drawClippedText(38, y, (selection ? "> " : "  ") + row.endpoint.host + ":" + std::to_string(row.endpoint.port),
+                30, rowColor);
+            drawText(ModeX, y, directoryMode(row), rowColor);
+            drawText(HostingX, y, row.dedicated() ? "Dedicated" : "Player-hosted", rowColor);
+            drawText(PlayersX, y, std::to_string(row.players) + " / " + std::to_string(row.capacity), rowColor);
+            drawText(PhaseX, y, directoryPhase(row), rowColor);
+            drawText(AccessX, y, directoryAccess(row, unconfirmed), rowColor);
             drawFocusKeyline(34, y - 4, 782, 22, selection && focus == 0);
         }
         std::string reason = selected ? ""
@@ -2389,10 +2406,11 @@ namespace Duel6 {
         if (selected && selected->expiresAt <= std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count())
             reason = "Session listing expired. Refresh before joining.";
-        if (browser.stale() || browser.loading()) reason = "Refresh successfully before joining. Availability unconfirmed.";
+        if (unconfirmed) reason = "Refresh successfully before joining. Availability unconfirmed.";
         std::vector<std::string> details;
         if (selected) {
-            appendWrapped(details, "Session: " + selected->sessionId + " • Mode: " + selected->mode, 96);
+            appendWrapped(details, "Session: " + selected->sessionId + " • Mode: " + directoryMode(*selected)
+                + " • Protection: " + (selected->passwordRequired ? "Password" : "No password"), 96);
             appendWrapped(details, "Endpoint: " + selected->endpoint.host + ":" + std::to_string(selected->endpoint.port), 96);
         }
         appendWrapped(details, reason, 96);

@@ -8,7 +8,7 @@
     <rect x="49" y="152" width="802" height="544"/>
     <path d="M51 172H849"/>
     <rect x="57" y="210" width="786" height="262"/>
-    <path d="M57 230H843 M307 210V230 M419 210V230 M491 210V230 M595 210V230 M691 210V230"/>
+    <path d="M57 230H843 M307 210V230 M439 210V230 M551 210V230 M623 210V230 M723 210V230"/>
     <rect x="57" y="484" width="786" height="128"/>
     <rect x="57" y="656" width="250" height="32"/>
     <rect x="731" y="178" width="112" height="24"/>
@@ -19,9 +19,8 @@
   <g fill="black" font-family="sans-serif" font-size="14">
     <text x="365" y="92">Existing banner / version</text>
     <text x="367" y="166" font-size="16">BROWSE SESSIONS</text>
-    <text x="59" y="226">Session / endpoint</text><text x="311" y="226">Hosting</text>
-    <text x="423" y="226">Players</text><text x="495" y="226">Phase</text>
-    <text x="599" y="226">Access</text><text x="695" y="226">Admission</text>
+    <text x="59" y="226">Session / endpoint</text><text x="311" y="226">Mode</text><text x="443" y="226">Hosting</text>
+    <text x="555" y="226">Players</text><text x="627" y="226">Phase</text><text x="727" y="226">Access</text>
     <text x="65" y="250">Directory unavailable. Direct connection and local play are still available.</text>
     <text x="65" y="508">Selected session</text>
     <text x="65" y="526">Refresh successfully before joining. Availability unconfirmed.</text>
@@ -30,7 +29,7 @@
     <text x="787" y="195" text-anchor="middle">Refresh</text>
     <text x="450" y="677" text-anchor="middle">Direct connect</text><text x="718" y="677" text-anchor="middle">Back</text>
     <text x="25" y="753">Retained six-column heading strip; empty white body with one full noninteractive error line.</text>
-    <text x="25" y="775">Cached rows and selected identity/endpoint/mode hidden. Refresh focused.</text>
+    <text x="25" y="775">Cached rows and selected identity/endpoint/mode/protection hidden. Refresh focused.</text>
     <text x="25" y="797">Recovery restores retained identity only if present, never another session.</text>
     <text x="25" y="819">Status and paging allocations stay reserved; conditional paging group unchanged.</text>
   </g>
