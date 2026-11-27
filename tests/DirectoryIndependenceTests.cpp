@@ -6,8 +6,10 @@
 #include <unistd.h>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <thread>
 #include <mutex>
+#include <utility>
 
 namespace {
     using namespace Duel6;
@@ -35,8 +37,8 @@ namespace {
         }
         ~Environment() { if (previous) setenv(key.c_str(), previous->c_str(), 1); else unsetenv(key.c_str()); }
     };
-    template<typename Predicate> bool await(Predicate predicate) {
-        const auto deadline = std::chrono::steady_clock::now() + 10s;
+    template<typename Predicate> bool await(Predicate predicate, std::chrono::seconds timeout = 10s) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
         do { if (predicate()) return true; std::this_thread::sleep_for(5ms); }
         while (std::chrono::steady_clock::now() < deadline);
         return predicate();
@@ -110,6 +112,7 @@ D6R_TEST_CASE("NET-DIR roster negotiation keeps one owner through a strict metad
     const auto session = Client::directorySessionId(14);
     unsigned revision = 0, strictRejects = 0, nextStrictRejects = 0;
     bool oldService = false;
+    std::function<void()> coalesceBeforeAck;
     std::vector<std::string> accepted;
     Client::DirectoryPublisherDependencies dependencies;
     dependencies.listeningAddresses = [] { return std::vector<std::string>{"10.0.0.3"}; };
@@ -128,6 +131,7 @@ D6R_TEST_CASE("NET-DIR roster negotiation keeps one owner through a strict metad
             return Client::DirectoryResponse{400, {}};
         }
         accepted.push_back(body);
+        if (auto update = std::exchange(coalesceBeforeAck, {})) update();
         return Client::DirectoryResponse{method == "POST" ? 201 : 200,
             "{\"id\":\"" + id + "\",\"sessionId\":\"" + session + "\",\"address\":\"10.0.0.3\","
             "\"port\":26660,\"players\":1,\"capacity\":15,\"mode\":\"deathmatch\",\"phase\":\"lobby\","
@@ -140,11 +144,11 @@ D6R_TEST_CASE("NET-DIR roster negotiation keeps one owner through a strict metad
     row.capacity = 15; row.mode = "deathmatch"; row.phase = "lobby";
     row.connectedPlayers = std::vector<std::string>{u8"\"\\é"};
     publisher.update(row);
-    const auto current = [&](unsigned target) {
+    const auto current = [&](unsigned target, std::chrono::seconds timeout = 10s) {
         return await([&] {
             std::lock_guard<std::mutex> lock(mutex);
             return revision >= target && publisher.available() && !publisher.busy();
-        });
+        }, timeout);
     };
     D6R_REQUIRE(current(2));
     {
@@ -194,6 +198,23 @@ D6R_TEST_CASE("NET-DIR roster negotiation keeps one owner through a strict metad
         std::lock_guard<std::mutex> lock(mutex);
         D6R_REQUIRE_EQ(10u, revision);
         D6R_REQUIRE_EQ(1u, nextStrictRejects);
+        nextStrictRejects = 2;
+        auto newest = row;
+        newest.connectedPlayers = std::vector<std::string>{"D"};
+        // A capable instance acknowledges C's metadata fallback after D has
+        // arrived. Strict also rejects D once, so D needs its own prompt repair.
+        coalesceBeforeAck = [&publisher, newest] { publisher.update(newest); };
+    }
+    row.connectedPlayers = std::vector<std::string>{"C"};
+    publisher.update(row);
+    D6R_REQUIRE(current(13, 5s));
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        D6R_REQUIRE_EQ(13u, revision);
+        D6R_REQUIRE_EQ(6u, strictRejects);
+        D6R_REQUIRE(accepted[10].find("connectedPlayers") == std::string::npos);
+        D6R_REQUIRE(accepted[11].find("connectedPlayers") == std::string::npos);
+        D6R_REQUIRE(accepted[12].find("\"connectedPlayers\":[\"RA\"]") != std::string::npos);
     }
     publisher.stop();
 }

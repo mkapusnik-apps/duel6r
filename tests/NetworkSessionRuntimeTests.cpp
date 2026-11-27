@@ -597,23 +597,44 @@ D6R_TEST_CASE("NET-DIR mixed decoder keeps a bounded literal roster independent 
 
     auto neighbor = core;
     neighbor.replace(neighbor.find(std::string(32, 'a')), 32, std::string(32, 'b'));
-    // The string escapes in this invalid optional list must not affect the
-    // containing listing or a neighboring listing's core and roster.
-    const auto mixed = [&](const std::string &first, const std::string &second) {
-        return Client::decodeDirectoryPage("{\"contract\":\"mixed-v2\",\"listings\":["
-            + first + R"(,"connectedPlayers":["QQ","Bad\"value",{"field\"":"nested\\quote"}]},)"
-            + second + R"(,"connectedPlayers":["\u0051Q"]}],"nextCursor":null})", {}, true);
+    const auto mixedBody = [&](const std::string &first, const std::string &optional) {
+        return "{\"contract\":\"mixed-v2\",\"listings\":[{\"connectedPlayers\":" + optional + ','
+            + first.substr(1) + "}," + neighbor + R"(,"connected\u0050layers":["\u0051Q"]}],"nextCursor":null})";
     };
-    const auto isolated = mixed(core, neighbor);
-    D6R_REQUIRE(isolated.available && isolated.listings.size() == 2);
-    D6R_REQUIRE(!isolated.listings[0].connectedPlayers && isolated.listings[0].passwordRequired);
-    D6R_REQUIRE_EQ(std::string(32, 'a'), isolated.listings[0].id);
-    D6R_REQUIRE_EQ(std::string(32, 'b'), isolated.listings[1].id);
-    D6R_REQUIRE(isolated.listings[1].connectedPlayers
-                && *isolated.listings[1].connectedPlayers == std::vector<std::string>{"A"});
+    const auto mixed = [&](const std::string &body) { return Client::decodeDirectoryPage(body, {}, true); };
+    const auto assertMetadataAndNeighbor = [&](const std::string &body) {
+        const auto isolated = mixed(body);
+        D6R_REQUIRE(isolated.available && isolated.listings.size() == 2);
+        D6R_REQUIRE(!isolated.listings[0].connectedPlayers && isolated.listings[0].passwordRequired);
+        D6R_REQUIRE_EQ(15u, isolated.listings[0].players);
+        D6R_REQUIRE_EQ(std::string(32, 'a'), isolated.listings[0].id);
+        D6R_REQUIRE_EQ(std::string(32, 'b'), isolated.listings[1].id);
+        D6R_REQUIRE(isolated.listings[1].connectedPlayers
+                    && *isolated.listings[1].connectedPlayers == std::vector<std::string>{"A"});
+    };
+    // Every valid JSON type is consumed as one optional value, without asking
+    // the legacy core parser to interpret its contents.
+    for (const auto *optional: {"null", "true", "false", "-2.5E+200", "1e9999", R"("a\"b\uD83D\uDE00")",
+            R"({"label":"\u00e9","sample":[-0.25e-3,null,{"field\"":"nested\\quote"}]})",
+            R"(["QQ","\uD83D\uDE00"])", R"(["QQ",1E+2])", R"(["QQ",{"value":false}])",
+            R"(["QQ",["nested"]])", "[[[[[null]]]]]"}) {
+        assertMetadataAndNeighbor(mixedBody(core, optional));
+    }
+    assertMetadataAndNeighbor(mixedBody(core, "[\"QQ\",\"" + std::string(87, 'Q') + "\"]"));
     auto badCore = core;
     badCore.replace(badCore.find("deathmatch"), std::string("deathmatch").size(), "unknown");
-    D6R_REQUIRE(!mixed(badCore, neighbor).available);
+    D6R_REQUIRE(!mixed(mixedBody(badCore, "1E+2")).available);
+    badCore = core;
+    badCore.replace(badCore.find("26660"), 5, "\"26660\"");
+    D6R_REQUIRE(!mixed(mixedBody(badCore, R"(["QQ",1E+2])")).available);
+    for (const auto *optional: {"1E+", "[0,]", R"("\u00q0")", "[[[[[[null]]]]]]"})
+        D6R_REQUIRE(!mixed(mixedBody(core, optional)).available);
+    const auto boundary = mixedBody(core, "\"\"");
+    const auto longOptional = '"' + std::string(65536 - boundary.size(), 'Q') + '"';
+    const auto boundedPage = mixedBody(core, longOptional);
+    D6R_REQUIRE_EQ(std::size_t(65536), boundedPage.size());
+    assertMetadataAndNeighbor(boundedPage);
+    D6R_REQUIRE(!mixed(boundedPage + ' ').available);
 }
 
 D6R_TEST_CASE("NET-DIR browser retains roster order for connected waiting and dead slots only") {

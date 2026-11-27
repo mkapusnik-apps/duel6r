@@ -9,7 +9,6 @@
 #endif
 #include <curl/curl.h>
 #include <algorithm>
-#include <cctype>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
@@ -24,6 +23,9 @@
 namespace Duel6::Client {
     namespace {
         using Clock = std::chrono::steady_clock;
+        constexpr std::size_t MaxDirectoryResponseBytes = 65536;
+        constexpr unsigned MaxDirectoryDepth = 8;
+        constexpr std::size_t MaxRosterWireNameBytes = (Network::Trust::MaxParticipantNameBytes * 8 + 5) / 6;
         constexpr std::string_view RosterAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
         bool validRoster(const std::vector<std::string> &names, unsigned occupancy) {
@@ -56,7 +58,7 @@ namespace Duel6::Client {
                 std::vector<std::string> names;
                 for (Size index = 0; index < count; ++index) {
                     const auto wire = roster.get(index).asString();
-                    if (wire.size() < 2 || wire.size() > (Network::Trust::MaxParticipantNameBytes * 8 + 5) / 6)
+                    if (wire.size() < 2 || wire.size() > MaxRosterWireNameBytes)
                         return std::nullopt;
                     std::string name;
                     unsigned bits = 0;
@@ -110,7 +112,7 @@ namespace Duel6::Client {
         }
         std::size_t receive(char *data, std::size_t size, std::size_t count, void *context) {
             auto &body = *static_cast<std::string *>(context);
-            if (size != 1 || count > 65536 - body.size()) return 0;
+            if (size != 1 || count > MaxDirectoryResponseBytes - body.size()) return 0;
             try { body.append(data, count); return count; } catch (...) { return 0; }
         }
         DirectoryListing decode(const Json::Value &value, bool mixed = false) {
@@ -162,51 +164,181 @@ namespace Duel6::Client {
         }
         bool jsonWhitespace(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
 
-        // The legacy parser does not consume JSON escapes. Inside the optional
-        // roster only, normalize string tokens to the wire alphabet or an invalid
-        // sentinel. Keep punctuation and every core field for the existing parser.
-        std::string safeRosterString(std::string_view raw) {
-            std::string text;
-            bool inAlphabet = true;
-            for (std::size_t i = 0; i < raw.size(); ++i) {
-                unsigned value = static_cast<unsigned char>(raw[i]);
-                if (value < 0x20) throw std::invalid_argument("Invalid directory JSON string.");
-                if (value == '\\') {
-                    if (++i == raw.size()) throw std::invalid_argument("Invalid directory JSON string.");
-                    switch (raw[i]) {
-                        case 'u':
-                            value = 0;
-                            for (int digit = 0; digit < 4; ++digit) {
-                                if (++i == raw.size()) throw std::invalid_argument("Invalid directory JSON escape.");
-                                constexpr std::string_view digits = "0123456789abcdef";
-                                const auto nibble = digits.find(static_cast<char>(std::tolower(static_cast<unsigned char>(raw[i]))));
-                                if (nibble == std::string_view::npos) throw std::invalid_argument("Invalid directory JSON escape.");
-                                value = value * 16 + static_cast<unsigned>(nibble);
-                            }
-                            break;
-                        case '"': case '\\': case '/': case 'b': case 'f': case 'n': case 'r': case 't':
-                            // None of these escapes can decode to a base64url character.
-                            inAlphabet = false;
-                            continue;
-                        default: throw std::invalid_argument("Invalid directory JSON escape.");
-                    }
-                }
-                if (value > 127 || RosterAlphabet.find(static_cast<char>(value)) == std::string_view::npos)
-                    inAlphabet = false;
-                else text += static_cast<char>(value);
+        // Walk the mixed page's JSON structure before the legacy parser sees it.
+        // Only direct listing members named connectedPlayers are rewritten: the
+        // entire value becomes a bounded base64url array or a wrong-type marker.
+        // Core tokens keep their original spelling and existing field validation.
+        class MixedPageRosterIsolation {
+            enum class Scope { Core, Page, Listings, Listing, OptionalValue };
+            std::string_view body;
+            std::size_t pos = 0, keptFrom = 0;
+            std::string isolated;
+
+            [[noreturn]] static void invalid() { throw std::invalid_argument("Invalid directory JSON."); }
+            char peek() const { return pos < body.size() ? body[pos] : '\0'; }
+            bool take(char c) {
+                if (peek() != c) return false;
+                ++pos; return true;
             }
-            return inAlphabet ? text : "!";
-        }
+            void require(char c) { if (!take(c)) invalid(); }
+            void whitespace() { while (jsonWhitespace(peek())) ++pos; }
+            static bool digit(char c) { return c >= '0' && c <= '9'; }
+            static void checkDepth(unsigned depth) {
+                if (depth > MaxDirectoryDepth) throw std::invalid_argument("Directory response nesting exceeds limit.");
+            }
+            void literal(std::string_view token) {
+                if (body.substr(pos, token.size()) != token) invalid();
+                pos += token.size();
+            }
+            void number() {
+                take('-');
+                if (!take('0')) {
+                    if (!digit(peek())) invalid();
+                    do { ++pos; } while (digit(peek()));
+                }
+                const auto digits = [&] {
+                    if (!digit(peek())) invalid();
+                    do { ++pos; } while (digit(peek()));
+                };
+                if (take('.')) digits();
+                if (take('e') || take('E')) {
+                    if (!take('+')) take('-');
+                    digits();
+                }
+            }
+            std::string_view string(bool optional, std::string *ascii = nullptr) {
+                const auto start = pos;
+                require('"');
+                while (!take('"')) {
+                    unsigned code = static_cast<unsigned char>(peek());
+                    if (code < 0x20) invalid();
+                    ++pos;
+                    if (code == '\\') {
+                        const char escape = peek();
+                        if (escape == 'u') {
+                            ++pos;
+                            code = 0;
+                            for (int i = 0; i < 4; ++i) {
+                                const char hexDigit = peek();
+                                const int nibble = digit(hexDigit) ? hexDigit - '0'
+                                    : hexDigit >= 'a' && hexDigit <= 'f' ? hexDigit - 'a' + 10
+                                    : hexDigit >= 'A' && hexDigit <= 'F' ? hexDigit - 'A' + 10 : -1;
+                                if (nibble < 0) invalid();
+                                ++pos;
+                                code = code * 16 + static_cast<unsigned>(nibble);
+                            }
+                        } else {
+                            if (escape == '\0' || std::string_view("\"\\/bfnrt").find(escape) == std::string_view::npos)
+                                invalid();
+                            // Never pass an escaped quote to the legacy core parser.
+                            if (escape == '"' && !optional) invalid();
+                            ++pos;
+                            code = 0;
+                        }
+                    }
+                    // Only ASCII can match the member name or the wire alphabet.
+                    if (ascii && ascii->size() <= MaxRosterWireNameBytes)
+                        *ascii += code < 128 ? static_cast<char>(code) : '\0';
+                }
+                return body.substr(start, pos - start);
+            }
+            template<typename Item>
+            void items(char end, Item item) {
+                whitespace();
+                if (take(end)) return;
+                for (;;) {
+                    item();
+                    whitespace();
+                    if (take(end)) return;
+                    require(',');
+                    whitespace();
+                }
+            }
+            std::string roster(unsigned depth) {
+                if (!take('[')) {
+                    value(depth, Scope::OptionalValue);
+                    return "0";
+                }
+                checkDepth(depth + 1);
+                std::string array = "[";
+                bool valid = true;
+                std::size_t count = 0;
+                items(']', [&] {
+                    ++count;
+                    if (peek() != '"') {
+                        valid = false;
+                        value(depth + 1, Scope::OptionalValue);
+                        return;
+                    }
+                    std::string wire;
+                    string(true, valid && count <= Network::MaxNetworkPlayers ? &wire : nullptr);
+                    if (!valid || count > Network::MaxNetworkPlayers || wire.size() > MaxRosterWireNameBytes
+                        || wire.find_first_not_of(RosterAlphabet) != std::string::npos) {
+                        valid = false;
+                        return;
+                    }
+                    if (count > 1) array += ',';
+                    array += '"' + wire + '"';
+                });
+                return valid ? array + ']' : "0";
+            }
+            void value(unsigned parentDepth, Scope scope) {
+                const bool optional = scope == Scope::OptionalValue;
+                switch (peek()) {
+                    case '{': {
+                        const auto depth = parentDepth + 1;
+                        checkDepth(depth);
+                        ++pos;
+                        items('}', [&] {
+                            const auto start = pos;
+                            std::string member;
+                            const auto key = string(optional, scope == Scope::Listing ? &member : nullptr);
+                            whitespace(); require(':'); whitespace();
+                            if (scope == Scope::Listing && member == "connectedPlayers") {
+                                isolated.append(body.substr(keptFrom, start - keptFrom));
+                                isolated += "\"connectedPlayers\":";
+                                isolated += roster(depth);
+                                keptFrom = pos;
+                            } else {
+                                value(depth, scope == Scope::Page && key == "\"listings\"" ? Scope::Listings
+                                    : optional ? Scope::OptionalValue : Scope::Core);
+                            }
+                        });
+                        return;
+                    }
+                    case '[': {
+                        const auto depth = parentDepth + 1;
+                        checkDepth(depth);
+                        ++pos;
+                        items(']', [&] { value(depth, scope == Scope::Listings ? Scope::Listing
+                            : optional ? Scope::OptionalValue : Scope::Core); });
+                        return;
+                    }
+                    case '"': string(optional); return;
+                    case 't': literal("true"); return;
+                    case 'f': literal("false"); return;
+                    case 'n': literal("null"); return;
+                    default: number(); return;
+                }
+            }
+        public:
+            explicit MixedPageRosterIsolation(std::string_view body) : body(body) {}
+            Json::Value parse() {
+                whitespace();
+                value(0, Scope::Page);
+                whitespace();
+                if (pos != body.size()) invalid();
+                isolated.append(body.substr(keptFrom));
+                return Json::Parser().parse(std::vector<Uint8>(isolated.begin(), isolated.end()));
+            }
+        };
 
         Json::Value parse(const std::string &body, bool mixedPage = false) {
-            if (body.size() > 65536) throw std::invalid_argument("Directory response too large.");
+            if (body.size() > MaxDirectoryResponseBytes) throw std::invalid_argument("Directory response too large.");
+            if (mixedPage) return MixedPageRosterIsolation(body).parse();
             unsigned depth = 0;
-            bool quoted = false, escaped = false, stringHasEscape = false, ended = false;
-            bool inListings = false, inRoster = false;
-            std::size_t stringStart = 0, listingsStart = std::string::npos, keptFrom = 0;
-            std::string normalized;
-            for (std::size_t index = 0; index < body.size(); ++index) {
-                const char c = body[index];
+            bool quoted = false, escaped = false, ended = false;
+            for (char c: body) {
                 if (ended) {
                     if (!jsonWhitespace(c))
                         throw std::invalid_argument("Trailing directory response data.");
@@ -214,42 +346,18 @@ namespace Duel6::Client {
                 }
                 if (quoted) {
                     if (escaped) escaped = false;
-                    else if (c == '\\') escaped = stringHasEscape = true;
-                    else if (c == '"') {
-                        quoted = false;
-                        if (!mixedPage) continue;
-                        const auto token = std::string_view(body).substr(stringStart + 1, index - stringStart - 1);
-                        if (inRoster && stringHasEscape) {
-                            normalized.append(body, keptFrom, stringStart + 1 - keptFrom);
-                            normalized += safeRosterString(token);
-                            keptFrom = index;
-                        } else if (!inRoster && ((depth == 1 && token == "listings")
-                                   || (inListings && depth == 3 && token == "connectedPlayers"))) {
-                            const auto colon = body.find_first_not_of(" \t\r\n", index + 1);
-                            if (colon == std::string::npos || body[colon] != ':') continue;
-                            if (depth == 1) listingsStart = body.find_first_not_of(" \t\r\n", colon + 1);
-                            else inRoster = true;
-                        }
-                    }
-                    continue;
-                }
-                if (inRoster && depth == 3 && (c == ',' || c == '}' || c == ']')) inRoster = false;
-                if (c == '"') { quoted = true; stringHasEscape = false; stringStart = index; }
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') quoted = false;
+                } else if (c == '"') quoted = true;
                 else if (c == '[' || c == '{') {
-                    if (index == listingsStart && c == '[') inListings = true;
-                    if (++depth > 8) throw std::invalid_argument("Directory response nesting exceeds limit.");
+                    if (++depth > MaxDirectoryDepth) throw std::invalid_argument("Directory response nesting exceeds limit.");
                 } else if (c == ']' || c == '}') {
                     if (depth == 0) throw std::invalid_argument("Invalid directory response.");
-                    if (depth == 2) inListings = false;
                     --depth;
                     if (depth == 0) ended = true;
                 }
             }
             if (!ended || depth != 0 || quoted) throw std::invalid_argument("Invalid directory response.");
-            if (keptFrom != 0) {
-                normalized.append(body, keptFrom, std::string::npos);
-                return Json::Parser().parse(std::vector<Uint8>(normalized.begin(), normalized.end()));
-            }
             return Json::Parser().parse(std::vector<Uint8>(body.begin(), body.end()));
         }
         std::string encode(const DirectoryListing &row) {
@@ -454,6 +562,7 @@ namespace Duel6::Client {
         std::mutex mutex;
         std::condition_variable changed;
         DirectoryListing desired;
+        std::uint64_t desiredRosterGeneration = 0;
         std::vector<std::string> coverage;
         DirectoryPublisherDependencies dependencies;
         bool dirty = false;
@@ -468,15 +577,16 @@ namespace Duel6::Client {
             std::string id, owner, session, collection;
             unsigned revision = 0;
             bool rosterSupported = false;
-            bool rosterFollowUp = false;
+            std::optional<std::uint64_t> repairedRosterGeneration;
             auto next = Clock::now();
             for (;;) {
                 DirectoryListing listing;
+                std::uint64_t rosterGeneration;
                 {
                     std::unique_lock<std::mutex> lock(mutex);
                     changed.wait_until(lock, next, [&] { return stopping || dirty; });
                     if (stopping) break;
-                    listing = desired; dirty = false;
+                    listing = desired; rosterGeneration = desiredRosterGeneration; dirty = false;
                 }
                 const auto candidate = listing.dedicated() ? std::optional<std::string>(listing.endpoint.host) : Network::publicationAddress(
                         coverage.empty() ? std::vector<std::string>{listing.endpoint.host} : coverage,
@@ -489,16 +599,16 @@ namespace Duel6::Client {
                     (void) dependencies.request("DELETE", collection + "/" + id, {}, owner, revision, &stopping);
                     id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
                     published.store(false);
-                    rosterFollowUp = false;
+                    repairedRosterGeneration.reset();
                 }
                 collection = listing.dedicated() ? "/v2/listings" : "/v1/listings";
                 if (body.empty()) {
-                    rosterFollowUp = false;
                     published.store(false);
                     if (!id.empty()) {
                         const auto removal = dependencies.request("DELETE", collection + "/" + id, {}, owner, revision, &stopping);
                         if (removal.status == 200 || removal.status == 204 || removal.status == 404) {
                             id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
+                            repairedRosterGeneration.reset();
                         }
                     }
                     pending.store(false);
@@ -508,11 +618,11 @@ namespace Duel6::Client {
                 pending.store(true);
                 const auto method = id.empty() ? "POST" : "PUT";
                 const auto path = id.empty() ? collection : collection + "/" + id;
-                const auto roster = rosterSupported ? encodeRoster(listing) : std::string{};
-                bool wroteRoster = !roster.empty();
+                const auto roster = encodeRoster(listing);
+                bool wroteRoster = rosterSupported && !roster.empty();
                 auto response = dependencies.request(method, path,
-                    roster.empty() ? body : body.substr(0, body.size() - 1) + roster + "}", owner, revision, &stopping);
-                if (!roster.empty() && response.status == 400 && !stopping) {
+                    wroteRoster ? body.substr(0, body.size() - 1) + roster + "}" : body, owner, revision, &stopping);
+                if (wroteRoster && response.status == 400 && !stopping) {
                     // A strict older instance rejected the extension before writing.
                     // Retry only that definite rejection, using the same owner and revision.
                     response = dependencies.request(method, path, body, owner, revision, &stopping);
@@ -538,7 +648,11 @@ namespace Duel6::Client {
                         }
                         id = row.id; session = row.sessionId; revision = row.revision; success = true;
                         rosterSupported = supportsRoster(value);
-                        sendRosterNext = rosterSupported && !wroteRoster && !rosterFollowUp && !encodeRoster(listing).empty();
+                        // Charge the repair to the acknowledged snapshot, not to a
+                        // newer roster that may have arrived during the request.
+                        sendRosterNext = rosterSupported && !wroteRoster && !roster.empty()
+                            && repairedRosterGeneration != rosterGeneration;
+                        if (sendRosterNext) repairedRosterGeneration = rosterGeneration;
                     }
                 } catch (...) {}
                 Network::Trust::secureEraseMemory(response.body.data(), response.body.size());
@@ -549,11 +663,9 @@ namespace Duel6::Client {
                 // not authorize overwriting it: retry until expiry is confirmed.
                 if (!success && (response.status == 401 || id.empty())) {
                     id.clear(); Network::Trust::secureEraseMemory(owner.data(), owner.size()); owner.clear();
+                    repairedRosterGeneration.reset();
                 }
                 next = sendRosterNext ? Clock::now() : attempted + std::chrono::seconds(20);
-                // A strict/capable fleet can accept the fallback repeatedly. Limit
-                // each write cycle to one prompt repair before normal renewal.
-                rosterFollowUp = sendRosterNext;
                 // Coalesce rapid state changes without an unbounded publication loop.
                 std::unique_lock<std::mutex> lock(mutex);
                 pending.store(dirty);
@@ -582,7 +694,9 @@ namespace Duel6::Client {
     void DirectoryPublisher::update(DirectoryListing listing) {
         std::lock_guard<std::mutex> lock(impl->mutex);
         if (impl->stopping) return;
-        if (encode(impl->desired) == encode(listing) && impl->desired.connectedPlayers == listing.connectedPlayers) return;
+        const bool rosterChanged = impl->desired.connectedPlayers != listing.connectedPlayers;
+        if (!rosterChanged && encode(impl->desired) == encode(listing)) return;
+        if (rosterChanged) ++impl->desiredRosterGeneration;
         impl->desired = std::move(listing); impl->dirty = true; pending.store(true);
         if (!impl->worker.joinable()) impl->worker = std::thread([this] { impl->run(); });
         impl->changed.notify_all();
