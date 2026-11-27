@@ -2,7 +2,7 @@
 
 ## Purpose and authority
 
-This screen lets the user find active registered player-hosted and ready dedicated sessions, including a prepared zero-occupancy dedicated session, inspect the selected session's public connected-player names, and select a session for admission. [NET-DIR-001 through NET-DIR-039](../network-host-directory.md) own directory behavior. Listing, selection and provisional offers grant no controller, host, participant or operator authority.
+This screen lets the user find active registered player-hosted and ready dedicated sessions, including a prepared zero-occupancy dedicated session, inspect the selected session's public connected-player names, and select a session for admission. [NET-DIR-001 through NET-DIR-038](../network-host-directory.md) own directory behavior. Listing, selection and provisional offers grant no controller, host, participant or operator authority.
 
 ## Entry, actions, and transitions
 
@@ -54,7 +54,7 @@ While a refresh is pending, results are age-stale, or the selected listing has e
 
 NET-DIR-AC-001 through NET-DIR-AC-005 and NET-DIR-AC-007 through NET-DIR-AC-009 apply with NET-PASS-AC-001–005. Evidence must cover protected and unprotected listings in both hosting kinds, protection-aware focus, explicit non-empty input on No password, the common encrypted channel, eligible dedicated setup on all approved client targets, ready idle/concurrent first commits, phase/capacity/reservations, same-session Return/fresh reuse, retired/unknown/legacy fail-closed behavior, stale/wrong/ended/restarted selections, disabled joining when genuinely ineligible, bounded browsing and failure independence. NET-DIR-AC-006 retains its player-hosted listening-coverage scope. These are approved targets, not implementation or conformance claims.
 
-NET-DIR-AC-010 applies to the selected roster and its directory and entry-notice boundaries.
+NET-DIR-AC-010 applies to the selected roster and its directory boundaries.
 
 UX owns layout, navigation presentation, feedback, focus, accessibility, and responsive behavior in [NET-10](../design/screens/NET-10.md). This contract does not select controls or geometry.
 

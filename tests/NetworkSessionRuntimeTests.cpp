@@ -2063,6 +2063,13 @@ D6R_TEST_CASE("NET-ENTRY modal geometry navigation controller and runtime-unavai
     auto &menu = f.menu;
     int backdropCalls = 0;
     menu.renderMainMenu = [&] { ++backdropCalls; };
+    const auto entryCaptions = [&] {
+        std::vector<std::string> captions;
+        for (const auto &quad: f.recorder.quads)
+            for (const auto &entry: f.font.fontCache.entryList)
+                if (entry.texture == quad.material.getTexture()) captions.push_back(entry.text);
+        return captions;
+    };
     for (const auto &size: {std::pair{850, 700}, std::pair{1280, 720}, std::pair{1920, 1080}}) {
         f.video.screen = ScreenParameters(size.first, size.second, 24, 24, 0, false);
         const float scale = std::min(1.35f, std::min(float(size.first) / 850, float(size.second) / 700));
@@ -2076,15 +2083,8 @@ D6R_TEST_CASE("NET-ENTRY modal geometry navigation controller and runtime-unavai
                 && quad.vertices[2].x == 615 && quad.vertices[2].y == 455;
         }));
         D6R_REQUIRE(f.frame(273, 379, 304, 36, 2));
-        D6R_REQUIRE(f.text("Host") && f.text("Join") && f.text("Back"));
-        const auto &publicNames = reviewTextQuad(f, "Player names in listed sessions are public.");
-        const auto &passwordNotice = reviewTextQuad(f, "Passwords do not hide player names.");
-        D6R_REQUIRE(publicNames.vertices[0].y >= passwordNotice.vertices[2].y);
-        for (const auto *line: {&publicNames, &passwordNotice}) {
-            D6R_REQUIRE_EQ(850.0f, line->vertices[0].x + line->vertices[2].x);
-            D6R_REQUIRE(line->vertices[0].x >= 235 && line->vertices[2].x <= 615);
-            D6R_REQUIRE(line->vertices[0].y >= 245 && line->vertices[2].y <= 289);
-        }
+        D6R_REQUIRE(entryCaptions() == (std::vector<std::string>{"NETWORK PLAY", "Host", "Join", "Back"}));
+        D6R_REQUIRE(!f.frame(273, 334, 304, 36, 2) && !f.frame(273, 289, 304, 36, 2));
         click(425, 270); D6R_REQUIRE_EQ(0, menu.focus);
         D6R_REQUIRE(!f.text("Directory or direct address"));
         D6R_REQUIRE(!f.text("Use the same supported release and gameplay content"));
@@ -2108,8 +2108,9 @@ D6R_TEST_CASE("NET-ENTRY modal geometry navigation controller and runtime-unavai
         menu.back(); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
         D6R_REQUIRE_EQ(0, menu.focus);
         menu.entryRuntimeAvailable = false; menu.pointerHeld = false;
-        f.draw(); D6R_REQUIRE(f.text("Network runtime unavailable"));
-        D6R_REQUIRE(!f.text("Player names in listed sessions are public.") && !f.text("Passwords do not hide player names."));
+        f.draw();
+        D6R_REQUIRE(entryCaptions() == (std::vector<std::string>{
+            "NETWORK PLAY", "Host", "Join", "Back", "Network runtime unavailable"}));
         click(425, 395); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
         click(425, 350); D6R_REQUIRE(menu.setupScreen == NetworkMenu::SetupScreen::Entry);
         click(425, 305); D6R_REQUIRE(menu.isClosed());

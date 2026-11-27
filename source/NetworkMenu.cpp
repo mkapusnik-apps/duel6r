@@ -3270,12 +3270,6 @@ namespace Duel6 {
             drawAction(336, "Join", focus == 1, entryRuntimeAvailable);
             drawAction(291, "Back", focus == 2);
             if (!entryRuntimeAvailable) drawText(317, 263, "Network runtime unavailable");
-            else {
-                const std::string publicNames = "Player names in listed sessions are public.";
-                const std::string passwordNotice = "Passwords do not hide player names.";
-                drawText((CanvasWidth - font.getTextWidth(publicNames, 16)) / 2, 268, publicNames);
-                drawText((CanvasWidth - font.getTextWidth(passwordNotice, 16)) / 2, 250, passwordNotice);
-            }
             renderer.setViewMatrix(Matrix::IDENTITY);
             return;
         }

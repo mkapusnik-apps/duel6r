@@ -1,6 +1,6 @@
 # NET-10 — Mixed session browser
 
-Functional authority: [network-browser](../../screens/network-browser.md), [host-directory](../../network-host-directory.md), especially NET-DIR-013/014/027/032/034–039 and NET-PASS-001–018, and product-owned NET-ADM/NET-SOLO. Presentation retains mixed Hosting, common Password, and bound selection in both hosting modes. Product owns public name disclosure, phase decoding, eligibility, the common encrypted channel, supported clients, waiting admission, and final closure.
+Functional authority: [network-browser](../../screens/network-browser.md), [host-directory](../../network-host-directory.md), especially NET-DIR-013/014/027/032/034–038 and NET-PASS-001–018, and product-owned NET-ADM/NET-SOLO. Presentation retains mixed Hosting, common Password, and bound selection in both hosting modes. Product owns public name disclosure, phase decoding, eligibility, the common encrypted channel, supported clients, waiting admission, and final closure.
 
 Structural sources: [NET-10 results](../wireframes/NET-10/NET-10.svg), [NET-10-E empty](../wireframes/NET-10/NET-10-E.svg), and [NET-10-U failed refresh](../wireframes/NET-10/NET-10-U.svg).
 
@@ -152,6 +152,5 @@ Use the existing native Linux x86-64 Docker Release GL4/Lua ON profile with ship
 | Wireframe | State | Visible result | Destination |
 |---|---|---|---|
 | `NET-10` | Browse, fresh mixed results under UX-NET-10-044; scroll the selected roster to the last name | Separate labeled values on the left, full-list overflow and final row reachable in the white listbox on the right, with `Protection: Password`, the full reason and disabled Join still visible | `docs/design/screenshots/NET-10/NET-10.png` |
-| `NET-01` | Initial Network entry with Host focused | Both lines of the NET-DIR-039 notice fit without moving or obscuring the existing actions or focus outline | `docs/design/screenshots/NET-01/NET-01.png` |
 
 Reuse the existing [NET-10-E empty](../screenshots/README.md#current-net-10-e) and [NET-10-U unavailable](../screenshots/README.md#current-net-10-u) stills for their unchanged layout. Check the transitions from named results to pending, stale, failed, empty, and removed selections for the absence of old names; unchanged stills do not prove those transitions. Check true empty versus unavailable copy and left/right overflow at the existing minimum viewport, with the first and fifteenth names reachable. No new still is needed for every listing state, platform, NET-02, NET-03, or gameplay.
